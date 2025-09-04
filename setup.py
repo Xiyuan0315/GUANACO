@@ -24,7 +24,7 @@ setup(
     # Include non-code assets
     package_data={
         "guanaco": ["assets/*", "assets/**/*"],
-        "guanaco.pages.single_cell": ["cvd_color.json"],
+        "guanaco.pages.matrix": ["cvd_color.json"],
     },
 
     classifiers=[

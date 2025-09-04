@@ -77,7 +77,7 @@ def main():
     """Main entry point for GUANACO CLI."""
     import time
     import sys
-    from guanaco.progress_utils import Spinner
+    from guanaco.utils.progress_utils import Spinner
     
     args = parse_args()
     
