@@ -16,15 +16,25 @@ from guanaco.pages.matrix.cellplotly.stacked_bar import plot_stacked_bar
 from guanaco.pages.matrix.cellplotly.dotmatrix import plot_dot_matrix
 from guanaco.pages.matrix.cellplotly.pseudotime import plot_genes_in_pseudotime
 from guanaco.pages.matrix.layout import generate_heatmap_layout,generate_violin_layout,generate_dotplot_layout,generate_stacked_bar_layout,generate_pseudotime_layout
-# Import configs
 from guanaco.config import scatter_config, gene_scatter_config
 from guanaco.data_loader import color_config
 warnings.filterwarnings('ignore', message='.*observed=False.*')
 
-# helper functions
+# Discrete color palettes including colorblind-friendly options
 cvd_color_path = Path(__file__).parent / "cvd_color.json"
 with open(cvd_color_path, "r") as f:
     palette_json = json.load(f)
+
+plotly_qualitative_palettes = {}
+for name in dir(px.colors.qualitative):
+    if name.startswith("_"):
+        continue
+    palette = getattr(px.colors.qualitative, name, None)
+    if isinstance(palette, (list, tuple)) and palette and all(isinstance(c, str) for c in palette):
+        plotly_qualitative_palettes[name] = list(palette)
+for k, v in plotly_qualitative_palettes.items():
+    if k not in palette_json.get("color_palettes", {}):
+        palette_json["color_palettes"][k] = v
 palette_names = list(palette_json["color_palettes"].keys())
 
 def apply_relayout(fig, relayout):
@@ -176,7 +186,6 @@ def create_global_metadata_filter(adata, prefix):
         dbc.Collapse([
             html.Div(filter_components, style={'maxHeight': '300px', 'overflowY': 'auto'}),
             
-            # Quick action buttons
             html.Div([
                 dbc.Button("Select All", id=f'{prefix}-select-all-filters', 
                           color="success", size="sm", style={'marginRight': '10px'}),
@@ -200,7 +209,6 @@ def create_global_metadata_filter(adata, prefix):
             )
         ], style={'textAlign': 'center', 'marginTop': '10px'}),
         
-        # Hidden store for filtered data (start empty for better performance)
         dcc.Store(id=f'{prefix}-global-filtered-data', data={'cell_indices': None, 'n_cells': adata.n_obs})
         
     ], style={
@@ -213,8 +221,6 @@ def create_global_metadata_filter(adata, prefix):
     })
     
     return global_filter_panel
-
-
 
 def generate_embedding_plots(adata,prefix):
 
@@ -524,13 +530,12 @@ def generate_embedding_plots(adata,prefix):
             className="dbc",
             style={'marginBottom': '20px'}
         ),
-        xs=12, sm=12, md=4, lg=4, xl=5  # Full width on small screens, equal split of remaining space on larger screens
+        xs=12, sm=12, md=4, lg=4, xl=5
     ),
         ]),
         
-        # Add control buttons as a separate row below the scatter plots
         dbc.Row([
-            dbc.Col(width={"size": 0, "offset": 0, "md": 4, "lg": 4, "xl": 2}),  # Empty column to align with control column
+            dbc.Col(width={"size": 0, "offset": 0, "md": 4, "lg": 4, "xl": 2}),
             dbc.Col([
                 html.Div([
                     html.Div([
@@ -556,8 +561,8 @@ def generate_embedding_plots(adata,prefix):
                     ], style={'textAlign': 'left'}),
                     html.Div(id=f"{prefix}-selection-status", style={'textAlign': 'left', 'marginTop': '5px'})
                 ], style={'marginTop': '10px'})
-            ], xs=12, sm=12, md=4, lg=4, xl=5),  # Align with annotation scatter column
-            dbc.Col(width={"size": 0, "md": 4, "lg": 4, "xl": 5})  # Empty column to balance layout
+            ], xs=12, sm=12, md=4, lg=4, xl=5),
+            dbc.Col(width={"size": 0, "md": 4, "lg": 4, "xl": 5})
         ])
     ])
 
@@ -610,13 +615,11 @@ def generate_left_control(default_gene_markers, label_list, prefix):
         className='custom-textarea'
     )
     
-    # Error message div
     error_message = html.Div(
         id=f'{prefix}-gene-input-error',
         style={'color': 'red', 'fontSize': '12px', 'marginBottom': '10px'}
     )
     
-    # Container for gene selection
     genes_selection = html.Div([
         input_mode_radio,
         genes_dropdown,
@@ -970,9 +973,6 @@ def matrix_callbacks(app, adata, prefix):
         # Combine results with metadata first, then genes (limited to 10 total)
         all_matches = matching_labels + matching_genes
         return [{'label': item, 'value': item} for item in all_matches[:10]]
-        # gene_list = adata.var_names.to_list()
-        # matching_genes = [gene for gene in gene_list if search_value.lower() in gene.lower()]
-        # return [{'label': gene, 'value': gene} for gene in matching_genes[:20]]
     
     @app.callback(
         Output(f'{prefix}-scatter-gene2-selection', 'options'),
@@ -1007,11 +1007,11 @@ def matrix_callbacks(app, adata, prefix):
          Input(f'{prefix}-scatter-legend-toggle', 'value'),
          Input(f'{prefix}-axis-toggle', 'value'),
          Input(f'{prefix}-discrete-color-map-dropdown', 'value'),
-         Input(f'{prefix}-scatter-log-or-zscore', 'value'),  # Add for continuous transformations
-         Input(f'{prefix}-plot-order', 'value'),  # Add for continuous ordering
-         Input(f'{prefix}-scatter-color-map-dropdown', 'value'),  # Add for continuous color maps
-         Input(f'{prefix}-global-filtered-data', 'data'),  # Add global filtered data
-         Input(f'{prefix}-gene-scatter', 'relayoutData'),  # Add gene scatter relayout for bidirectional sync
+         Input(f'{prefix}-scatter-log-or-zscore', 'value'),
+         Input(f'{prefix}-plot-order', 'value'), 
+         Input(f'{prefix}-scatter-color-map-dropdown', 'value'), 
+         Input(f'{prefix}-global-filtered-data', 'data'), 
+         Input(f'{prefix}-gene-scatter', 'relayoutData'),  
          ]
     )
     def update_annotation_scatter(clustering_method, x_axis, y_axis, annotation, 
@@ -1021,7 +1021,6 @@ def matrix_callbacks(app, adata, prefix):
         if not annotation:
             raise exceptions.PreventUpdate
         
-        # Only use filtered data if filter has actually been applied (not default state)
         if (filtered_data and 
             filtered_data.get('cell_indices') is not None and 
             filtered_data.get('n_cells', adata.n_obs) < adata.n_obs):
@@ -1065,7 +1064,6 @@ def matrix_callbacks(app, adata, prefix):
                 axis_show=axis_show,
             )
         else:
-            # Use categorical plotting
             if discrete_color_map is None:
                 color_map = color_config
             else:
@@ -1148,7 +1146,6 @@ def matrix_callbacks(app, adata, prefix):
                     axis_show=axis_show,
                 )
             else:
-                # Use single gene visualization
                 fig = plot_continuous_embedding(
                     adata=plot_adata,
                     embedding_key=clustering,
@@ -1179,7 +1176,6 @@ def matrix_callbacks(app, adata, prefix):
                 axis_show=axis_show,
             )
         else:
-            # This is a categorical annotation
             if discrete_color_map is None:
                 discrete_color_map_value = color_config
             else:
@@ -1187,8 +1183,8 @@ def matrix_callbacks(app, adata, prefix):
             
             fig = plot_categorical_embedding_with_fixed_colors(
                 adata=plot_adata,
-                adata_full=adata,  # Pass full adata for color reference
-                gene=None,  # Don't pass gene to avoid unnecessary computation
+                adata_full=adata,
+                gene=None, 
                 embedding_key=clustering,
                 color=gene_name,
                 x_axis=x_axis,
@@ -1267,7 +1263,6 @@ def matrix_callbacks(app, adata, prefix):
                 gene2_max = float(gene2_expr.max())
                 gene2_value = (gene2_min + gene2_max) / 2
             else:
-                # Gene not expressed, use default range
                 gene2_min, gene2_max, gene2_value = default_min, default_max, default_value
         else:
             gene2_min, gene2_max, gene2_value = default_min, default_max, default_value
@@ -1755,15 +1750,20 @@ def matrix_callbacks(app, adata, prefix):
          Input(f'{prefix}-single-cell-annotation-dropdown', 'value'),
          Input(f'{prefix}-single-cell-label-selection', 'value'),
          Input(f'{prefix}-plot-type-switch', 'value'),
-        Input(f'{prefix}-dotplot-log-or-zscore', 'value'),
+         Input(f'{prefix}-dotplot-log-or-zscore', 'value'),
          Input(f'{prefix}-dotplot-standardization', 'value'),
          Input(f'{prefix}-dotmatrix-color-map-dropdown', 'value'),
+         Input(f'{prefix}-dotplot-cluster-mode', 'value'),
+         Input(f'{prefix}-dotplot-cluster-method', 'value'),
+         Input(f'{prefix}-dotplot-cluster-metric', 'value'),
          Input(f'{prefix}-selected-cells-store', 'data'),
          Input(f'{prefix}-single-cell-tabs', 'value')],
         [State(f'{prefix}-dotplot', 'figure')]  # Keep current figure
     )
     def update_dotplot(selected_genes, selected_annotation, selected_labels, plot_type,
-                       transformation, standardization, color_map, selected_cells, active_tab, current_figure):
+                       transformation, standardization, color_map,
+                       cluster_mode, cluster_method, cluster_metric,
+                       selected_cells, active_tab, current_figure):
         # Lazy loading: only update if this tab is active
         if active_tab != 'dotplot-tab':
             return current_figure if current_figure else go.Figure()
@@ -1779,7 +1779,10 @@ def matrix_callbacks(app, adata, prefix):
                 transformation=transformation,
                 standardization=standardization,
                 color_map=color_map,
-                plot_type=plot_type
+                plot_type=plot_type,
+                cluster=cluster_mode or 'none',
+                method=cluster_method or 'average',
+                metric=cluster_metric or 'correlation'
             )
         else:
             filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
@@ -1792,7 +1795,10 @@ def matrix_callbacks(app, adata, prefix):
                 transformation=transformation,
                 standardization=standardization,
                 color_map=color_map,
-                plot_type=plot_type
+                plot_type=plot_type,
+                cluster=cluster_mode or 'none',
+                method=cluster_method or 'average',
+                metric=cluster_metric or 'correlation'
             )
     
     @app.callback(

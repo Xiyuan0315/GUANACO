@@ -8,10 +8,21 @@ import dash_ag_grid as dag
 from guanaco.config import common_config
 
 
-# Load color palettes
+# Discrete color palettes including colorblind-friendly options
 cvd_color_path = Path(__file__).parent / "cvd_color.json"
 with open(cvd_color_path, "r") as f:
     palette_json = json.load(f)
+
+plotly_qualitative_palettes = {}
+for name in dir(px.colors.qualitative):
+    if name.startswith("_"):
+        continue
+    palette = getattr(px.colors.qualitative, name, None)
+    if isinstance(palette, (list, tuple)) and palette and all(isinstance(c, str) for c in palette):
+        plotly_qualitative_palettes[name] = list(palette)
+for k, v in plotly_qualitative_palettes.items():
+    if k not in palette_json.get("color_palettes", {}):
+        palette_json["color_palettes"][k] = v
 palette_names = list(palette_json["color_palettes"].keys())
 
 # Get the available color scales
@@ -77,9 +88,9 @@ def generate_heatmap_layout(adata, prefix):
         dcc.Dropdown(
             id=f'{prefix}-heatmap-secondary-colormap-dropdown',
             options=[{'label': name, 'value': name} for name in palette_names],
-            value='tab20',  # Default to tab20 as you requested
+            value='Pastel',
             placeholder="Select colormap for secondary annotation",
-            clearable=True,
+            clearable=False,
             style={'width': '200px', 'marginBottom': '10px'}
         )
     ])
@@ -336,8 +347,6 @@ def generate_violin_layout(default_gene_markers,discrete_label_list,prefix):
                             height=30,
                             gridCols=12,
                             style={
-                                "min-width": "300px",   # optional: prevents collapse
-                                "min-height": "300px",  # optional: ensures initial size
                                 "background": "transparent",
                                 "padding": "0px"
                             }
@@ -433,6 +442,47 @@ def generate_dotplot_layout(prefix):
         )
     ])
 
+    # --- Clustering controls ---
+    clustering_controls = html.Div([
+        html.Label('Clustering:', style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+        dbc.RadioItems(
+            id=f'{prefix}-dotplot-cluster-mode',
+            options=[
+                {'label': 'None', 'value': 'none'},
+                {'label': 'Rows', 'value': 'row'},
+                {'label': 'Columns', 'value': 'col'},
+                {'label': 'Both', 'value': 'both'},
+            ],
+            value='none',
+            inline=True,
+            style={'marginBottom': '10px'}
+        ),
+        html.Div([
+            html.Div([
+                html.Label('Linkage Method', style={'fontWeight': 'bold'}),
+                dcc.Dropdown(
+                    id=f'{prefix}-dotplot-cluster-method',
+                    options=[
+                        {'label': m.capitalize(), 'value': m} for m in ['average', 'ward', 'complete', 'single']
+                    ],
+                    value='average', clearable=False, style={'minWidth': '160px'}
+                )
+            ], style={'display': 'inline-block', 'marginRight': '10px'}),
+            html.Div([
+                html.Label('Distance Metric', style={'fontWeight': 'bold'}),
+                dcc.Dropdown(
+                    id=f'{prefix}-dotplot-cluster-metric',
+                    options=[
+                        {'label': 'Correlation', 'value': 'correlation'},
+                        {'label': 'Euclidean', 'value': 'euclidean'},
+                        {'label': 'Cosine', 'value': 'cosine'},
+                    ],
+                    value='correlation', clearable=False, style={'minWidth': '160px'}
+                )
+            ], style={'display': 'inline-block'})
+        ])
+    ], style={'marginBottom': '10px'})
+
     draggable_container = dash_draggable.GridLayout(
     id=f'{prefix}-draggable-dotplot',
     className='grid-layout-no-border',
@@ -475,8 +525,9 @@ def generate_dotplot_layout(prefix):
     dotplot_layout = html.Div([
         dotplot_transformation_selection,
         dotplot_standardization_selection,
-        dotmatrix_color_map_dropdown,
+        clustering_controls,
         plot_type_switch,
+        dotmatrix_color_map_dropdown,
         draggable_container
     ], style={'padding': '20px', 'marginBottom': '15px'})
 
@@ -521,7 +572,6 @@ def generate_stacked_bar_layout(discrete_label_list, prefix):
                     config=common_config,
                     responsive=True,
                     style={
-                        "min-height": "400px",
                         "flex-grow": "1",
                     }
                 )
