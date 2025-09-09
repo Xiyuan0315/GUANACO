@@ -29,7 +29,7 @@
 
 <img alt="figure" src="figure.png" />
 
-Example Interface 👉 [Launch the interactive demo](https://guanaco-demo.chen-sysimeta-lab.com/)
+Example Interface: [Launch the interactive demo](https://guanaco-demo.chen-sysimeta-lab.com/)
 
 
 ## Installation
@@ -98,3 +98,5 @@ Create a configuration JSON file specifying your datasets. See `example_config.j
   "Demo": {"sc_data": "PBMC_int.h5ad"}
 }
 ```
+
+A complete user guide with detailed instructions, tutorials, and examples is available at: [**GUANACO User Guide**](https://systems-immunometabolism-lab.github.io/guanaco-viz/?utm_source=chatgpt.com)
