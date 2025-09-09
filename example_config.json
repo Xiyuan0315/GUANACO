@@ -1,16 +1,17 @@
-
 {
-    "Demo": {
-        "description": "Integrated PBMC dataset with multiple modalities including RNA and ATAC",
-        "sc_data": "pbmc.h5mu",
-        "markers": ["MS4A1", "IL7R", "CD8A", "FCER1A", "CD14", "MS4A7", "NKG7"],
-        "bucket_urls": ["https://atacchloe.s3.eu-north-1.amazonaws.com"],
-        "ATAC_name": ["Track1"],
+  "PBMC": {
+    "sc_data": "PBMC.h5mu",
+    "description": "Integrated PBMC dataset with multiple modalities including RNA and ATAC",
+"markers": ["MS4A1", "IL7R", "CD8A", "FCER1A", "CD14", "MS4A7", "NKG7"],
         "genome": "hg38",
-        "max_height": [30]
-    },
-    "color": [
-        "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
-        "#D55E00", "#CC79A7", "#B2DF8A", "#FB9A99", "#CAB2D6"
-    ]
+        "bucket_urls": ["https://atacchloe.s3.eu-north-1.amazonaws.com","https://pbmc-splitted.s3.eu-north-1.amazonaws.com"],
+        "ATAC_name":["Overall","Splitted"],
+        "max_height": [30,30]
+},
+  "color": [
+    "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
+    "#D55E00", "#CC79A7", "#B2DF8A", "#FB9A99", "#CAB2D6"
+  ],
+"title":"GUANACO"
 }
+
