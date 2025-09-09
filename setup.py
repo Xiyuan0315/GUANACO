@@ -10,12 +10,12 @@ with open(readme_path, "r", encoding="utf-8") as fh:
 setup(
     name="guanaco-viz",
     version="0.1.0",
-    author="Systems Immunometabolism Lab",
-    author_email="your.email@example.com",
-    description="GUANACO: Interactive visualization tool for single-cell data and genome browser",
+    author="Xiyuan Zhang",
+    author_email="xiyuan315@outlook.com",
+    description="GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization ",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/Systems-Immunometabolism-Lab/GUANACO_updated",
+    url="https://github.com/Systems-Immunometabolism-Lab/guanaco-viz",
     
     # Only include your guanaco package and its subpackages
     packages=find_packages(include=["guanaco", "guanaco.*"]),
@@ -29,11 +29,10 @@ setup(
 
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
-        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3.12",
+        "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
@@ -41,7 +40,7 @@ setup(
     ],
 
     python_requires=">=3.10",
-
+    license="Apache-2.0",
     install_requires=[
         "dash==2.18.0",
         "dash-bootstrap-components==1.3.0",
