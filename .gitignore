@@ -1,6 +1,0 @@
-# Sphinx build outputs
-docs/_build/
-docs/build/doctrees/
-*.pyc
-__pycache__/
-.DS_Store
