@@ -1,4 +1,4 @@
-# GUANACO: Intuitive Visual Exploration of Multi-Omics Data
+# **GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization** 
 <table border="0" cellspacing="0" cellpadding="0">
   <tr>
     <td width="120" align="center" valign="top">
@@ -6,11 +6,22 @@
     </td>
     <td style="padding-left: 20px;">
       <strong>GUANACO</strong> (Graphical Unified Analysis and Navigation of Cellular Omics) is a Python-based platform that empowers biologists to explore multi-omics single-cell data directly in the browser with clicks<br><br>
-      <strong>GUANACO</strong> leverages interactive visualizations to make data exploration and figure customization effortless:
+      <strong>GUANACO</strong> leverages interactive visualizations to make data exploration and figure customization effortless.
     </td>
   </tr>
 </table>
 
+## Features
+
+
+- **Various visualization plot types** – Support for:
+  - Dimensionality reduction (UMAP / t-SNE)
+  - Heatmaps
+  - Violin plots
+  - Dot plots / Matrix plots
+  - Stacked plots
+  - Pseudotime plots
+  - Genome browser
 - **Free cell selection** – Select cells with a click or lasso, define custom subpopulations as easily as drawing on paper.
 - **Perception-aware tooltips** – Prevent misinterpretation by revealing actual values behind the visualization
 - **100+ color maps** – Choose from a wide range of continuous and discrete palettes, including options optimized for color vision deficiencies.
@@ -29,7 +40,34 @@ git clone https://github.com/Systems-Immunometabolism-Lab/guanaco-viz.git
 cd guanaco-viz
 ```
 
-### 2. Install from local directory
+### 2. (Recommended) Create a virtual environment
+
+Using **venv** (Python ≥3.10):
+
+```
+python -m venv venv
+source venv/bin/activate   # on Linux/Mac
+venv\Scripts\activate      # on Windows
+```
+
+Using **conda**:
+
+```
+# Create a new conda environment (Python 3.10 or later)
+conda create -n guanaco python=3.10
+conda activate guanaco
+```
+
+Using **pixi**:
+
+```
+# Create and enter environment defined in pixi.toml
+pixi shell
+pixi add pip
+```
+
+### 3. Install from local directory
+
 ```bash
 pip install .
 ```
@@ -60,14 +98,3 @@ Create a configuration JSON file specifying your datasets. See `example_config.j
   "Demo": {"sc_data": "PBMC_int.h5ad"}
 }
 ```
-## Plot types
-
-**Interactive embeddings**: Linked UMAP/t-SNE visualizations with cell metadata/gene expression overlay. Select cells from embeddings to 
-
-- **Gene expression heatmaps**: Clustered heatmaps with customizable parameters
-- **Violin plots**: Distribution plots for gene expression across cell types
-- **Dot plots**: Gene expression intensity and percentage visualization
-- **Stacked bar charts**: Cell type composition analysis
-- **Pseudotime analysis**: Trajectory analysis visualization
-- **Genome Browser** for track data
-
