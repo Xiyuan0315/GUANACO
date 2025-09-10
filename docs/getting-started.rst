@@ -1,4 +1,4 @@
-Introduction to GUANACO Interface
+GUANACO Interface
 =================
 
 .. contents::
@@ -6,8 +6,11 @@ Introduction to GUANACO Interface
    :depth: 2
    :backlinks: entry
 
-Dataset Overview with GUANACO
-^^^^^^^^^^^^^^^^
+Anndata Visualization
+-------------------
+
+Data Overview
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 When the interface is opened, the default displays the **Description** panel and a **side-by-side dimensional reduction view**. Each embedding can be colored by metadata
 or by gene expression (selected from the
@@ -39,7 +42,7 @@ Marker Genes Visualization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Heatmap
--------
+"""""""
 
 GUANACO provides single-cell level heatmaps supporting up to **50k
 cells**. The order of Cells (columns) and genes (rows) are controlled from the left
@@ -69,7 +72,7 @@ section.
    :width: 1000
 
 Violin Plot
------------
+"""""""""""
 
 GUANACO offers two violin plot types: **stacked** (for multiple markers)
 and **split/grouped** (for group comparisons).
@@ -116,7 +119,7 @@ Question: Which metadata contributes more to group differences?
    :width: 1000
 
 Dot Plot
---------
+""""""""
 
 Dot plots summarize **aggregated expression** across groups and are
 useful for displaying marker gene expression. GUANACO provides two plot
@@ -132,7 +135,7 @@ types:
 comparable across plots.
 
 Stacked Bar Plot
-----------------
+""""""""""""""""
 
 Stacked bar plots illustrate **cell composition** across groups.
 Annotation and labels on the left determine stacked layers, while
@@ -143,8 +146,9 @@ details. Groups can be reordered by dragging column headers.
 .. image:: assets/bar.png
    :width: 1000
 
+
 Pseudotime Plot
----------------
+"""""""""""""""
 
 The Pseudotime Plot visualizes **gene expression dynamics along a
 trajectory** (or other continuous metadata). A generalized linear model
@@ -170,33 +174,12 @@ trajectory** (or other continuous metadata). A generalized linear model
 - Validate computational trajectory inference  
 - Explore temporal gene regulation  
 
-IGV Browser
-^^^^^^^^^^^
+Subset Exploration
+^^^^^^^^^^^^^^^^^^
 
-.. image:: assets/gb_motif.png
-   :width: 1000
-
-The IGV Browser tab integrates the **Integrative Genomics Viewer (IGV)**
-for interactive exploration of genomic regions with multiple tracks
-(e.g., gene annotations, ATAC-seq peaks, reference sequences). It also
-includes a **motif search tool** for transcription factor binding
-analysis using JASPAR IDs.
-
-**Main Components**  
-1. **Session Selector (left panel)**: Choose global or cell-type-specific
-sessions  
-2. **Genome Browser (center)**: Navigate, zoom, and explore aligned
-tracks  
-3. **Motif Search (right panel)**: Enter JASPAR ID to view motif details
-and sequence logos  
-
-**Use Cases**  
-- Explore regulatory regions around genes of interest  
-- Compare accessibility across cell types  
-- Analyze transcription factor binding motifs  
 
 Cell Selection
-^^^^^^^^^^^^^^
+""""""""""""""
 Beyond visualization, GUANACO provides flexible tools for interactively selecting subsets of cells, enabling focused downstream analyses.
 
 .. image:: assets/selection.png
@@ -222,7 +205,7 @@ All Cells → Global Filter → Lasso Selection → Subset in other plots
 - If no lasso is applied, “Update Other Plots” passes all filtered cells  
 
 Export Selected Subgroup
-^^^^^^^^^^^^^^^^^^^^^^^^
+""""""""""""""""""""""""
 
 .. image:: assets/download.png
    :width: 1000
@@ -238,3 +221,33 @@ Selected cells can be exported in two formats:
    - Includes expression, metadata, embeddings, and metrics  
    - Useful for deeper analysis, re-clustering, or sharing complete
      subsets  
+
+
+Genome Track Visualization
+-------------------
+
+IGV Browser and Motif Dataset
+^^^^^^^^^^^
+
+.. image:: assets/gb_motif.png
+   :width: 1000
+
+The IGV Browser tab integrates the **Integrative Genomics Viewer (IGV)**
+for interactive exploration of genomic regions with multiple tracks
+(e.g., gene annotations, ATAC-seq peaks, reference sequences). It also
+includes a **motif search tool** for transcription factor binding
+analysis using JASPAR IDs.
+
+**Main Components**  
+
+1. **Session Selector**: Choose from multiple predefined tracks separated by metadata  
+
+2. **Genome Browser**: Navigate, zoom, and explore aligned tracks  
+
+3. **Motif Search**: Enter JASPAR ID to view motif details and sequence logos  
+
+**Use Cases**  
+- Explore regulatory regions around genes of interest  
+- Compare accessibility across cell types  
+- Analyze transcription factor binding motifs  
+

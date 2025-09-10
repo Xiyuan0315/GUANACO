@@ -41,51 +41,58 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Introduction to GUANACO Interface</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="getting-started.html#dataset-overview-with-guanaco">Dataset Overview with GUANACO</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started.html#marker-genes-visualization">Marker Genes Visualization</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="getting-started.html#heatmap">Heatmap</a></li>
-<li class="toctree-l3"><a class="reference internal" href="getting-started.html#violin-plot">Violin Plot</a></li>
-<li class="toctree-l3"><a class="reference internal" href="getting-started.html#dot-plot">Dot Plot</a></li>
-<li class="toctree-l3"><a class="reference internal" href="getting-started.html#stacked-bar-plot">Stacked Bar Plot</a></li>
-<li class="toctree-l3"><a class="reference internal" href="getting-started.html#pseudotime-plot">Pseudotime Plot</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">GUANACO Interface</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#anndata-visualization">Anndata Visualization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="getting-started.html#data-overview">Data Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="getting-started.html#marker-genes-visualization">Marker Genes Visualization</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="getting-started.html#heatmap">Heatmap</a></li>
+<li class="toctree-l4"><a class="reference internal" href="getting-started.html#violin-plot">Violin Plot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="getting-started.html#dot-plot">Dot Plot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="getting-started.html#stacked-bar-plot">Stacked Bar Plot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="getting-started.html#pseudotime-plot">Pseudotime Plot</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started.html#igv-browser">IGV Browser</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started.html#cell-selection">Cell Selection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started.html#export-selected-subgroup">Export Selected Subgroup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="getting-started.html#subset-exploration">Subset Exploration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="getting-started.html#cell-selection">Cell Selection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="getting-started.html#export-selected-subgroup">Export Selected Subgroup</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#genome-track-visualization">Genome Track Visualization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="getting-started.html#igv-browser-and-motif-dataset">IGV Browser and Motif Dataset</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="deployment/index.html">Instruction for Using GUANACO</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="deployment/installation.html">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="deployment/installation.html#install-from-source">Install from Source</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-1-clone-the-repository">Step 1. Clone the repository</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-2-set-up-a-python-environment">Step 2. Set up a Python environment</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-3-install-guanaco">Step 3. Install GUANACO</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-4-run-guanaco">Step 4. Run GUANACO</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="deployment/installation.html#install-with-docker">Install with Docker</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-1-install-docker">Step 1. Install Docker</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-2-run-docker-image">Step 2. Run Docker Image</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="deployment/configuring-json.html">Configuring Json File</a></li>
-<li class="toctree-l2"><a class="reference internal" href="deployment/running-python.html">Running GUANACO from Console using system’s Python</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="deployment/running-python.html#run-locally">Run Locally</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="deployment/running-python.html">Running GUANACO on a Server</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="deployment/running-python.html#deployment-with-system-python">Deployment with System Python</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-1-clone-the-repository">Step 1. Clone the repository</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-2-create-a-virtual-environment-for-python">Step 2. Create a virtual environment for python</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-3-install-from-local-directory">Step 3. Install from local directory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-2-create-a-virtual-environment">Step 2. Create a virtual environment</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-3-install-guanaco">Step 3. Install GUANACO</a></li>
 <li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-4-run-guanaco">Step 4. Run GUANACO</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#or-the-user-can-also-directly-use-our-already-made-package">Or The User can also directly use our already made package</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="deployment/running-python.html#deploy-in-server">Deploy in Server</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#id1">Step 1. Clone the repository</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#id2">Step 2. Create a virtual environment for python</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#id3">Step 3. Install from local directory</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#id4">Step 4. Run GUANACO</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#id5">Or The User can also directly use our already made package</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="deployment/running-docker.html">Running GUANACO with Docker</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="deployment/running-docker.html#run-locally">Run Locally</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-docker.html#step-1-install-docker">Step 1. Install Docker</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-docker.html#step-2-run-docker-image">Step 2. Run Docker Image</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="deployment/running-docker.html#deploy-in-server">Deploy in Server</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-docker.html#id1">Step 1. Install Docker</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-docker.html#id2">Step 2. Run Docker Image</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deployment/running-python.html#deployment-with-docker">Deployment with Docker</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-1-install-docker">Step 1. Install Docker</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-2-run-docker-image">Step 2. Run Docker image</a></li>
 </ul>
 </li>
 </ul>

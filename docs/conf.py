@@ -11,6 +11,8 @@ extensions = [
     "sphinx.ext.viewcode",    # 可选：显示源码链接
 ]
 # myst_enable_extensions = ["colon_fence"]
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '.history']
+master_doc = "index"
 
 source_suffix = ".rst"
 

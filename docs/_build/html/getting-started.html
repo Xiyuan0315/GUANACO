@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Introduction to GUANACO Interface &mdash; GUANACO  documentation</title>
+  <title>GUANACO Interface &mdash; GUANACO  documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
@@ -44,32 +44,58 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Introduction to GUANACO Interface</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#dataset-overview-with-guanaco">Dataset Overview with GUANACO</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#marker-genes-visualization">Marker Genes Visualization</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#heatmap">Heatmap</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#violin-plot">Violin Plot</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#dot-plot">Dot Plot</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#stacked-bar-plot">Stacked Bar Plot</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#pseudotime-plot">Pseudotime Plot</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">GUANACO Interface</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#anndata-visualization">Anndata Visualization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#data-overview">Data Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#marker-genes-visualization">Marker Genes Visualization</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#heatmap">Heatmap</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#violin-plot">Violin Plot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#dot-plot">Dot Plot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#stacked-bar-plot">Stacked Bar Plot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#pseudotime-plot">Pseudotime Plot</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#igv-browser">IGV Browser</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#cell-selection">Cell Selection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#export-selected-subgroup">Export Selected Subgroup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#subset-exploration">Subset Exploration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cell-selection">Cell Selection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#export-selected-subgroup">Export Selected Subgroup</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#genome-track-visualization">Genome Track Visualization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#igv-browser-and-motif-dataset">IGV Browser and Motif Dataset</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="deployment/index.html">Instruction for Using GUANACO</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="deployment/index.html#deployment-options">Deployment Options</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="deployment/configuring-json.html">Configuring Json File</a></li>
-<li class="toctree-l3"><a class="reference internal" href="deployment/running-python.html">Running GUANACO from Console using system’s Python</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#run-locally">Run Locally</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#deploy-in-server">Deploy in Server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deployment/installation.html">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="deployment/installation.html#install-from-source">Install from Source</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-1-clone-the-repository">Step 1. Clone the repository</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-2-set-up-a-python-environment">Step 2. Set up a Python environment</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-3-install-guanaco">Step 3. Install GUANACO</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-4-run-guanaco">Step 4. Run GUANACO</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="deployment/running-docker.html">Running GUANACO with Docker</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-docker.html#run-locally">Run Locally</a></li>
-<li class="toctree-l4"><a class="reference internal" href="deployment/running-docker.html#deploy-in-server">Deploy in Server</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deployment/installation.html#install-with-docker">Install with Docker</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-1-install-docker">Step 1. Install Docker</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/installation.html#step-2-run-docker-image">Step 2. Run Docker Image</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="deployment/configuring-json.html">Configuring Json File</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deployment/running-python.html">Running GUANACO on a Server</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="deployment/running-python.html#deployment-with-system-python">Deployment with System Python</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-1-clone-the-repository">Step 1. Clone the repository</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-2-create-a-virtual-environment">Step 2. Create a virtual environment</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-3-install-guanaco">Step 3. Install GUANACO</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-4-run-guanaco">Step 4. Run GUANACO</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="deployment/running-python.html#deployment-with-docker">Deployment with Docker</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-1-install-docker">Step 1. Install Docker</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deployment/running-python.html#step-2-run-docker-image">Step 2. Run Docker image</a></li>
 </ul>
 </li>
 </ul>
@@ -92,7 +118,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Introduction to GUANACO Interface</li>
+      <li class="breadcrumb-item active">GUANACO Interface</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/getting-started.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -102,27 +128,28 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="introduction-to-guanaco-interface">
-<h1>Introduction to GUANACO Interface<a class="headerlink" href="#introduction-to-guanaco-interface" title="Link to this heading"></a></h1>
+  <section id="guanaco-interface">
+<h1>GUANACO Interface<a class="headerlink" href="#guanaco-interface" title="Link to this heading"></a></h1>
 <nav class="contents local" id="contents">
 <ul class="simple">
-<li><p><a class="reference internal" href="#dataset-overview-with-guanaco" id="id1">Dataset Overview with GUANACO</a></p></li>
-<li><p><a class="reference internal" href="#marker-genes-visualization" id="id2">Marker Genes Visualization</a></p>
+<li><p><a class="reference internal" href="#anndata-visualization" id="id1">Anndata Visualization</a></p>
 <ul>
-<li><p><a class="reference internal" href="#heatmap" id="id3">Heatmap</a></p></li>
-<li><p><a class="reference internal" href="#violin-plot" id="id4">Violin Plot</a></p></li>
-<li><p><a class="reference internal" href="#dot-plot" id="id5">Dot Plot</a></p></li>
-<li><p><a class="reference internal" href="#stacked-bar-plot" id="id6">Stacked Bar Plot</a></p></li>
-<li><p><a class="reference internal" href="#pseudotime-plot" id="id7">Pseudotime Plot</a></p></li>
+<li><p><a class="reference internal" href="#data-overview" id="id2">Data Overview</a></p></li>
+<li><p><a class="reference internal" href="#marker-genes-visualization" id="id3">Marker Genes Visualization</a></p></li>
+<li><p><a class="reference internal" href="#subset-exploration" id="id4">Subset Exploration</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#igv-browser" id="id8">IGV Browser</a></p></li>
-<li><p><a class="reference internal" href="#cell-selection" id="id9">Cell Selection</a></p></li>
-<li><p><a class="reference internal" href="#export-selected-subgroup" id="id10">Export Selected Subgroup</a></p></li>
+<li><p><a class="reference internal" href="#genome-track-visualization" id="id5">Genome Track Visualization</a></p>
+<ul>
+<li><p><a class="reference internal" href="#igv-browser-and-motif-dataset" id="id6">IGV Browser and Motif Dataset</a></p></li>
+</ul>
+</li>
 </ul>
 </nav>
-<section id="dataset-overview-with-guanaco">
-<h2><a class="toc-backref" href="#id1" role="doc-backlink">Dataset Overview with GUANACO</a><a class="headerlink" href="#dataset-overview-with-guanaco" title="Link to this heading"></a></h2>
+<section id="anndata-visualization">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Anndata Visualization</a><a class="headerlink" href="#anndata-visualization" title="Link to this heading"></a></h2>
+<section id="data-overview">
+<h3><a class="toc-backref" href="#id2" role="doc-backlink">Data Overview</a><a class="headerlink" href="#data-overview" title="Link to this heading"></a></h3>
 <p>When the interface is opened, the default displays the <strong>Description</strong> panel and a <strong>side-by-side dimensional reduction view</strong>. Each embedding can be colored by metadata
 or by gene expression (selected from the
 dropdown). The image below highlights how to quickly explore the dataset
@@ -152,9 +179,9 @@ other plots (see <em>Cell Selection</em> section).</p></li>
 </ul>
 </section>
 <section id="marker-genes-visualization">
-<h2><a class="toc-backref" href="#id2" role="doc-backlink">Marker Genes Visualization</a><a class="headerlink" href="#marker-genes-visualization" title="Link to this heading"></a></h2>
+<h3><a class="toc-backref" href="#id3" role="doc-backlink">Marker Genes Visualization</a><a class="headerlink" href="#marker-genes-visualization" title="Link to this heading"></a></h3>
 <section id="heatmap">
-<h3><a class="toc-backref" href="#id3" role="doc-backlink">Heatmap</a><a class="headerlink" href="#heatmap" title="Link to this heading"></a></h3>
+<h4>Heatmap<a class="headerlink" href="#heatmap" title="Link to this heading"></a></h4>
 <p>GUANACO provides single-cell level heatmaps supporting up to <strong>50k
 cells</strong>. The order of Cells (columns) and genes (rows) are controlled from the left
 panel. If the dataset exceeds this limit, cells are automatically
@@ -183,7 +210,7 @@ differences.(see example below)</p></li>
 </a>
 </section>
 <section id="violin-plot">
-<h3><a class="toc-backref" href="#id4" role="doc-backlink">Violin Plot</a><a class="headerlink" href="#violin-plot" title="Link to this heading"></a></h3>
+<h4>Violin Plot<a class="headerlink" href="#violin-plot" title="Link to this heading"></a></h4>
 <p>GUANACO offers two violin plot types: <strong>stacked</strong> (for multiple markers)
 and <strong>split/grouped</strong> (for group comparisons).</p>
 <p><strong>Stacked violin plot</strong> is controlled by left panel options, same as heatmap and other plots in the tab.</p>
@@ -220,7 +247,7 @@ between conditions?</p>
 </a>
 </section>
 <section id="dot-plot">
-<h3><a class="toc-backref" href="#id5" role="doc-backlink">Dot Plot</a><a class="headerlink" href="#dot-plot" title="Link to this heading"></a></h3>
+<h4>Dot Plot<a class="headerlink" href="#dot-plot" title="Link to this heading"></a></h4>
 <p>Dot plots summarize <strong>aggregated expression</strong> across groups and are
 useful for displaying marker gene expression. GUANACO provides two plot
 types:</p>
@@ -234,7 +261,7 @@ types:</p>
 comparable across plots.</p>
 </section>
 <section id="stacked-bar-plot">
-<h3><a class="toc-backref" href="#id6" role="doc-backlink">Stacked Bar Plot</a><a class="headerlink" href="#stacked-bar-plot" title="Link to this heading"></a></h3>
+<h4>Stacked Bar Plot<a class="headerlink" href="#stacked-bar-plot" title="Link to this heading"></a></h4>
 <p>Stacked bar plots illustrate <strong>cell composition</strong> across groups.
 Annotation and labels on the left determine stacked layers, while
 selection within the stacked bar tab defines the x-axis. Users can
@@ -244,7 +271,7 @@ details. Groups can be reordered by dragging column headers.</p>
 </a>
 </section>
 <section id="pseudotime-plot">
-<h3><a class="toc-backref" href="#id7" role="doc-backlink">Pseudotime Plot</a><a class="headerlink" href="#pseudotime-plot" title="Link to this heading"></a></h3>
+<h4>Pseudotime Plot<a class="headerlink" href="#pseudotime-plot" title="Link to this heading"></a></h4>
 <p>The Pseudotime Plot visualizes <strong>gene expression dynamics along a
 trajectory</strong> (or other continuous metadata). A generalized linear model
 (GLM) smooth line is fitted to highlight trends.</p>
@@ -266,29 +293,10 @@ trajectory</strong> (or other continuous metadata). A generalized linear model
 - Explore temporal gene regulation</p>
 </section>
 </section>
-<section id="igv-browser">
-<h2><a class="toc-backref" href="#id8" role="doc-backlink">IGV Browser</a><a class="headerlink" href="#igv-browser" title="Link to this heading"></a></h2>
-<a class="reference internal image-reference" href="_images/gb_motif.png"><img alt="_images/gb_motif.png" src="_images/gb_motif.png" style="width: 1000px;" />
-</a>
-<p>The IGV Browser tab integrates the <strong>Integrative Genomics Viewer (IGV)</strong>
-for interactive exploration of genomic regions with multiple tracks
-(e.g., gene annotations, ATAC-seq peaks, reference sequences). It also
-includes a <strong>motif search tool</strong> for transcription factor binding
-analysis using JASPAR IDs.</p>
-<p><strong>Main Components</strong>
-1. <strong>Session Selector (left panel)</strong>: Choose global or cell-type-specific
-sessions
-2. <strong>Genome Browser (center)</strong>: Navigate, zoom, and explore aligned
-tracks
-3. <strong>Motif Search (right panel)</strong>: Enter JASPAR ID to view motif details
-and sequence logos</p>
-<p><strong>Use Cases</strong>
-- Explore regulatory regions around genes of interest
-- Compare accessibility across cell types
-- Analyze transcription factor binding motifs</p>
-</section>
+<section id="subset-exploration">
+<h3><a class="toc-backref" href="#id4" role="doc-backlink">Subset Exploration</a><a class="headerlink" href="#subset-exploration" title="Link to this heading"></a></h3>
 <section id="cell-selection">
-<h2><a class="toc-backref" href="#id9" role="doc-backlink">Cell Selection</a><a class="headerlink" href="#cell-selection" title="Link to this heading"></a></h2>
+<h4>Cell Selection<a class="headerlink" href="#cell-selection" title="Link to this heading"></a></h4>
 <p>Beyond visualization, GUANACO provides flexible tools for interactively selecting subsets of cells, enabling focused downstream analyses.</p>
 <a class="reference internal image-reference" href="_images/selection.png"><img alt="_images/selection.png" src="_images/selection.png" style="width: 1000px;" />
 </a>
@@ -310,7 +318,7 @@ All Cells → Global Filter → Lasso Selection → Subset in other plots</p>
 - If no lasso is applied, “Update Other Plots” passes all filtered cells</p>
 </section>
 <section id="export-selected-subgroup">
-<h2><a class="toc-backref" href="#id10" role="doc-backlink">Export Selected Subgroup</a><a class="headerlink" href="#export-selected-subgroup" title="Link to this heading"></a></h2>
+<h4>Export Selected Subgroup<a class="headerlink" href="#export-selected-subgroup" title="Link to this heading"></a></h4>
 <a class="reference internal image-reference" href="_images/download.png"><img alt="_images/download.png" src="_images/download.png" style="width: 1000px;" />
 </a>
 <p>Selected cells can be exported in two formats:</p>
@@ -327,6 +335,31 @@ All Cells → Global Filter → Lasso Selection → Subset in other plots</p>
 </div></blockquote>
 </li>
 </ol>
+</section>
+</section>
+</section>
+<section id="genome-track-visualization">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Genome Track Visualization</a><a class="headerlink" href="#genome-track-visualization" title="Link to this heading"></a></h2>
+<section id="igv-browser-and-motif-dataset">
+<h3><a class="toc-backref" href="#id6" role="doc-backlink">IGV Browser and Motif Dataset</a><a class="headerlink" href="#igv-browser-and-motif-dataset" title="Link to this heading"></a></h3>
+<a class="reference internal image-reference" href="_images/gb_motif.png"><img alt="_images/gb_motif.png" src="_images/gb_motif.png" style="width: 1000px;" />
+</a>
+<p>The IGV Browser tab integrates the <strong>Integrative Genomics Viewer (IGV)</strong>
+for interactive exploration of genomic regions with multiple tracks
+(e.g., gene annotations, ATAC-seq peaks, reference sequences). It also
+includes a <strong>motif search tool</strong> for transcription factor binding
+analysis using JASPAR IDs.</p>
+<p><strong>Main Components</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Session Selector</strong>: Choose from multiple predefined tracks separated by metadata</p></li>
+<li><p><strong>Genome Browser</strong>: Navigate, zoom, and explore aligned tracks</p></li>
+<li><p><strong>Motif Search</strong>: Enter JASPAR ID to view motif details and sequence logos</p></li>
+</ol>
+<p><strong>Use Cases</strong>
+- Explore regulatory regions around genes of interest
+- Compare accessibility across cell types
+- Analyze transcription factor binding motifs</p>
+</section>
 </section>
 </section>
 
