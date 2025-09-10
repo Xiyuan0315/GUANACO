@@ -10,7 +10,6 @@ extensions = [
 ]
 # myst_enable_extensions = ["colon_fence"]
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '.history']
-html_baseurl = "/guanaco-viz/"
 
 master_doc = "index"
 

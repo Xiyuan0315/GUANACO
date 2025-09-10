@@ -1,4 +1,4 @@
-Running GUANACO on a Server
+Deployment
 ===========================
 
 GUANACO can be deployed on cloud servers (e.g., AWS EC2) or on-premise servers, either using the system’s Python environment or Docker.
