@@ -100,3 +100,10 @@ Create a configuration JSON file specifying your datasets. See `example_config.j
 ```
 
 A complete user guide with detailed instructions, tutorials, and examples is available at: [**GUANACO User Guide**](https://systems-immunometabolism-lab.github.io/guanaco-viz/?utm_source=chatgpt.com)
+## License
+
+This project is licensed under the GNU General Public License v3.0 (GPLv3).  
+You may freely redistribute and/or modify it under the terms of the license.  
+
+See the [LICENSE](LICENSE) file for the full text.
+

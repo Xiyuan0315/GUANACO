@@ -9,7 +9,7 @@ with open(readme_path, "r", encoding="utf-8") as fh:
 
 setup(
     name="guanaco-viz",
-    version="0.1.0",
+    version="1.0",
     author="Xiyuan Zhang",
     author_email="xiyuan315@outlook.com",
     description="GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization ",
@@ -32,15 +32,15 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
-        "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
         "Topic :: Scientific/Engineering :: Visualization",
     ],
 
     python_requires=">=3.10",
-    license="Apache-2.0",
+    license="GPL-3.0-or-later",
     install_requires=[
         "dash==2.18.0",
         "dash-bootstrap-components==1.3.0",
