@@ -549,7 +549,6 @@ def generate_embedding_plots(adata,prefix):
                         dbc.DropdownMenu(
                             [
                                 dbc.DropdownMenuItem("Cell IDs (.txt)", id=f"{prefix}-download-cellids"),
-                                dbc.DropdownMenuItem("Subset AnnData (.h5ad)", id=f"{prefix}-download-adata"),
                             ],
                             label="Download",
                             color="secondary",
@@ -1377,12 +1376,11 @@ def matrix_callbacks(app, adata, prefix):
     
     @app.callback(
         Output(f'{prefix}-download-cells-data', 'data'),
-        [Input(f'{prefix}-download-cellids', 'n_clicks'),
-         Input(f'{prefix}-download-adata', 'n_clicks')],
+        [Input(f'{prefix}-download-cellids', 'n_clicks')],
         [State(f'{prefix}-selected-cells-store', 'data')],
         prevent_initial_call=True
     )
-    def download_selected_cells(n_clicks_txt, n_clicks_h5ad, selected_cells):
+    def download_selected_cells(n_clicks_txt, selected_cells):
         """Download selected cell IDs or subset AnnData"""
         ctx = callback_context
         if not ctx.triggered or not selected_cells:
@@ -1397,28 +1395,6 @@ def matrix_callbacks(app, adata, prefix):
                 content=content,
                 filename="selected_cells.txt"
             )
-        elif f'{prefix}-download-adata' in button_id:
-            import tempfile
-            import os
-            
-            subset_adata = adata[selected_cells].copy()
-            
-            with tempfile.NamedTemporaryFile(suffix='.h5ad', delete=False) as tmp:
-                subset_adata.write_h5ad(tmp.name)
-                tmp_path = tmp.name
-            
-            with open(tmp_path, 'rb') as f:
-                content = f.read()
-            
-            os.unlink(tmp_path)
-            
-            import base64
-            return dict(
-                content=base64.b64encode(content).decode(),
-                filename=f"subset_{len(selected_cells)}_cells.h5ad",
-                base64=True
-            )
-        
         raise PreventUpdate
     
     # ===== Other Plots Callbacks =====
