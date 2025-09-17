@@ -116,8 +116,8 @@ def plot_dot_matrix(
         valid_genes = ordered_genes
     # else keep valid_genes as is
     
-    vmin = vmin if vmin is not None else aggregated_data[valid_genes].min().min()
-    vmax = vmax if vmax is not None else aggregated_data[valid_genes].max().max()
+    vmin = vmin if vmin is not None else float(aggregated_data[valid_genes].min().min())
+    vmax = vmax if vmax is not None else float(aggregated_data[valid_genes].max().max())
 
     if plot_type == 'dotplot':
         df_expression = aggregated_data.reset_index().melt(id_vars=['index'], value_vars=valid_genes, var_name='gene', value_name='expression')
@@ -153,8 +153,8 @@ def plot_dot_matrix(
             mode='markers',
             showlegend=False,
             marker=dict(
-                size=marker_sizes,
-                color=df_merged['expression'],
+                size=marker_sizes.tolist() if hasattr(marker_sizes, "tolist") else marker_sizes,
+                color=df_merged['expression'].astype(float).tolist(),
                 colorscale=color_map,
                 cmin=vmin,
                 cmax=vmax,
