@@ -360,7 +360,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                 spanmode = 'soft'
             else:
                 # Normal bandwidth for data with variance
-                bandwidth = 0.2
+                # bandwidth = 0.2
                 spanmode = 'hard'
             
             fig.add_trace(go.Violin(
@@ -371,7 +371,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                 points=points_mode,
                 meanline_visible=True,
                 width=0.8,
-                bandwidth=bandwidth,
+                # bandwidth=bandwidth,
                 spanmode=spanmode,
                 fillcolor=color_config[i % len(color_config)],
                 line_color='DarkSlateGrey',
@@ -406,7 +406,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                             spanmode = 'soft'
                         else:
                             # Normal bandwidth for data with variance
-                            bandwidth = 0.2
+                            # bandwidth = 0.2
                             spanmode = 'hard'
                         
                         fig.add_trace(go.Violin(
@@ -421,7 +421,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                             box_visible=show_box,
                             points=points_mode,
                             meanline_visible=True,
-                            bandwidth=bandwidth,
+                            # bandwidth=bandwidth,
                             spanmode=spanmode,
                             fillcolor=color_map[m2_group],
                             line_color='DarkSlateGrey',
@@ -455,7 +455,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                             spanmode = 'soft'
                         else:
                             # Normal bandwidth for data with variance
-                            bandwidth = 0.2
+                            # bandwidth = 0.2
                             spanmode = 'hard'
                         
                         fig.add_trace(go.Violin(
@@ -467,7 +467,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                             box_visible=show_box,
                             points=points_mode,
                             meanline_visible=True,
-                            bandwidth=bandwidth,
+                            # bandwidth=bandwidth,
                             fillcolor=color_map[m2_group],
                             line_color='DarkSlateGrey',
                             hoveron='violins',
@@ -514,7 +514,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                         spanmode = 'soft'
                     else:
                         # Normal bandwidth for data with variance
-                        bandwidth = 0.2
+                        # bandwidth = 0.2
                         spanmode = 'hard'
                     
                     fig.add_trace(go.Violin(
@@ -526,7 +526,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                         box_visible=show_box,
                         points=points_mode,
                         meanline_visible=True,
-                        bandwidth=bandwidth,
+                        # bandwidth=bandwidth,
                         fillcolor=color_map[m2_group],
                         line_color='DarkSlateGrey',
                         hoveron='violins',

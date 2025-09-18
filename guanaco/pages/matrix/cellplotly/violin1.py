@@ -195,7 +195,7 @@ def plot_violin1(adata, genes, labels, groupby, transformation=None, show_box=Fa
                     spanmode = 'soft'
                 else:
                     # Normal bandwidth for data with variance
-                    bandwidth = 0.2
+                    # bandwidth = 0.2
                     spanmode = 'hard'
                 
                 fig.add_trace(
@@ -209,7 +209,7 @@ def plot_violin1(adata, genes, labels, groupby, transformation=None, show_box=Fa
                         showlegend=(i == 0),
                         name=label,
                         spanmode=spanmode,
-                        bandwidth=bandwidth,
+                        # bandwidth=bandwidth,
                         fillcolor=groupby_label_color_map[label],
                         line_color='DarkSlateGrey',
                         hoveron='violins',
