@@ -107,3 +107,12 @@ You may freely redistribute and/or modify it under the terms of the license.
 
 See the [LICENSE](LICENSE) file for the full text.
 
+## Citation
+
+If you use **GUANACO** in your research, please cite our preprint:
+
+> **Zhang X, Kuddus M, Xia Q, Hu Y, Chen P.**  
+> *GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization*  
+> bioRxiv 2025.09.18.677070; doi: [https://doi.org/10.1101/2025.09.18.677070](https://doi.org/10.1101/2025.09.18.677070)
+
+*The full citation will be updated onces the peer-reviewed publication becomes available.*
