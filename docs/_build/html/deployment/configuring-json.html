@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Configuring Json File &mdash; GUANACO  documentation</title>
+  <title>Step-by-step Guidance to Run GUANACO &mdash; GUANACO  documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
 
@@ -84,7 +84,19 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Configuring Json File</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Step-by-step Guidance to Run GUANACO</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#command-line-usage">Command-line Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#config-file-structure">Config File Structure</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#example-config-file">Example Config File</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#additional-information">Additional Information</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#track-data-configuration-formats-urls-policies-cors">1. <strong>Track Data Configuration (Formats, URLs, Policies, CORS)</strong></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#supported-genome-builds-for-track-based-data">2. <strong>Supported genome builds for track-based data</strong></a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="running-python.html">Deployment</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="running-python.html#deployment-with-system-python">Deployment with System Python</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="running-python.html#step-1-clone-the-repository">Step 1. Clone the repository</a></li>
@@ -119,7 +131,7 @@
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="index.html">Instruction for Using GUANACO</a></li>
-      <li class="breadcrumb-item active">Configuring Json File</li>
+      <li class="breadcrumb-item active">Step-by-step Guidance to Run GUANACO</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/deployment/configuring-json.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -129,58 +141,94 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="configuring-json-file">
-<h1>Configuring Json File<a class="headerlink" href="#configuring-json-file" title="Link to this heading"></a></h1>
-<p>An example Json file has been provided in the git repository for user’s convenience, which looks like this:</p>
-<figure class="align-default">
-<a class="reference internal image-reference" href="../_images/ConfigJson.png"><img alt="../_images/ConfigJson.png" src="../_images/ConfigJson.png" style="width: 750px;" />
-</a>
-</figure>
-<p>This config file can be edited the following way:</p>
-<ol class="arabic">
-<li><p>The user will be able to set the title of their Study in the “Study Name” place, depending on their dataset. [This field is mandatory and must be present, as the Nav-bar tabs is dependent on this field]</p></li>
-<li><p>The “sc_data” row must contain the exact name of the AnnData or MuuData dataset that is to be used, and this dataset must be saved in any folder. [This field is mandatory if the user wants to visualize the Gene Expression]</p></li>
-<li><p>The “description” row can be used to write the description of the study, and this is an optional field, although it is recommended to be added.</p></li>
-<li><p>The “markers” row contains the important marker genes of the study. This field is important for visualization of the heatmap, dot plot, violin plot, stacked bar and pseudo time plot. However, it is not a required field and if the markers are not mentioned, the dropdown will show the top 6 genes, and the user can search for the relevant genes if needed.</p></li>
-<li><p>The bucket_urls contains the link to the BigWig file for the ATAC seq (chromatin peaks in the IGV browser), it is advised to upload the data in an s3 bucket, as it is easier to call and doesn’t have restrictive size requirement. However, this is not compulsory in general, and the user can keep this field empty if there is no BigWig file for their data.</p>
-<p><strong>Note:</strong> The user can also follow the instructions provided in this link <a class="reference external" href="https://atacchloe.s3.eu-north-1.amazonaws.com">https://atacchloe.s3.eu-north-1.amazonaws.com</a>.</p>
-</li>
-<li><p>The name for the ATAC track, the genome name for the ATAC sequences, and the max height of the browser can also be set. However, if the user has the BigWig file, these are important to mention as well as the bucket_urls.</p></li>
-<li><p>Several ATAC seq tracks can be added as well, just follow the below given format:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="nt">&quot;bucket_urls&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;https://atacchloe.s3.eu-north-1.amazonaws.com/abc&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;https://atacchloe.s3.eu-north-1.amazonaws.com/xyz&quot;</span><span class="p">,</span><span class="w"> </span><span class="err">.......</span><span class="p">],</span>
-<span class="nt">&quot;ATAC_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;Track1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Track2&quot;</span><span class="p">,</span><span class="w"> </span><span class="err">.......</span><span class="p">],</span>
-<span class="nt">&quot;genome&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hg38&quot;</span><span class="p">,</span>
-<span class="nt">&quot;max_height&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="err">......</span><span class="p">]</span>
+  <section id="step-by-step-guidance-to-run-guanaco">
+<h1>Step-by-step Guidance to Run GUANACO<a class="headerlink" href="#step-by-step-guidance-to-run-guanaco" title="Link to this heading"></a></h1>
+<section id="command-line-usage">
+<h2>Command-line Usage<a class="headerlink" href="#command-line-usage" title="Link to this heading"></a></h2>
+<p>Basic command-line options:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>options:
+  -h, --help            Show this help message and exit
+  -c CONFIG, --config CONFIG
+                        Name of configuration JSON file (relative to --data-dir)
+                        (default: guanaco.json)
+  -d DATA_DIR, --data-dir DATA_DIR
+                        Directory containing AnnData files referenced in config
+                        (default: current directory)
+  -p PORT, --port PORT  Port to run the Dash server on (default: 4399)
+  --host HOST           Host to run the Dash server on (default: 0.0.0.0)
+  --debug               Run server in debug mode (default: False)
+  --max-cells MAX_CELLS Maximum number of cells to load per dataset (default: 10000)
+  --backed-mode         Enable backed mode for memory-efficient loading of
+                        large datasets (default: False)
 </pre></div>
 </div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p><strong>Quick start:</strong>
+If the config file and data files are in the current directory, you can simply run:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">guanaco -c config.json</span>
+</pre></div>
+</div>
+</div>
+</section>
+<section id="config-file-structure">
+<h2>Config File Structure<a class="headerlink" href="#config-file-structure" title="Link to this heading"></a></h2>
+<p>The GUANACO configuration file is written in JSON format and has <strong>two main sections</strong>:</p>
+<ol class="arabic">
+<li><p><strong>Studies</strong></p>
+<p>Each study is defined by a dictionary entry, where the <em>key</em> is the study name.
+A study can include either <strong>matrix-based data</strong>, <strong>track-based data</strong>, or both:</p>
+<ul>
+<li><p><strong>description</strong> <em>(optional but recommended)</em></p>
+<p>A short text description of the study. Displayed in the interface to help distinguish between datasets.</p>
 </li>
-<li><p>If there is no ATAC-seq available for the provided dataset, user can simply remove the “bucket_urls”, “ATAC_name”, “genome” and “max_height” from the Json file.</p></li>
-<li><p>Custom colors can also be set for the labels and clusters, following the hash code of the colors in the “color” section.</p></li>
-<li><p>Several Datasets can be added the same way by the following way:</p>
+<li><p><strong>Matrix-based data</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">sc_data</span></code> (required): Name of a <code class="docutils literal notranslate"><span class="pre">.h5ad</span></code> or <code class="docutils literal notranslate"><span class="pre">.h5mu</span></code> file.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">markers</span></code> (optional): List of marker genes for plots (heatmaps, dot plots, violin plots, stacked bar plots, pseudotime plots).</p></li>
+</ul>
+</li>
+<li><p><strong>Track-based data</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">bucket_urls</span></code> (required): List of URLs pointing to S3 buckets containing BigWig or other supported files. See example and instruction <a class="reference internal" href="#additional-info-tracks"><span class="std std-ref">Additional Information 1</span></a>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">genome</span></code> (required): Reference genome build (e.g. <code class="docutils literal notranslate"><span class="pre">hg38</span></code>, <code class="docutils literal notranslate"><span class="pre">mm10</span></code>). All supported genome are <a class="reference internal" href="#additional-info-genomes"><span class="std std-ref">Additional Information 2</span></a>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ATAC_name</span></code> (optional): List of custom display names for ATAC tracks, aligned with <code class="docutils literal notranslate"><span class="pre">bucket_urls</span></code>. Defaults to <code class="docutils literal notranslate"><span class="pre">Track1</span></code>, <code class="docutils literal notranslate"><span class="pre">Track2</span></code> etc.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max_height</span></code> (optional): List of maximum display heights for tracks, aligned with <code class="docutils literal notranslate"><span class="pre">bucket_urls</span></code>. Defaults to autoscale.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong>General customization</strong></p>
+<p>Fields outside of individual studies apply globally to the entire GUANACO session:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">title</span></code> (optional): Title of the GUANACO instance.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">color</span></code> (optional): List of custom HEX colors applied to clusters and tracks.</p></li>
+</ul>
+</li>
+</ol>
+<section id="example-config-file">
+<h3>Example Config File<a class="headerlink" href="#example-config-file" title="Link to this heading"></a></h3>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">   </span><span class="nt">&quot;Study1&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">   </span><span class="nt">&quot;sc_data&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">---------</span>
-<span class="w">   </span><span class="p">},</span>
-
-<span class="w">   </span><span class="nt">&quot;Study2&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">   </span><span class="nt">&quot;sc_data&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">---------</span>
-<span class="w">   </span><span class="p">},</span>
-
-<span class="w">   </span><span class="nt">&quot;color&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="mi">-------</span>
-<span class="w">   </span><span class="p">]</span>
+<span class="w">  </span><span class="nt">&quot;Study1&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;PBMC single-cell RNA and ATAC integration study&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;sc_data&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pbmc.h5ad&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;markers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;MS4A1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;LYZ&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;genome&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hg38&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;bucket_urls&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;https://atac-bucket-1/&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;ATAC_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;PBMC-ATAC&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;max_height&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">20</span><span class="p">]</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;Study2&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Mouse skin study&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;sc_data&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;skin.h5mu&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;GUANACO&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;color&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;#1f77b4&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;#ff7f0e&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;#2ca02c&quot;</span><span class="p">]</span>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>and so on…</p>
-</li>
-<li><p>If the user only wants to visualize the BigWig, they do not need an input for the sc_data and markers</p></li>
-</ol>
-<p>Once the config file is set, the AnnData file and the BigWig file are created, then GUANACO, with user’s data can easily be accessed locally or deployed on any server. The information will be displayed in the marked places of the platform as shown in Figure 2.1, Figure 2.2, and Figure 2.3.</p>
-<figure class="align-default">
-<a class="reference internal image-reference" href="../_images/Figure21.png"><img alt="../_images/Figure21.png" src="../_images/Figure21.png" style="width: 600px;" />
-</a>
-</figure>
+<p>Once the config file is set and the AnnData and BigWig files are prepared, GUANACO can be accessed locally or deployed on a server.
+The data will be displayed in the designated areas of the platform, as shown in the figures below.</p>
 <figure class="align-default">
 <a class="reference internal image-reference" href="../_images/Figure22.png"><img alt="../_images/Figure22.png" src="../_images/Figure22.png" style="width: 600px;" />
 </a>
@@ -189,10 +237,102 @@
 <a class="reference internal image-reference" href="../_images/Figure23.png"><img alt="../_images/Figure23.png" src="../_images/Figure23.png" style="width: 600px;" />
 </a>
 </figure>
-<p>Once the json file is made, we are offering users two ways to deploy and access GUANACO; one version is running GUANACO from console using system’s Python, and another one is with Docker.</p>
-<div class="line-block">
-<div class="line"><br /></div>
+</section>
+</section>
+<section id="additional-information">
+<h2>Additional Information<a class="headerlink" href="#additional-information" title="Link to this heading"></a></h2>
+<section id="track-data-configuration-formats-urls-policies-cors">
+<span id="additional-info-tracks"></span><h3>1. <strong>Track Data Configuration (Formats, URLs, Policies, CORS)</strong><a class="headerlink" href="#track-data-configuration-formats-urls-policies-cors" title="Link to this heading"></a></h3>
+<p>Users should upload BigWig or other supported files to a cloud storage service that provides public URLs.
+AWS S3 is recommended for simplicity and scalability.</p>
+<p><strong>Supported URL formats</strong></p>
+<ul class="simple">
+<li><p>AWS-style: <code class="docutils literal notranslate"><span class="pre">https://bucket.s3.region.amazonaws.com</span></code></p></li>
+<li><p>Path-style: <code class="docutils literal notranslate"><span class="pre">https://host/bucket[/prefix...]</span></code></p></li>
+</ul>
+<p><strong>Supported file formats</strong></p>
+<ul class="simple">
+<li><p><strong>BigWig</strong>: <code class="docutils literal notranslate"><span class="pre">.bigwig</span></code>, <code class="docutils literal notranslate"><span class="pre">.bw</span></code> (ATAC peaks)</p></li>
+</ul>
+<p>If you need to convert an <code class="docutils literal notranslate"><span class="pre">.h5ad</span></code> or <code class="docutils literal notranslate"><span class="pre">.h5mu</span></code> file to BigWig, refer to the Jupyter notebook example provided with <strong>scCAMEL</strong>:
+<a class="reference external" href="https://github.com/Systems-Immunometabolism-Lab/guanaco-viz/blob/main/TACoWig_Template.ipynb">TACoWig_Template.ipynb</a></p>
+<ul>
+<li><p><strong>Interaction files</strong>: <code class="docutils literal notranslate"><span class="pre">.bedpe</span></code></p></li>
+<li><p><strong>Annotation tracks</strong> (motifs, SNPs, etc.): <code class="docutils literal notranslate"><span class="pre">.bed</span></code>, <code class="docutils literal notranslate"><span class="pre">.bigBed</span></code> (<code class="docutils literal notranslate"><span class="pre">.bb</span></code>)</p>
+<p>You can generate motif tracks in BigBed format in two ways:</p>
+<ol class="arabic simple">
+<li><p>Using the JASPAR TFBS extraction tool:
+<a class="reference external" href="https://jaspar.elixir.no/tfbs_extraction/">https://jaspar.elixir.no/tfbs_extraction/</a></p></li>
+<li><p>Using our provided script:
+<a class="reference external" href="https://github.com/Systems-Immunometabolism-Lab/guanaco-viz/blob/main/motif_extraction">https://github.com/Systems-Immunometabolism-Lab/guanaco-viz/blob/main/motif_extraction</a></p></li>
+</ol>
+</li>
+</ul>
+<p><strong>Bucket policy for public read access</strong></p>
+<p>Your S3 bucket must allow public read access so that GUANACO can fetch the files.
+Use the following bucket policy as an example (replace <code class="docutils literal notranslate"><span class="pre">name-of-your-bucket</span></code> with your bucket name):</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;Version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2012-10-17&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Statement&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;Sid&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;PublicListBucket&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Effect&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Allow&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Principal&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;*&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;s3:ListBucket&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Resource&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;arn:aws:s3:::name-of-your-bucket&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;Sid&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;PublicReadGetObject&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Effect&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Allow&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Principal&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;*&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;s3:GetObject&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Resource&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;arn:aws:s3:::name-of-your-bucket/*&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
 </div>
+<p><strong>CORS configuration</strong></p>
+<p>To enable cross-origin requests (web browser access), configure CORS on your bucket.
+Example configuration:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;AllowedHeaders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;AllowedMethods&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;GET&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;HEAD&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;AllowedOrigins&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;ExposeHeaders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;ETag&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;MaxAgeSeconds&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3000</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+<p>⚠️ <strong>Security note:</strong> For better security, replace <code class="docutils literal notranslate"><span class="pre">&quot;*&quot;</span></code>
+in <code class="docutils literal notranslate"><span class="pre">AllowedOrigins</span></code> with a specific domain (e.g. <code class="docutils literal notranslate"><span class="pre">&quot;http://example.com&quot;</span></code>) to restrict access.</p>
+</section>
+<section id="supported-genome-builds-for-track-based-data">
+<span id="additional-info-genomes"></span><h3>2. <strong>Supported genome builds for track-based data</strong><a class="headerlink" href="#supported-genome-builds-for-track-based-data" title="Link to this heading"></a></h3>
+<blockquote>
+<div><p>GUANACO supports the following reference genomes (UCSC 2bit format):</p>
+<ul class="simple">
+<li><p>Human: <code class="docutils literal notranslate"><span class="pre">hg38</span></code>, <code class="docutils literal notranslate"><span class="pre">hg19</span></code>, <code class="docutils literal notranslate"><span class="pre">hg18</span></code></p></li>
+<li><p>Mouse: <code class="docutils literal notranslate"><span class="pre">mm39</span></code>, <code class="docutils literal notranslate"><span class="pre">mm10</span></code>, <code class="docutils literal notranslate"><span class="pre">mm9</span></code></p></li>
+<li><p>Rat: <code class="docutils literal notranslate"><span class="pre">rn6</span></code>, <code class="docutils literal notranslate"><span class="pre">rn5</span></code></p></li>
+<li><p>Zebrafish: <code class="docutils literal notranslate"><span class="pre">danRer11</span></code>, <code class="docutils literal notranslate"><span class="pre">danRer10</span></code></p></li>
+<li><p>Fruit fly: <code class="docutils literal notranslate"><span class="pre">dm6</span></code>, <code class="docutils literal notranslate"><span class="pre">dm3</span></code></p></li>
+<li><p>Worm (C. elegans): <code class="docutils literal notranslate"><span class="pre">ce11</span></code>, <code class="docutils literal notranslate"><span class="pre">ce10</span></code></p></li>
+<li><p>Yeast: <code class="docutils literal notranslate"><span class="pre">sacCer3</span></code></p></li>
+<li><p>Chicken: <code class="docutils literal notranslate"><span class="pre">galGal6</span></code></p></li>
+<li><p>Xenopus: <code class="docutils literal notranslate"><span class="pre">xenTro9</span></code></p></li>
+<li><p>Dog: <code class="docutils literal notranslate"><span class="pre">canFam3</span></code></p></li>
+<li><p>Cow: <code class="docutils literal notranslate"><span class="pre">bosTau9</span></code></p></li>
+<li><p>Pig: <code class="docutils literal notranslate"><span class="pre">susScr11</span></code></p></li>
+<li><p>Macaque: <code class="docutils literal notranslate"><span class="pre">rheMac10</span></code></p></li>
+</ul>
+<p>Each build corresponds to a UCSC-hosted 2bit file, e.g.:
+<code class="docutils literal notranslate"><span class="pre">https://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.2bit</span></code></p>
+</div></blockquote>
+</section>
+</section>
 </section>
 
 
