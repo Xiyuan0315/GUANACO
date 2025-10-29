@@ -1071,7 +1071,6 @@ def matrix_callbacks(app, adata, prefix):
             fig = plot_categorical_embedding_with_fixed_colors(
                 adata=plot_adata,
                 adata_full=adata,  
-                gene=None,  
                 embedding_key=clustering_method,
                 color=annotation,
                 x_axis=x_axis,
@@ -1183,7 +1182,6 @@ def matrix_callbacks(app, adata, prefix):
             fig = plot_categorical_embedding_with_fixed_colors(
                 adata=plot_adata,
                 adata_full=adata,
-                gene=None, 
                 embedding_key=clustering,
                 color=gene_name,
                 x_axis=x_axis,
@@ -1470,7 +1468,6 @@ def matrix_callbacks(app, adata, prefix):
             return current_figure if current_figure else go.Figure()
         
         filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
-        
         groupby1_label_color_map = None
         if discrete_color_map:
             discrete_palette = palette_json["color_palettes"][discrete_color_map]
@@ -1539,8 +1536,8 @@ def matrix_callbacks(app, adata, prefix):
         fig = plot_violin1(
             filtered_adata,
             selected_genes,
-            selected_labels,
-            groupby=selected_annotation,
+            selected_annotation,
+            labels = selected_labels,
             transformation=transformation,
             show_box='show' in show_box_plot if show_box_plot else False,
             show_points='show' in show_scatter1 if show_scatter1 else False,

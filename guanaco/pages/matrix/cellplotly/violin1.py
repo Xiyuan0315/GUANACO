@@ -3,7 +3,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
-from guanaco.data_loader import color_config
 from guanaco.pages.matrix.cellplotly.gene_extraction_utils import (
     extract_gene_expression, extract_multiple_genes, apply_transformation
 )
@@ -14,6 +13,15 @@ import time
 # Global cache for violin plot data
 _violin_data_cache = {}
 _violin_plot_cache = {}
+
+default_color = [
+    "#E69F00",
+    "#56B4E9",
+    "#009E73",
+    "#F0E442",
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7"]
 
 def _create_cache_key(genes, labels, groupby, transformation, adata_id, adata_obs_id=None):
     """Create a unique cache key for violin data."""
@@ -135,10 +143,11 @@ def _extract_and_cache_violin_data(adata, genes, labels, groupby, transformation
     _violin_data_cache[cache_key] = cached_data
     return cached_data
 
-def plot_violin1(adata, genes, labels, groupby, transformation=None, show_box=False, show_points=False, groupby_label_color_map=None, adata_obs=None):
+def plot_violin1(adata, genes, groupby, labels=None, transformation=None, show_box=False, show_points=False, groupby_label_color_map=None, adata_obs=None):
     if len(genes) == 0:
         raise PreventUpdate
-    
+    if labels is None or len(labels) == 0:
+        labels = sorted(adata.obs[groupby].unique()) if adata_obs is None else sorted(adata_obs[groupby].unique()) 
     # Check plot cache
     adata_id = _get_adata_id(adata)
     adata_obs_id = id(adata_obs) if adata_obs is not None else None
@@ -162,7 +171,7 @@ def plot_violin1(adata, genes, labels, groupby, transformation=None, show_box=Fa
     # Set up colors
     unique_labels = sorted(adata_obs[groupby].unique()) if adata_obs is not None else sorted(adata.obs[groupby].unique())
     if groupby_label_color_map is None:
-        groupby_label_color_map = {label: color_config[i % len(color_config)] for i, label in enumerate(unique_labels)}
+        groupby_label_color_map = {label: default_color[i % len(default_color)] for i, label in enumerate(unique_labels)}
 
     # Create subplots
     num_genes = len(valid_genes)
@@ -224,17 +233,19 @@ def plot_violin1(adata, genes, labels, groupby, transformation=None, show_box=Fa
         
         fig.update_yaxes(range=[0, expr_max], row=i + 1, col=1)
         
-        annotations.append(dict(
-            x=-0.1, y=y_positions[i], xref="paper", yref="paper",
-            text=gene, showarrow=False, font=dict(size=10), xanchor='right'
-        ))
-
+    for i, gene in enumerate(valid_genes):
+        fig.update_yaxes(
+        title_text=gene,          # this shows on the left like a strip label
+        title_standoff=10,        # a bit of spacing from the ticks
+        row=i+1, col=1
+    )
     # Layout
     fig_height = max(400, num_genes * 120)
     fig.update_layout(
-        plot_bgcolor='white', paper_bgcolor='white', font=dict(size=10),
-        showlegend=False, annotations=annotations, height=fig_height,
-        margin=dict(l=80, r=20, t=20, b=40)
+    plot_bgcolor='white', paper_bgcolor='white', font=dict(size=10),
+    showlegend=False,
+    height=fig_height,
+    margin=dict(l=80, r=20, t=20, b=40)
     )
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black')
     fig.update_yaxes(showline=True, linewidth=2, linecolor='black')

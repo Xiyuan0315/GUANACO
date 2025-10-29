@@ -1,8 +1,8 @@
 import plotly.graph_objs as go
 import pandas as pd
 import numpy as np
-import plotly.express as px
 from .gene_extraction_utils import extract_gene_expression, apply_transformation
+import plotly.express as px
 
 def plot_continuous_embedding(
     adata, embedding_key, color, x_axis=None, y_axis=None,
@@ -119,7 +119,7 @@ def plot_continuous_embedding(
 
 
 def plot_categorical_embedding_with_fixed_colors(
-    adata, adata_full, embedding_key, color,
+    adata, adata_full, gene, embedding_key, color,
     x_axis=None, y_axis=None,
     color_map=None, marker_size=5, opacity=1,
     legend_show='on legend', axis_show=True
@@ -151,6 +151,11 @@ def plot_categorical_embedding_with_fixed_colors(
     # Prepare DataFrame
     df = pd.DataFrame(embedding_data, columns=dims)
     df[color] = adata.obs[color].values
+    
+    # Only extract gene expression if gene is provided
+    if gene is not None and gene in adata.var_names:
+        from guanaco.pages.matrix.cellplotly.gene_extraction_utils import extract_gene_expression
+        df[gene] = extract_gene_expression(adata, gene)
 
     # Get unique labels in the filtered data
     unique_labels_filtered = sorted(df[color].unique())
@@ -186,7 +191,7 @@ def plot_categorical_embedding_with_fixed_colors(
                 opacity=opacity,
             ),
             name=str(label),
-            customdata=df.loc[mask, color],
+            customdata=df.loc[mask, color] if gene is None else np.stack([df.loc[mask, color], df.loc[mask, gene]], axis=-1),
             hoverinfo='skip',  # Disable hover
             showlegend=not on_data,
             legendgroup=str(label),

@@ -1,7 +1,13 @@
 import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
-from guanaco.data_loader import color_config
+default_color = [
+    "#E69F00",
+    "#56B4E9",
+    "#009E73",
+    "#F0E442",
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7"]
 
 def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, x_order=None):
     """Plot stacked bar chart."""
@@ -71,7 +77,7 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
             color_discrete_map = color_map
         elif color_map is None:
             categories = sorted(count_df[y_meta].unique())
-            predefined_colors = color_config
+            predefined_colors = default_color
             color_discrete_map = {cat: predefined_colors[i % len(predefined_colors)] for i, cat in enumerate(categories)}
         else:
             categories = sorted(count_df[y_meta].unique())

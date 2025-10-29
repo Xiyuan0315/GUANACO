@@ -3,11 +3,17 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from scipy.stats import ttest_ind, mannwhitneyu, f_oneway, kruskal
-import statsmodels.api as sm
 from statsmodels.formula.api import ols, mixedlm
-from guanaco.data_loader import color_config
-from itertools import combinations
 import warnings
+
+default_color = [
+    "#E69F00",
+    "#56B4E9",
+    "#009E73",
+    "#F0E442",
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7"]
 
 def determine_test_method(meta1_levels, meta2_levels, mode, test_override=None):
     """
@@ -183,7 +189,7 @@ def assign_colors(levels, color_map=None):
     default_colors = px.colors.qualitative.Plotly
     for i, level in enumerate(sorted(levels)):
         if level not in color_map:
-            color_map[level] = color_config[i] if i < len(color_config) else default_colors[i % len(default_colors)]
+            color_map[level] = default_colors[i % len(default_colors)]
     return color_map
 
 
@@ -291,7 +297,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
 
 
 def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
-                     show_box=True, show_points=True, test_method='auto', 
+                     show_box=False, show_points=False, test_method='auto', 
                      labels=None, color_map=None):
     """
     Plot violin plots with new mode-based analysis.
@@ -373,7 +379,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                 width=0.8,
                 # bandwidth=bandwidth,
                 spanmode=spanmode,
-                fillcolor=color_config[i % len(color_config)],
+                fillcolor=default_color[i % len(default_color)],
                 line_color='DarkSlateGrey',
                 hoveron='violins',
                 jitter=0.05,

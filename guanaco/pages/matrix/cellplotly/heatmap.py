@@ -140,14 +140,21 @@ def _add_boundaries(fig, group_sizes, row=1, col=1, width=1, n_genes=None):
 
 
 def _default_color_maps(adata_obs, original_adata, groupby1, groupby2, groupby1_label_color_map, groupby2_label_color_map):
-    from guanaco.data_loader import color_config
+    default_color = [
+    "#E69F00",
+    "#56B4E9",
+    "#009E73",
+    "#F0E442",
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7"]
     tab20_colors = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a',
                     '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94',
                     '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d',
                     '#17becf', '#9edae5']
     if groupby1_label_color_map is None:
         unique_labels_primary = sorted(adata_obs[groupby1].unique()) if adata_obs is not None else sorted(original_adata.obs[groupby1].unique())
-        groupby1_label_color_map = {label: color_config[i % len(color_config)] for i, label in enumerate(unique_labels_primary)}
+        groupby1_label_color_map = {label: default_color[i % len(default_color)] for i, label in enumerate(unique_labels_primary)}
     if groupby2 and groupby2_label_color_map is None:
         unique_labels_secondary = sorted(adata_obs[groupby2].unique()) if adata_obs is not None else sorted(original_adata.obs[groupby2].unique())
         groupby2_label_color_map = dict(zip(unique_labels_secondary, tab20_colors[:len(unique_labels_secondary)]))
