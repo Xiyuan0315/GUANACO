@@ -1,12 +1,15 @@
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*__version__.*deprecated.*")
+
 from dash import dcc, html, Output, Input, MATCH, State
 from guanaco.app import app
 from guanaco.layout import (
     navbar, tab_content, footprint, guanaco_footer, description_layout,
-    anndata_layout, igv_layout, resize_tip_toast  # make sure this is imported
+    anndata_layout, igv_layout, resize_tip_toast
 )
 from guanaco.pages.track.gene_browser import gene_browser_callbacks
 from guanaco.pages.matrix.callbacks import matrix_callbacks
-from guanaco.data_loader import datasets  # Already loaded at module level in data_loader.py
+from guanaco.data_loader import datasets 
 import muon as mu
 import anndata as ad
 

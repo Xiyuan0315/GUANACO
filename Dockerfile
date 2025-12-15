@@ -8,7 +8,12 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     GUANACO_CONFIG=/app/config.json \
-    GUANACO_DATA_DIR=/app/data
+    GUANACO_DATA_DIR=/app/data \
+    GUANACO_MAX_CELLS=20000 \
+    GUANACO_BACKED_MODE=true \
+    GUANACO_WORKERS=2 \
+    GUANACO_THREADS=2 \
+    GUANACO_TIMEOUT=300
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -28,14 +33,6 @@ COPY . .
 # Install the package in development mode
 RUN pip install -e .
 
-# Create directories for config and data
-RUN mkdir -p /app/data /app/config
-
-# Create a default config file if none exists
-RUN echo '{"datasets": {}}' > /app/config.json
-
 # Expose the port the app runs on
 EXPOSE 8080
-
-# Use gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "2", "--timeout", "300", "guanaco.main:server"]
+CMD ["/bin/sh", "-c", "gunicorn --bind 0.0.0.0:8080 --workers ${GUANACO_WORKERS} --threads ${GUANACO_THREADS} --timeout ${GUANACO_TIMEOUT} guanaco.main:server"]

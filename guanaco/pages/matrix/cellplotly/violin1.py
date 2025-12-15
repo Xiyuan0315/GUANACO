@@ -9,7 +9,6 @@ from guanaco.pages.matrix.cellplotly.gene_extraction_utils import (
 import hashlib
 import time
 
-
 # Global cache for violin plot data
 _violin_data_cache = {}
 _violin_plot_cache = {}
@@ -144,10 +143,10 @@ def _extract_and_cache_violin_data(adata, genes, labels, groupby, transformation
     return cached_data
 
 def plot_violin1(adata, genes, groupby, labels=None, transformation=None, show_box=False, show_points=False, groupby_label_color_map=None, adata_obs=None):
-    if len(genes) == 0:
+   
+    # if no label or no genes, stop updating.
+    if len(genes) == 0 or labels is None or len(labels) == 0:
         raise PreventUpdate
-    if labels is None or len(labels) == 0:
-        labels = sorted(adata.obs[groupby].unique()) if adata_obs is None else sorted(adata_obs[groupby].unique()) 
     # Check plot cache
     adata_id = _get_adata_id(adata)
     adata_obs_id = id(adata_obs) if adata_obs is not None else None
@@ -177,40 +176,40 @@ def plot_violin1(adata, genes, groupby, labels=None, transformation=None, show_b
     num_genes = len(valid_genes)
     fig = make_subplots(rows=num_genes, cols=1, shared_xaxes=True, vertical_spacing=0.02)
 
-    # Gene name annotations
-    annotations = []
-    y_positions = [(i / (num_genes-1)) for i in range(num_genes)] if num_genes > 1 else [0.5]
-    y_positions = y_positions[::-1]
-    
+    # Pre-calculate boolean masks for each label to avoid repeated groupby operations
+    # Use numpy array for faster boolean indexing
+    obs_values_array = obs_values.to_numpy() if hasattr(obs_values, 'to_numpy') else np.array(obs_values)
+    label_masks = {}
+    for label in labels:
+        mask = (obs_values_array == label)
+        if np.any(mask):
+            label_masks[label] = mask
+
     # Create violin plots
     for i, gene in enumerate(valid_genes):
-        df = pd.DataFrame({
-            'Expression': gene_df[gene].values,
-            groupby: obs_values
-        })
+        # Access gene values directly as numpy array
+        gene_values = gene_df[gene].values
+        expr_max = gene_values.max()
 
         points_mode = 'all' if show_points else False
-        grouped_data = df.groupby(groupby, observed=True)
-        expr_max = df['Expression'].max()
         
         for label in labels:
-            if label in grouped_data.groups:
-                group_data = grouped_data.get_group(label)
+            if label in label_masks:
+                mask = label_masks[label]
+                group_expr = gene_values[mask]
                 
                 # Calculate variance to determine bandwidth (seaborn-like behavior)
-                variance = np.var(group_data['Expression'])
+                variance = np.var(group_expr)
                 if variance < 1e-10:  # Near-zero variance
-                    bandwidth = 0.01
                     spanmode = 'soft'
                 else:
                     # Normal bandwidth for data with variance
-                    # bandwidth = 0.2
                     spanmode = 'hard'
                 
                 fig.add_trace(
                     go.Violin(
-                        y=group_data['Expression'],
-                        x=group_data[groupby],
+                        y=group_expr,
+                        x=[label] * len(group_expr),
                         width=0.8,
                         box_visible=show_box,
                         points=points_mode,
@@ -218,7 +217,6 @@ def plot_violin1(adata, genes, groupby, labels=None, transformation=None, show_b
                         showlegend=(i == 0),
                         name=label,
                         spanmode=spanmode,
-                        # bandwidth=bandwidth,
                         fillcolor=groupby_label_color_map[label],
                         line_color='DarkSlateGrey',
                         hoveron='violins',
@@ -231,14 +229,13 @@ def plot_violin1(adata, genes, groupby, labels=None, transformation=None, show_b
                     row=i + 1, col=1
                 )
         
-        fig.update_yaxes(range=[0, expr_max], row=i + 1, col=1)
-        
-    for i, gene in enumerate(valid_genes):
         fig.update_yaxes(
-        title_text=gene,          # this shows on the left like a strip label
-        title_standoff=10,        # a bit of spacing from the ticks
-        row=i+1, col=1
-    )
+            range=[0, expr_max],
+            title_text=gene,
+            title_standoff=10,
+            tickformat=".1f",
+            row=i + 1, col=1
+        )
     # Layout
     fig_height = max(400, num_genes * 120)
     fig.update_layout(
@@ -259,7 +256,6 @@ def plot_violin1(adata, genes, groupby, labels=None, transformation=None, show_b
     return fig
 
 def _update_plot_colors(fig, new_color_map):
-    """Update plot colors without regenerating the entire plot."""
     # Create a copy to avoid modifying cached plot
     new_fig = go.Figure(fig)
     
@@ -270,13 +266,11 @@ def _update_plot_colors(fig, new_color_map):
     return new_fig
 
 def clear_violin_cache():
-    """Clear the violin plot caches to free memory."""
     global _violin_data_cache, _violin_plot_cache
     _violin_data_cache.clear()
     _violin_plot_cache.clear()
 
 def get_violin_cache_info():
-    """Get information about violin plot cache usage."""
     return {
         'data_cache_size': len(_violin_data_cache),
         'plot_cache_size': len(_violin_plot_cache),

@@ -335,7 +335,6 @@ def plot_coexpression_embedding(
                 unselected=dict(marker=dict(opacity=0.2))  # Dim unselected points
             ))
 
-    # Add category labels on plot if requested
     if legend_show == 'on data':
         for category in category_order:
             mask = embedding_df['category'] == category
@@ -351,7 +350,6 @@ def plot_coexpression_embedding(
                     opacity=0.9,
                 )
 
-    # Update layout
     fig.update_layout(
         autosize=True,
         plot_bgcolor='white',

@@ -1,3 +1,4 @@
+import dash
 from pathlib import Path
 import json
 from dash import dcc, html
@@ -131,128 +132,160 @@ def generate_heatmap_layout(adata, prefix):
 
 # 2.violin layout
 def generate_violin_layout(default_gene_markers,discrete_label_list,prefix):
-    # Pre-create some common dropdowns and toggles
-    violin1_transformation_selection = dbc.RadioItems(
-        id=f'{prefix}-violin-log-or-zscore',
-        options=[
-            {'label': 'None', 'value': 'False'},
-            {'label': 'Log', 'value': 'log'}
-        ],
-        value='False',
-        inline=True,
-        style={'marginLeft': '10px'}
-    )
 
-    violin2_transformation_selection = dbc.RadioItems(
-        id=f'{prefix}-violin2-log-or-zscore',
-        options=[
-            {'label': 'None', 'value': 'False'},
-            {'label': 'Log', 'value': 'log'}
-        ],
-        value='False',
-        inline=False
-    )
+    violin1_transformation_selection = html.Div([
+        html.Label("Transformation:", style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+        dbc.RadioItems(
+            id=f'{prefix}-violin-log-or-zscore',
+            options=[
+                {'label': 'None', 'value': 'False'},
+                {'label': 'Log', 'value': 'log'}
+            ],
+            value='False',
+            inline=True,
+            style={'marginLeft': '10px'}
+        )
+    ], style={'marginBottom': '15px'})
 
-    violin_show_box1 = dbc.Checklist(
-        id=f'{prefix}-show-box1',
-        options=[{'label': 'Show Box Plot', 'value': 'show'}],
-        value=[],
-        switch=True
-    )
+    violin2_transformation_selection = html.Div([
+        html.Label("Transformation:", style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+        dbc.RadioItems(
+            id=f'{prefix}-violin2-log-or-zscore',
+            options=[
+                {'label': 'None', 'value': 'False'},
+                {'label': 'Log', 'value': 'log'}
+            ],
+            value='False',
+            inline=False
+        )
+    ], style={'marginBottom': '10px'})
 
-    violin_show_scatter1 = dbc.Checklist(
-        id=f'{prefix}-show-scatter1',
-        options=[{'label': 'Show Scatter Points', 'value': 'show'}],
-        value=[],
-        switch=True
-    )
+    violin_show_box1 = html.Div([
+        dbc.Checklist(
+            id=f'{prefix}-show-box1',
+            options=[{'label': 'Show Box Plot', 'value': 'show'}],
+            value=[],
+            switch=True
+        )
+    ])
 
-    violin_show_box2 = dbc.Checklist(
-        id=f'{prefix}-show-box2',
-        options=[{'label': 'Show Box Plot', 'value': 'show'}],
-        value=[],
-        switch=True
-    )
+    violin_show_scatter1 = html.Div([
+        dbc.Checklist(
+            id=f'{prefix}-show-scatter1',
+            options=[{'label': 'Show Scatter Points', 'value': 'show'}],
+            value=[],
+            switch=True
+        )
+    ])
 
-    violin_show_scatter2 = dbc.Checklist(
-        id=f'{prefix}-show-scatter2',
-        options=[{'label': 'Show Scatter Points', 'value': 'show'}],
-        value=[],
-        switch=True
-    )
+    violin1_more_options = html.Div([
+        html.Label("More Options:", style={'fontWeight': 'bold'}),
+        html.Div([violin_show_box1, violin_show_scatter1],
+                style={'display': 'flex', 'gap': '20px'})
+    ], style={'marginBottom': '15px'})
+
+    violin_show_box2 = html.Div([
+        dbc.Checklist(
+            id=f'{prefix}-show-box2',
+            options=[{'label': 'Show Box Plot', 'value': 'show'}],
+            value=[],
+            switch=True
+        )
+    ])
+
+    violin_show_scatter2 = html.Div([
+        dbc.Checklist(
+            id=f'{prefix}-show-scatter2',
+            options=[{'label': 'Show Scatter Points', 'value': 'show'}],
+            value=[],
+            switch=True
+        )
+    ])
 
     # Meta1 dropdown (primary metadata)
-    meta1_selection = dcc.Dropdown(
-        id=f'{prefix}-meta1-selection',
-        options=[{'label': meta, 'value': meta} for meta in discrete_label_list],
-        value=discrete_label_list[0],
-        clearable=False,
-        placeholder="Select primary metadata"
-    )
+    meta1_selection = html.Div([
+        html.Label("Obs1 (Primary):", style={'fontWeight': 'bold'}),
+        dcc.Dropdown(
+            id=f'{prefix}-meta1-selection',
+            options=[{'label': meta, 'value': meta} for meta in discrete_label_list],
+            value=discrete_label_list[0],
+            clearable=False,
+            placeholder="Select primary metadata"
+        )
+    ], style={'flex': '1'})
 
     # Meta2 dropdown (secondary metadata - optional)
-    meta2_selection = dcc.Dropdown(
-        id=f'{prefix}-meta2-selection',
-        options=[{'label': 'None', 'value': 'none'}] + [{'label': meta, 'value': meta} for meta in discrete_label_list],
-        value='none',
-        clearable=False,
-        placeholder="Select secondary metadata (optional)"
-    )
+    meta2_selection = html.Div([
+        html.Label("Obs2 (Secondary):", style={'fontWeight': 'bold'}),
+        dcc.Dropdown(
+            id=f'{prefix}-meta2-selection',
+            options=[{'label': 'None', 'value': 'none'}] + [{'label': meta, 'value': meta} for meta in discrete_label_list],
+            value='none',
+            clearable=False,
+            placeholder="Select secondary metadata (optional)"
+        )
+    ], style={'flex': '1'})
 
     # Mode selection dropdown
-    mode_selection = dcc.Dropdown(
-        id=f'{prefix}-mode-selection',
-        options=[
-            {'label': 'Mode 1: One metadata only', 'value': 'mode1'},
-            {'label': 'Mode 2: Facet by meta1, compare meta2', 'value': 'mode2'},
-            {'label': 'Mode 3: Linear model (meta1 + confounder)', 'value': 'mode3'},
-            {'label': 'Mode 4: Mixed model (meta1 + random effect)', 'value': 'mode4'},
-        ],
-        value='mode1',
-        clearable=False
-    )
+    mode_selection = html.Div([
+        html.Label("Analysis Mode:", style={'fontWeight': 'bold'}),
+        dcc.Dropdown(
+            id=f'{prefix}-mode-selection',
+            options=[
+                {'label': 'Mode 1: One metadata only', 'value': 'mode1'},
+                {'label': 'Mode 2: Facet by meta1, compare meta2', 'value': 'mode2'},
+                {'label': 'Mode 3: Linear model (meta1 + meta2)', 'value': 'mode3'},
+                {'label': 'Mode 4: Mixed model (meta1 + (1|meta2))', 'value': 'mode4'},
+            ],
+            value='mode1',
+            clearable=False
+        )
+    ], style={'flex': '1'})
 
     # Test method dropdown
-    test_method_selection = dcc.Dropdown(
-        id=f'{prefix}-test-method-selection',
-        options=[
-            {'label': 'None', 'value': 'none'},
-            {'label': 'Mann-Whitney U', 'value': 'mwu-test'},
-            {'label': 'T-test', 'value': 'ttest'},
-            {'label': 'Kruskal-Wallis', 'value': 'kw-test'},
-            {'label': 'ANOVA', 'value': 'anova'},
-            {'label': 'Linear Model', 'value': 'linear-model'},
-            {'label': 'Mixed Model', 'value': 'mixed-model'}
-        ],
-        value='none',
-        clearable=False
-    )
+    test_method_selection = html.Div([
+        html.Label("Statistical Test:", style={'fontWeight': 'bold'}),
+        dcc.Dropdown(
+            id=f'{prefix}-test-method-selection',
+            options=[
+                {'label': 'None', 'value': 'none'},
+                {'label': 'Mann-Whitney U', 'value': 'mwu-test'},
+                {'label': 'T-test', 'value': 'ttest'},
+                {'label': 'Kruskal-Wallis', 'value': 'kw-test'},
+                {'label': 'ANOVA', 'value': 'anova'},
+                {'label': 'Linear Model', 'value': 'linear-model'},
+                {'label': 'Linear Model with Interaction', 'value': 'linear-model-interaction'},
+                {'label': 'Mixed Model', 'value': 'mixed-model'}
+            ],
+            value='none',
+            clearable=False
+        )
+    ], style={'flex': '1'})
 
-    violin2_gene_selection = dcc.Dropdown(
-        id=f'{prefix}-violin2-gene-selection',
-        options=[{'label': gene, 'value': gene} for gene in default_gene_markers],
-        value=default_gene_markers[0] if default_gene_markers else None
-    )
+    violin2_gene_selection = html.Div([
+        html.Label("Select Gene", style={'fontWeight': 'bold'}),
+        dcc.Dropdown(
+            id=f'{prefix}-violin2-gene-selection',
+            options=[{'label': gene, 'value': gene} for gene in default_gene_markers],
+            value=default_gene_markers[0] if default_gene_markers else None
+        )
+    ])
 
-    group_selection = dcc.Dropdown(
-        id=f'{prefix}-violin2-group-selection',
-        multi=True,
-        style={'font-size': '12px'}
-    )
+    # group_selection = html.Div([
+    #     html.Label("Labels in Group:", style={'fontWeight': 'bold', 'marginTop': '10px'}),
+    #     dcc.Dropdown(
+    #         id=f'{prefix}-violin2-group-selection',
+    #         multi=True,
+    #         style={'font-size': '12px'}
+    #     )
+    # ])
 
     # Final layout
     violin_layout = html.Div([
         # Violin Plot 1
         html.Div([
-            html.Div([
-                html.Label("Transformation:", style={'fontWeight': 'bold', 'marginBottom': '5px'}),
-                violin1_transformation_selection
-            ], style={'marginBottom': '15px'}),
-            html.Div([
-                html.Label("More Options:", style={'fontWeight': 'bold'}),
-                html.Div([violin_show_box1, violin_show_scatter1],
-                        style={'display': 'flex', 'gap': '20px'})
-            ], style={'marginBottom': '15px'}),
+            violin1_transformation_selection,
+            violin1_more_options,
             # Add cache store for violin plot optimization
             dcc.Store(id=f'{prefix}-violin-plot-cache-store'),
             dcc.Loading(
@@ -266,37 +299,21 @@ def generate_violin_layout(default_gene_markers,discrete_label_list,prefix):
                     )
                 ]
             ),
-        ], style={'marginBottom': '30px', 'padding': '10px'}),
+        ], style={'marginBottom': '30px', 'padding': '20px'}),
 
         # Violin Plot 2
         html.Div([
             html.H4("Split Violin/Grouped Violin", style={'textAlign': 'center', 'margin': '10px 0', 'fontWeight': 'bold'}),
-            html.Label("Select Gene", style={'fontWeight': 'bold'}),
             violin2_gene_selection,
+            violin2_transformation_selection,
             html.Div([
-                html.Label("Transformation:", style={'fontWeight': 'bold', 'marginBottom': '5px'}),
-                violin2_transformation_selection
-            ], style={'marginBottom': '10px'}),
-            html.Div([
-                html.Div([
-                    html.Label("Obs1 (Primary):", style={'fontWeight': 'bold'}),
-                    meta1_selection
-                ], style={'flex': '1'}),
-                html.Div([
-                    html.Label("Obs2 (Secondary):", style={'fontWeight': 'bold'}),
-                    meta2_selection
-                ], style={'flex': '1'}),
+                meta1_selection,
+                meta2_selection
             ], style={'display': 'flex', 'marginBottom': '10px', 'gap': '10px'}),
 
             html.Div([
-                html.Div([
-                    html.Label("Analysis Mode:", style={'fontWeight': 'bold'}),
-                    mode_selection
-                ], style={'flex': '1'}),
-                html.Div([
-                    html.Label("Statistical Test:", style={'fontWeight': 'bold'}),
-                    test_method_selection
-                ], style={'flex': '1'}),
+                mode_selection,
+                test_method_selection
             ], style={'display': 'flex', 'marginBottom': '10px', 'gap': '10px'}),
             
             # Mode explanation helper text
@@ -305,9 +322,11 @@ def generate_violin_layout(default_gene_markers,discrete_label_list,prefix):
                 style={'fontSize': '12px', 'color': 'gray', 'marginBottom': '10px', 'fontStyle': 'italic'}
             ),
 
-            html.Label("More Options:", style={'fontWeight': 'bold'}),
-            violin_show_box2,
-            violin_show_scatter2,
+            html.Div([
+                html.Label("More Options:", style={'fontWeight': 'bold'}),
+                violin_show_box2,
+                violin_show_scatter2,
+            ], style={'marginBottom': '10px'}),
 
             # Draggable Graph for Violin 2
             dcc.Loading(
@@ -361,8 +380,6 @@ def generate_violin_layout(default_gene_markers,discrete_label_list,prefix):
                 }
             ),
 
-            html.Label("Labels in Group:", style={'fontWeight': 'bold', 'marginTop': '10px'}),
-            group_selection,
         ], style={'padding': '10px'})
     ], style={'width': '100%'})
 
@@ -371,117 +388,115 @@ def generate_violin_layout(default_gene_markers,discrete_label_list,prefix):
     return violin_layout
 # 3. Dotplot Layout
 def generate_dotplot_layout(prefix):
-
-    # --- Plot type switch ---
-    plot_type_switch = html.Div([
-        html.Label(
-            'Plot Type:',
-            style={'fontWeight': 'bold', 'marginBottom': '5px'}
-        ),
-        dbc.RadioItems(
-            id=f'{prefix}-plot-type-switch',
-            options=[
-                {'label': 'Dotplot', 'value': 'dotplot'},
-                {'label': 'Matrixplot', 'value': 'matrixplot'}
-            ],
-            value='dotplot',
-            inline=True,
-            style={'marginBottom': '15px'}
-        )
-    ])
-
-
-    # --- Transformation selection ---
-    dotplot_transformation_selection = html.Div([
-        html.Label(
-            'Transformation:',
-            style={'fontWeight': 'bold', 'marginBottom': '5px'}
-        ),
-        dbc.RadioItems(
-            id=f'{prefix}-dotplot-log-or-zscore',
-            options=[
-                {'label': 'None', 'value': 'None'},
-                {'label': 'Log', 'value': 'log'}
-            ],
-            value='None',
-            inline=True,
-            style={'marginBottom': '10px'}
-        )
-    ])
-
-    dotplot_standardization_selection = html.Div([
-        html.Label(
-            'Standardization:',
-            style={'fontWeight': 'bold', 'marginBottom': '5px'}
-        ),
-        dbc.RadioItems(
-            id=f'{prefix}-dotplot-standardization',
-            options=[
-                {'label': 'None', 'value': 'None'},
-                {'label': 'By variable', 'value': 'var'},
-                {'label': 'By group', 'value': 'group'}
-            ],
-            value='None',
-            inline=True,
-            style={'marginBottom': '10px'}
-        )
-    ])
-    dotmatrix_color_map_dropdown = html.Div([
-        html.Label(
-            'Color Map:',
-            style={'fontWeight': 'bold', 'marginBottom': '5px'}
-        ),
-        dcc.Dropdown(
-            id=f'{prefix}-dotmatrix-color-map-dropdown',
-            options=[
-                {'label': scale, 'value': scale} for scale in colorscales
-            ],
-            value='viridis',
-            clearable=False,
-            style={'width': '200px', 'marginBottom': '10px'}
-        )
-    ])
-
-    # --- Clustering controls ---
-    clustering_controls = html.Div([
-        html.Label('Clustering:', style={'fontWeight': 'bold', 'marginBottom': '5px'}),
-        dbc.RadioItems(
-            id=f'{prefix}-dotplot-cluster-mode',
-            options=[
-                {'label': 'None', 'value': 'none'},
-                {'label': 'Rows', 'value': 'row'},
-                {'label': 'Columns', 'value': 'col'},
-                {'label': 'Both', 'value': 'both'},
-            ],
-            value='none',
-            inline=True,
-            style={'marginBottom': '10px'}
-        ),
-        html.Div([
+    
+    # Row 1: Data Processing
+    row1 = dbc.Row([
+    
             html.Div([
-                html.Label('Linkage Method', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id=f'{prefix}-dotplot-cluster-method',
-                    options=[
-                        {'label': m.capitalize(), 'value': m} for m in ['average', 'ward', 'complete', 'single']
-                    ],
-                    value='average', clearable=False, style={'minWidth': '160px'}
-                )
-            ], style={'display': 'inline-block', 'marginRight': '10px'}),
+                html.Label('Transformation: ', 
+                            style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+                dbc.RadioItems(
+                    id=f'{prefix}-dotplot-log-or-zscore',
+                    options=[{'label': 'None', 'value': 'None'}, {'label': 'Log', 'value': 'log'}],
+                    value='None',
+                    inline=True,
+                    style={ 'marginRight': '15px'}
+                ),
+            ]),
+
+
             html.Div([
-                html.Label('Distance Metric', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id=f'{prefix}-dotplot-cluster-metric',
+                html.Label('Standardization:', 
+                              style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+                dbc.RadioItems(
+                    id=f'{prefix}-dotplot-standardization',
                     options=[
-                        {'label': 'Correlation', 'value': 'correlation'},
-                        {'label': 'Euclidean', 'value': 'euclidean'},
-                        {'label': 'Cosine', 'value': 'cosine'},
+                        {'label': 'None', 'value': 'None'},
+                        {'label': 'By variable', 'value': 'var'},
+                        {'label': 'By label', 'value': 'group'}
                     ],
-                    value='correlation', clearable=False, style={'minWidth': '160px'}
+                    value='None',
+                    inline=True
+
                 )
-            ], style={'display': 'inline-block'})
-        ])
-    ], style={'marginBottom': '10px'})
+            ])
+        
+    ], style={'marginBottom': '15px', 'paddingBottom': '10px', 'borderBottom': '1px solid #eee'})
+
+    # Row 2: Clustering & Appearance
+    row2 = dbc.Row([
+        # Col 1: Clustering
+        dbc.Col([
+            html.Label('Clustering:', style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+            dbc.RadioItems(
+                id=f'{prefix}-dotplot-cluster-mode',
+                options=[
+                    {'label': 'None', 'value': 'none'},
+                    {'label': 'Rows', 'value': 'row'},
+                    {'label': 'Cols', 'value': 'col'},
+                    {'label': 'Both', 'value': 'both'},
+                ],
+                value='none',
+                inline=True,
+                style={'marginBottom': '5px'}
+            ),
+            html.Div([
+                html.Div([
+                    html.Label('Linkage Method', style={'fontSize': '0.9em', 'marginRight': '5px'}),
+                    dcc.Dropdown(
+                        id=f'{prefix}-dotplot-cluster-method',
+                        options=[{'label': m.capitalize(), 'value': m} for m in ['average', 'ward', 'complete', 'single']],
+                        value='average', clearable=False, style={'width': '100px'}
+                    )
+                ], style={'display': 'inline-block', 'marginRight': '15px'}),
+                html.Div([
+                    html.Label('Distance Metric', style={'fontSize': '0.9em', 'marginRight': '5px'}),
+                    dcc.Dropdown(
+                        id=f'{prefix}-dotplot-cluster-metric',
+                        options=[
+                            {'label': 'Correlation', 'value': 'correlation'},
+                            {'label': 'Euclidean', 'value': 'euclidean'},
+                            {'label': 'Cosine', 'value': 'cosine'},
+                        ],
+                        value='correlation', clearable=False, style={'width': '120px'}
+                    )
+                ], style={'display': 'inline-block'})
+            ])
+        ], width=6, style={'borderRight': '1px solid #eee', 'paddingRight': '15px'}),
+
+        # Col 2: Appearance
+        dbc.Col([
+            html.Label('Appearance:', style={'fontWeight': 'bold', 'marginBottom': '5px'}),
+            html.Div([
+                 dbc.Checklist(
+                    options=[{"label": "Matrix Plot", "value": "matrixplot"}],
+                    value=[],
+                    id=f'{prefix}-plot-type-switch',
+                    inline=True,
+                    switch=True,
+                    style={'display': 'inline-block', 'marginRight': '15px'}
+                ),
+                dbc.Checklist(
+                    options=[{"label": "Swap Axes", "value": "swap"}],
+                    value=[],
+                    id=f'{prefix}-dotplot-transpose',
+                    inline=True,
+                    switch=True,
+                    style={'display': 'inline-block', 'marginRight': '15px'}
+                ),
+            ], style={'marginBottom': '5px'}),
+             html.Div([
+                html.Label('Color Map:', style={'fontWeight': 'bold', 'marginBottom': '5px', 'fontSize': '0.9em'}),
+                dcc.Dropdown(
+                    id=f'{prefix}-dotmatrix-color-map-dropdown',
+                    options=[{'label': scale, 'value': scale} for scale in colorscales],
+                    value='viridis',
+                    clearable=False,
+                    style={'width': '200px', 'marginBottom': '10px'}
+                )
+            ])
+        ], width=6, style={'paddingLeft': '15px'}),
+    ], style={'marginBottom': '10px', 'backgroundColor': '#f8f9fa', 'padding': '10px', 'borderRadius': '5px'})
 
     draggable_container = dash_draggable.GridLayout(
     id=f'{prefix}-draggable-dotplot',
@@ -523,11 +538,8 @@ def generate_dotplot_layout(prefix):
     )
     # --- Final layout container ---
     dotplot_layout = html.Div([
-        dotplot_transformation_selection,
-        dotplot_standardization_selection,
-        clustering_controls,
-        plot_type_switch,
-        dotmatrix_color_map_dropdown,
+        row1,
+        row2,
         draggable_container
     ], style={'padding': '20px', 'marginBottom': '15px'})
 
@@ -734,3 +746,16 @@ def generate_pseudotime_layout(prefix):
     ])
     
     return layout
+
+# test layout
+if __name__ == "__main__":
+ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+ app.layout = html.Div([
+ html.H3("Dotplot Layout Preview", className="text-center my-4"),
+ html.Div(
+ generate_dotplot_layout("test"),
+ style={'maxWidth': '1000px', 'margin': '0 auto', 'border': '1px solid #eee', 'padding': '20px'}
+ )
+ ])
+ print("Run this script and open http://127.0.0.1:8050 in your browser")
+ app.run_server(debug=True)

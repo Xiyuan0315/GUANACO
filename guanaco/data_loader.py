@@ -10,6 +10,7 @@ import boto3
 import numpy as np
 from botocore import UNSIGNED
 from botocore.config import Config
+
 import muon as mu
 mu.set_options(pull_on_update=False)
 
@@ -228,78 +229,6 @@ def _iter_or_cycle(values: Sequence[Any], n: int) -> Iterable[Any]:
         values = list(values) + list(values)
     return values[:n]
 
-# def load_tracks_from_s3(
-#     bucket_urls: Sequence[str],
-#     max_heights: Sequence[int | None],
-#     atac_names: Sequence[str],
-#     colors: Sequence[str] = DEFAULT_COLORS,
-# ) -> dict[str, list[dict[str, Any]]]:
-#     s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
-#     tracks_dict: dict[str, list[dict[str, Any]]] = {}
-
-#     for bucket_url, height, atac in zip(bucket_urls, max_heights, atac_names):
-#         # Parse bucket name from URL
-#         # Expected format: https://bucket-name.s3.region.amazonaws.com
-#         try:
-#             from urllib.parse import urlparse
-#             parsed = urlparse(bucket_url)
-#             bucket_name = parsed.hostname.split('.')[0]
-#             contents = s3.list_objects_v2(Bucket=bucket_name).get("Contents", [])
-#         except Exception as exc:
-#             print(f"Error reading S3 bucket from URL '{bucket_url}': {exc}")
-#             continue
-
-#         colors_iter = _iter_or_cycle(colors, len(contents))
-#         tracks: list[dict[str, Any]] = []
-
-#         for obj, colour in zip(contents, colors_iter):
-#             key = obj["Key"]
-#             encoded = urllib.parse.quote(key)
-
-#             if key.endswith((".bigwig", ".bw")):
-#                 tracks.append({
-#                     "name": Path(key).stem,
-#                     "type": "wig",
-#                     "format": "bigwig",
-#                     "url": f"{bucket_url}/{encoded}",
-#                     "max": height,
-#                     "color": colour,
-#                 })
-#             elif key.endswith(".bedpe"):
-#                 tracks.append({
-#                     "name": Path(key).stem,
-#                     "type": "interaction",
-#                     "format": "bedpe",
-#                     "url": f"{bucket_url}/{encoded}",
-#                     "color": colour,
-#                 })
-#             elif key.endswith(".bed"):
-#                 tracks.append({
-#                     "name": Path(key).stem,
-#                     "type": "annotation",
-#                     "format": "bed",
-#                     "url": f"{bucket_url}/{encoded}",
-#                     "color": colour,
-#                 })
-#             elif key.endswith((".bigBed", ".bb")):
-#                 tracks.append({
-#                     "name": Path(key).stem,
-#                     "type": "annotation",
-#                     "format": "bigBed",
-#                     "url": f"{bucket_url}/{encoded}",
-#                     "color": colour,
-#                 })
-
-
-#         tracks_dict[atac] = tracks
-
-#     return tracks_dict
-from typing import Sequence, Any
-from urllib.parse import urlparse
-from pathlib import Path
-import urllib
-import boto3
-from botocore.client import Config, UNSIGNED
 
 def load_tracks_from_s3(
     bucket_urls: Sequence[str],
@@ -314,7 +243,7 @@ def load_tracks_from_s3(
 
     for bucket_url, height, atac in zip(bucket_urls, max_heights, atac_names):
         try:
-            parsed = urlparse(bucket_url.rstrip("/"))
+            parsed = urllib.parse.urlparse(bucket_url.rstrip("/"))
 
             if parsed.hostname and ".s3." in parsed.hostname:
                 # AWS-style: https://bucket.s3.region.amazonaws.com

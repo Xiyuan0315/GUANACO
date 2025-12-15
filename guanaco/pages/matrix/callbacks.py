@@ -1542,7 +1542,7 @@ def matrix_callbacks(app, adata, prefix):
             show_box='show' in show_box_plot if show_box_plot else False,
             show_points='show' in show_scatter1 if show_scatter1 else False,
             groupby_label_color_map=color_map,
-            adata_obs=adata.obs  # Pass original observations for consistent color mapping
+            adata_obs=adata.obs 
         )
         
         num_genes = len(selected_genes) if selected_genes else 0
@@ -1638,7 +1638,8 @@ def matrix_callbacks(app, adata, prefix):
         
         elif mode == 'mode3':
             options = base_options + [
-                {'label': 'Linear Model', 'value': 'linear-model'}
+                {'label': 'Linear Model', 'value': 'linear-model'},
+                {'label': 'Linear Model with Interaction', 'value': 'linear-model-interaction'}
             ]
         
         elif mode == 'mode4':
@@ -1681,19 +1682,14 @@ def matrix_callbacks(app, adata, prefix):
          Input(f'{prefix}-show-box2', 'value'),
          Input(f'{prefix}-show-scatter2', 'value'),
          Input(f'{prefix}-violin2-log-or-zscore', 'value'),
-         Input(f'{prefix}-violin2-group-selection', 'value'),
          Input(f'{prefix}-selected-cells-store', 'data')]
     )
     def update_violin2(gene_selection, meta1, meta2, mode, test_method,
-                       show_box2, show_points, transformation, labels, selected_cells):
+                       show_box2, show_points, transformation, selected_cells):
         if selected_cells:
             filtered_adata = filter_data(adata, None, None, selected_cells)
         else:
-            # If no cells selected but labels are provided, filter by those
-            if labels and meta1:
-                filtered_adata = filter_data(adata, meta1, labels, None)
-            else:
-                filtered_adata = adata
+            filtered_adata = adata
         
         if mode == 'mode1':
             meta2 = None
@@ -1713,7 +1709,7 @@ def matrix_callbacks(app, adata, prefix):
             show_box='show' in show_box2 if show_box2 else False,
             show_points='show' in show_points if show_points else False,
             test_method=test_method,
-            labels=labels,
+            labels=None,
             color_map=None
         )
     
@@ -1729,17 +1725,21 @@ def matrix_callbacks(app, adata, prefix):
          Input(f'{prefix}-dotplot-cluster-mode', 'value'),
          Input(f'{prefix}-dotplot-cluster-method', 'value'),
          Input(f'{prefix}-dotplot-cluster-metric', 'value'),
+         Input(f'{prefix}-dotplot-transpose', 'value'),
          Input(f'{prefix}-selected-cells-store', 'data'),
          Input(f'{prefix}-single-cell-tabs', 'value')],
         [State(f'{prefix}-dotplot', 'figure')]  # Keep current figure
     )
-    def update_dotplot(selected_genes, selected_annotation, selected_labels, plot_type,
+    def update_dotplot(selected_genes, selected_annotation, selected_labels, plot_type_selection,
                        transformation, standardization, color_map,
-                       cluster_mode, cluster_method, cluster_metric,
+                       cluster_mode, cluster_method, cluster_metric, transpose_selection,
                        selected_cells, active_tab, current_figure):
         # Lazy loading: only update if this tab is active
         if active_tab != 'dotplot-tab':
             return current_figure if current_figure else go.Figure()
+
+        transpose = 'swap' in transpose_selection if transpose_selection else False
+        plot_type_str = 'matrixplot' if plot_type_selection and 'matrixplot' in plot_type_selection else 'dotplot'
 
         if adata.n_obs > 10000 or (hasattr(adata, 'isbacked') and adata.isbacked):
             # Pass original adata - the optimized function will handle filtering internally
@@ -1752,10 +1752,11 @@ def matrix_callbacks(app, adata, prefix):
                 transformation=transformation,
                 standardization=standardization,
                 color_map=color_map,
-                plot_type=plot_type,
+                plot_type=plot_type_str,
                 cluster=cluster_mode or 'none',
                 method=cluster_method or 'average',
-                metric=cluster_metric or 'correlation'
+                metric=cluster_metric or 'correlation',
+                transpose=transpose
             )
         else:
             filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
@@ -1768,10 +1769,11 @@ def matrix_callbacks(app, adata, prefix):
                 transformation=transformation,
                 standardization=standardization,
                 color_map=color_map,
-                plot_type=plot_type,
+                plot_type=plot_type_str,
                 cluster=cluster_mode or 'none',
                 method=cluster_method or 'average',
-                metric=cluster_metric or 'correlation'
+                metric=cluster_metric or 'correlation',
+                transpose=transpose
             )
     
     @app.callback(

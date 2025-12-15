@@ -415,16 +415,18 @@ def plot_heatmap2_continuous(
         showscale=False,
         hovertemplate=f'{continuous_key}: %{{z:.4f}}<extra></extra>'
     ), row=2, col=1)
-
-    category_to_num = {cat: i for i, cat in enumerate(sorted_heatmap_df[groupby1].unique())}
-    category_values = sorted_heatmap_df[groupby1].map(category_to_num).values.reshape(1, -1)
+    
     unique_categories = sorted(sorted_heatmap_df[groupby1].unique())
+
+    category_to_num = {cat: i for i, cat in enumerate(unique_categories)}
+    category_values = sorted_heatmap_df[groupby1].map(category_to_num).values.reshape(1, -1)
+
     n_categories = len(unique_categories)
     colorscale = []
     for i, cat in enumerate(unique_categories):
         color = groupby1_label_color_map.get(cat, 'grey') if isinstance(groupby1_label_color_map, dict) else 'grey'
-        colorscale.append([i/n_categories, color])
-        colorscale.append([(i+1)/n_categories, color])
+        colorscale.append([i / n_categories, color])
+        colorscale.append([(i + 1) / n_categories, color])
     fig.add_trace(go.Heatmap(
         z=category_values,
         x=list(range(len(sorted_heatmap_df))),

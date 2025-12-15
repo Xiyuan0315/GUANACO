@@ -15,7 +15,8 @@ def plot_dot_matrix(
     aggregation='mean', transformation=None, standardization=None,
     vmin=None, vmax=None, expression_threshold=0,
     color_map='Viridis', plot_type='dotplot',
-    cluster='none', method='average', metric='correlation'
+    cluster='none', method='average', metric='correlation',
+    transpose=False
 ):
     """Optimized dotplot function that processes data group by group to avoid loading all cells at once."""
     valid_genes = [gene for gene in genes if gene in adata.var_names]
@@ -119,6 +120,30 @@ def plot_dot_matrix(
     vmin = vmin if vmin is not None else float(aggregated_data[valid_genes].min().min())
     vmax = vmax if vmax is not None else float(aggregated_data[valid_genes].max().max())
 
+    # --- Setup axes items based on transpose ---
+    if transpose:
+        x_items = groups
+        y_items = valid_genes
+        # Dendrogram flags
+        show_right_dendro = (_SCIPY_AVAILABLE and cluster in ('col', 'both') and len(valid_genes) > 1)
+        show_top_dendro = (_SCIPY_AVAILABLE and cluster in ('row', 'both') and len(groups) > 1)
+        # Matrices for dendrograms
+        right_dendro_mat = aggregated_data[valid_genes].loc[groups].values.T # Genes x Groups
+        top_dendro_mat = aggregated_data[valid_genes].loc[groups].values     # Groups x Genes
+        right_dendro_items = valid_genes
+        top_dendro_items = groups
+    else:
+        x_items = valid_genes
+        y_items = groups
+        # Dendrogram flags
+        show_right_dendro = (_SCIPY_AVAILABLE and cluster in ('row', 'both') and len(groups) > 1)
+        show_top_dendro = (_SCIPY_AVAILABLE and cluster in ('col', 'both') and len(valid_genes) > 1)
+        # Matrices for dendrograms
+        right_dendro_mat = aggregated_data[valid_genes].loc[groups].values   # Groups x Genes
+        top_dendro_mat = aggregated_data[valid_genes].loc[groups].values.T   # Genes x Groups
+        right_dendro_items = groups
+        top_dendro_items = valid_genes
+
     if plot_type == 'dotplot':
         df_expression = aggregated_data.reset_index().melt(id_vars=['index'], value_vars=valid_genes, var_name='gene', value_name='expression')
         df_expression.rename(columns={'index': groupby}, inplace=True)
@@ -148,8 +173,8 @@ def plot_dot_matrix(
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=df_merged['gene'],
-            y=df_merged[groupby],
+            x=df_merged[groupby] if transpose else df_merged['gene'],
+            y=df_merged['gene'] if transpose else df_merged[groupby],
             mode='markers',
             showlegend=False,
             marker=dict(
@@ -170,46 +195,47 @@ def plot_dot_matrix(
             ),
             customdata=custom_data,
             hovertemplate=(
-                'Gene: %{x}<br>'
-                f'{groupby}: %{{y}}<br>'
+                'Gene: %{customdata[2]}<br>' if transpose else 'Gene: %{x}<br>'
+                f'{groupby}: %{{x}}<br>' if transpose else f'{groupby}: %{{y}}<br>'
                 'Expression: %{customdata[0]:.4f}<br>'
                 'Fraction: %{customdata[1]:.4f}<extra></extra>'
             )
         ))
+        
+        # Fix hovertemplate gene label for transposed case
+        if transpose:
+            fig.data[0].customdata = np.stack([df_merged['expression'], df_merged['fraction'], df_merged['gene']], axis=-1)
+
         # Build a custom size legend as a right-side inset aligned with the colorbar
         y_positions = np.linspace(0.8, 0.2, len(size_legend_values))
 
-        # Determine if dendrograms are shown to allocate space dynamically
-        show_row_dendro = (_SCIPY_AVAILABLE and cluster in ('row', 'both') and len(groups) > 1)
-        show_col_dendro = (_SCIPY_AVAILABLE and cluster in ('col', 'both') and len(valid_genes) > 1)
-
         # Main axes domains
-        main_x_right = 0.68 if show_row_dendro else 0.72
-        main_y_top = 0.86 if show_col_dendro else 1.0
+        main_x_right = 0.68 if show_right_dendro else 0.72
+        main_y_top = 0.86 if show_top_dendro else 1.0
 
         layout_kwargs = dict(
             xaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=valid_genes),
+                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=x_items),
             yaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       categoryorder='array', categoryarray=groups, domain=[0.0, main_y_top]),
+                       categoryorder='array', categoryarray=y_items, domain=[0.0, main_y_top]),
             # Size legend (right-middle)
             xaxis2=dict(domain=[0.74, 0.96], range=[0.1, 0.9], autorange=False, fixedrange=True,
                         showgrid=False, zeroline=False, showticklabels=False, uirevision='frac-legend'),
             yaxis2=dict(domain=[0.2, 0.8], range=[0.1, 1.0], autorange=False, fixedrange=True,
                         showgrid=False, zeroline=False, showticklabels=False, uirevision='frac-legend'),
-            margin=dict(r=260, t=60 if show_col_dendro else 20),
+            margin=dict(r=260, t=60 if show_top_dendro else 20),
             plot_bgcolor='white', paper_bgcolor='white'
         )
 
         # Add dendrogram axes only when needed (prevents reserving empty space)
-        if show_row_dendro:
+        if show_right_dendro:
             layout_kwargs.update({
                 'xaxis3': dict(domain=[main_x_right + 0.01, main_x_right + 0.04], range=[0, 1],
                                showgrid=False, zeroline=False, showticklabels=False),
                 'yaxis3': dict(domain=[0.0, main_y_top], range=[0, 1],
                                showgrid=False, zeroline=False, showticklabels=False),
             })
-        if show_col_dendro:
+        if show_top_dendro:
             layout_kwargs.update({
                 'xaxis4': dict(domain=[0.0, main_x_right], range=[0, 1],
                                showgrid=False, zeroline=False, showticklabels=False),
@@ -223,7 +249,7 @@ def plot_dot_matrix(
         fig.add_trace(go.Scatter(
             x=[0.5], y=[0.95], xaxis='x2', yaxis='y2',
             mode='text', text=["Frac. cells"],
-            textposition='top left',
+            textposition='top center',
             cliponaxis=False,
             showlegend=False, hoverinfo='skip',
             textfont=dict(size=11, color='black')
@@ -233,14 +259,14 @@ def plot_dot_matrix(
         for size, value, y in zip(size_legend_sizes, size_legend_values, y_positions):
             percent = f"{int(round(value * 100))}%"
             fig.add_trace(go.Scatter(
-                x=[0.25], y=[y], xaxis='x2', yaxis='y2',
+                x=[0.20], y=[y], xaxis='x2', yaxis='y2',
                 mode='markers',
                 marker=dict(size=size, color='grey', line=dict(color='black', width=0.5)),
                 cliponaxis=False,
                 showlegend=False, hoverinfo='skip'
             ))
             fig.add_trace(go.Scatter(
-                x=[0.62], y=[y], xaxis='x2', yaxis='y2',
+                x=[0.80], y=[y], xaxis='x2', yaxis='y2',
                 mode='text', text=[percent],
                 textposition='middle left',
                 cliponaxis=False,
@@ -248,87 +274,15 @@ def plot_dot_matrix(
                 textfont=dict(size=10, color='black')
             ))
 
-        # ============ Dendrograms (Scanpy-like) ============
-        if _SCIPY_AVAILABLE:
-            # Helper to map scipy dendrogram coords to axis coords (rows)
-            def _map_row_y(yy_vals, leaves_labels):
-                # Display positions for current groups order
-                n = len(groups)
-                pos_map = {g: (i + 0.5) / n for i, g in enumerate(groups)}
-                # Dendrogram leaf order labels
-                leaf_pos_labels = [leaves_labels[i] for i in range(len(leaves_labels))]
-                leaf_pos_y = [pos_map.get(lbl, 0.0) for lbl in leaf_pos_labels]
-                out = []
-                for yy in yy_vals:
-                    p = max(0.0, min((yy - 5.0) / 10.0, len(leaf_pos_y) - 1))
-                    i0 = int(np.floor(p))
-                    i1 = min(i0 + 1, len(leaf_pos_y) - 1)
-                    frac = p - i0
-                    yy_mapped = leaf_pos_y[i0] * (1 - frac) + leaf_pos_y[i1] * frac
-                    out.append(yy_mapped)
-                return out
-
-            # Helper to map scipy dendrogram coords to axis coords (cols)
-            def _map_col_x(xx_vals, leaves_labels):
-                n = len(valid_genes)
-                pos_map = {g: (i + 0.5) / n for i, g in enumerate(valid_genes)}
-                leaf_pos_labels = [leaves_labels[i] for i in range(len(leaves_labels))]
-                leaf_pos_x = [pos_map.get(lbl, 0.0) for lbl in leaf_pos_labels]
-                out = []
-                for xx in xx_vals:
-                    p = max(0.0, min((xx - 5.0) / 10.0, len(leaf_pos_x) - 1))
-                    i0 = int(np.floor(p))
-                    i1 = min(i0 + 1, len(leaf_pos_x) - 1)
-                    frac = p - i0
-                    xx_mapped = leaf_pos_x[i0] * (1 - frac) + leaf_pos_x[i1] * frac
-                    out.append(xx_mapped)
-                return out
-
-            from scipy.cluster.hierarchy import dendrogram as _scipy_dendro
-
-            # Row dendrogram
-            if show_row_dendro:
-                try:
-                    row_mat = aggregated_data[valid_genes].loc[groups].values
-                    row_mat = np.nan_to_num(row_mat, nan=0.0)
-                    Zr = linkage(pdist(row_mat, metric=metric), method=method)
-                    drow = _scipy_dendro(Zr, no_plot=True, orientation='right', labels=list(groups))
-                    max_h = max([max(dc) for dc in drow['dcoord']]) or 1.0
-                    for ico, dco in zip(drow['icoord'], drow['dcoord']):
-                        ys = _map_row_y(ico, drow['ivl'])  # ivl are leaf labels in order
-                        xs = [h / max_h for h in dco]
-                        fig.add_trace(go.Scatter(
-                            x=xs, y=ys, xaxis='x3', yaxis='y3',
-                            mode='lines', line=dict(color='black', width=1),
-                            hoverinfo='skip', showlegend=False
-                        ))
-                except Exception:
-                    pass
-
-            # Column dendrogram
-            if show_col_dendro:
-                try:
-                    col_mat = aggregated_data[valid_genes].loc[groups].values.T
-                    col_mat = np.nan_to_num(col_mat, nan=0.0)
-                    Zc = linkage(pdist(col_mat, metric=metric), method=method)
-                    dcol = _scipy_dendro(Zc, no_plot=True, orientation='top', labels=list(valid_genes))
-                    max_hc = max([max(dc) for dc in dcol['dcoord']]) or 1.0
-                    for ico, dco in zip(dcol['icoord'], dcol['dcoord']):
-                        xs = _map_col_x(ico, dcol['ivl'])
-                        ys = [h / max_hc for h in dco]
-                        fig.add_trace(go.Scatter(
-                            x=xs, y=ys, xaxis='x4', yaxis='y4',
-                            mode='lines', line=dict(color='black', width=1),
-                            hoverinfo='skip', showlegend=False
-                        ))
-                except Exception:
-                    pass
-
     else:  # matrixplot
+        z_data = aggregated_data.loc[groups, valid_genes].values
+        if transpose:
+            z_data = z_data.T
+            
         fig = go.Figure(data=go.Heatmap(
-            z=aggregated_data.loc[groups, valid_genes].values,
-            x=valid_genes,
-            y=groups,
+            z=z_data,
+            x=x_items,
+            y=y_items,
             colorscale=color_map,
             zmid=None,
             zmin=vmin,
@@ -345,30 +299,27 @@ def plot_dot_matrix(
         ))
 
         # Dendrogram layout (same style as dotplot, but without the frac. cells inset)
-        show_row_dendro = (_SCIPY_AVAILABLE and cluster in ('row', 'both') and len(groups) > 1)
-        show_col_dendro = (_SCIPY_AVAILABLE and cluster in ('col', 'both') and len(valid_genes) > 1)
-
-        main_x_right = 0.84 if show_row_dendro else 0.96  # Leave extra space for colorbar when no row dendrogram
-        main_y_top = 0.84 if show_col_dendro else 1.0
+        main_x_right = 0.84 if show_right_dendro else 0.96  # Leave extra space for colorbar when no row dendrogram
+        main_y_top = 0.84 if show_top_dendro else 1.0
 
         layout_kwargs = dict(
             xaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=valid_genes),
+                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=x_items),
             yaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       categoryorder='array', categoryarray=groups, domain=[0.0, main_y_top]),
-            margin=dict(r=120 if show_row_dendro else 80, t=70 if show_col_dendro else 20,
+                       categoryorder='array', categoryarray=y_items, domain=[0.0, main_y_top]),
+            margin=dict(r=120 if show_right_dendro else 80, t=70 if show_top_dendro else 20,
                         b=100, l=100),
             plot_bgcolor='white', paper_bgcolor='white'
         )
 
-        if show_row_dendro:
+        if show_right_dendro:
             layout_kwargs.update({
                 'xaxis3': dict(domain=[main_x_right + 0.01, min(main_x_right + 0.04, 0.99)], range=[0, 1],
                                showgrid=False, zeroline=False, showticklabels=False),
                 'yaxis3': dict(domain=[0.0, main_y_top], range=[0, 1],
                                showgrid=False, zeroline=False, showticklabels=False),
             })
-        if show_col_dendro:
+        if show_top_dendro:
             layout_kwargs.update({
                 'xaxis4': dict(domain=[0.0, main_x_right], range=[0, 1],
                                showgrid=False, zeroline=False, showticklabels=False),
@@ -378,72 +329,59 @@ def plot_dot_matrix(
 
         fig.update_layout(**layout_kwargs)
 
-        # Draw dendrograms
-        if _SCIPY_AVAILABLE:
-            from scipy.cluster.hierarchy import dendrogram as _scipy_dendro
+    # ============ Dendrograms (Scanpy-like) ============
+    if _SCIPY_AVAILABLE:
+        from scipy.cluster.hierarchy import dendrogram as _scipy_dendro
 
-            def _map_row_y(yy_vals, leaves_labels):
-                n = len(groups)
-                pos_map = {g: (i + 0.5) / n for i, g in enumerate(groups)}
-                leaf_pos_labels = [leaves_labels[i] for i in range(len(leaves_labels))]
-                leaf_pos_y = [pos_map.get(lbl, 0.0) for lbl in leaf_pos_labels]
-                out = []
-                for yy in yy_vals:
-                    p = max(0.0, min((yy - 5.0) / 10.0, len(leaf_pos_y) - 1))
-                    i0 = int(np.floor(p))
-                    i1 = min(i0 + 1, len(leaf_pos_y) - 1)
-                    frac = p - i0
-                    out.append(leaf_pos_y[i0] * (1 - frac) + leaf_pos_y[i1] * frac)
-                return out
+        def _map_to_axis(vals, leaves_labels, target_items):
+            n = len(target_items)
+            pos_map = {g: (i + 0.5) / n for i, g in enumerate(target_items)}
+            leaf_pos_labels = [leaves_labels[i] for i in range(len(leaves_labels))]
+            leaf_pos = [pos_map.get(lbl, 0.0) for lbl in leaf_pos_labels]
+            out = []
+            for v in vals:
+                p = max(0.0, min((v - 5.0) / 10.0, len(leaf_pos) - 1))
+                i0 = int(np.floor(p))
+                i1 = min(i0 + 1, len(leaf_pos) - 1)
+                frac = p - i0
+                out.append(leaf_pos[i0] * (1 - frac) + leaf_pos[i1] * frac)
+            return out
 
-            def _map_col_x(xx_vals, leaves_labels):
-                n = len(valid_genes)
-                pos_map = {g: (i + 0.5) / n for i, g in enumerate(valid_genes)}
-                leaf_pos_labels = [leaves_labels[i] for i in range(len(leaves_labels))]
-                leaf_pos_x = [pos_map.get(lbl, 0.0) for lbl in leaf_pos_labels]
-                out = []
-                for xx in xx_vals:
-                    p = max(0.0, min((xx - 5.0) / 10.0, len(leaf_pos_x) - 1))
-                    i0 = int(np.floor(p))
-                    i1 = min(i0 + 1, len(leaf_pos_x) - 1)
-                    frac = p - i0
-                    out.append(leaf_pos_x[i0] * (1 - frac) + leaf_pos_x[i1] * frac)
-                return out
+        # Right dendrogram (x3, y3)
+        if show_right_dendro:
+            try:
+                # Calculate linkage on the matrix provided
+                mat = np.nan_to_num(right_dendro_mat, nan=0.0)
+                Z = linkage(pdist(mat, metric=metric), method=method)
+                dendro = _scipy_dendro(Z, no_plot=True, orientation='right', labels=list(right_dendro_items))
+                max_h = max([max(dc) for dc in dendro['dcoord']]) or 1.0
+                for ico, dco in zip(dendro['icoord'], dendro['dcoord']):
+                    ys = _map_to_axis(ico, dendro['ivl'], right_dendro_items)
+                    xs = [h / max_h for h in dco]
+                    fig.add_trace(go.Scatter(
+                        x=xs, y=ys, xaxis='x3', yaxis='y3',
+                        mode='lines', line=dict(color='black', width=1),
+                        hoverinfo='skip', showlegend=False
+                    ))
+            except Exception:
+                pass
 
-            if show_row_dendro:
-                try:
-                    row_mat = aggregated_data[valid_genes].loc[groups].values
-                    row_mat = np.nan_to_num(row_mat, nan=0.0)
-                    Zr = linkage(pdist(row_mat, metric=metric), method=method)
-                    drow = _scipy_dendro(Zr, no_plot=True, orientation='right', labels=list(groups))
-                    max_h = max([max(dc) for dc in drow['dcoord']]) or 1.0
-                    for ico, dco in zip(drow['icoord'], drow['dcoord']):
-                        ys = _map_row_y(ico, drow['ivl'])
-                        xs = [h / max_h for h in dco]
-                        fig.add_trace(go.Scatter(
-                            x=xs, y=ys, xaxis='x3', yaxis='y3',
-                            mode='lines', line=dict(color='black', width=1),
-                            hoverinfo='skip', showlegend=False
-                        ))
-                except Exception:
-                    pass
-
-            if show_col_dendro:
-                try:
-                    col_mat = aggregated_data[valid_genes].loc[groups].values.T
-                    col_mat = np.nan_to_num(col_mat, nan=0.0)
-                    Zc = linkage(pdist(col_mat, metric=metric), method=method)
-                    dcol = _scipy_dendro(Zc, no_plot=True, orientation='top', labels=list(valid_genes))
-                    max_hc = max([max(dc) for dc in dcol['dcoord']]) or 1.0
-                    for ico, dco in zip(dcol['icoord'], dcol['dcoord']):
-                        xs = _map_col_x(ico, dcol['ivl'])
-                        ys = [h / max_hc for h in dco]
-                        fig.add_trace(go.Scatter(
-                            x=xs, y=ys, xaxis='x4', yaxis='y4',
-                            mode='lines', line=dict(color='black', width=1),
-                            hoverinfo='skip', showlegend=False
-                        ))
-                except Exception:
-                    pass
+        # Top dendrogram (x4, y4)
+        if show_top_dendro:
+            try:
+                mat = np.nan_to_num(top_dendro_mat, nan=0.0)
+                Z = linkage(pdist(mat, metric=metric), method=method)
+                dendro = _scipy_dendro(Z, no_plot=True, orientation='top', labels=list(top_dendro_items))
+                max_h = max([max(dc) for dc in dendro['dcoord']]) or 1.0
+                for ico, dco in zip(dendro['icoord'], dendro['dcoord']):
+                    xs = _map_to_axis(ico, dendro['ivl'], top_dendro_items)
+                    ys = [h / max_h for h in dco]
+                    fig.add_trace(go.Scatter(
+                        x=xs, y=ys, xaxis='x4', yaxis='y4',
+                        mode='lines', line=dict(color='black', width=1),
+                        hoverinfo='skip', showlegend=False
+                    ))
+            except Exception:
+                pass
 
     return fig
