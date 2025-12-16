@@ -108,7 +108,6 @@ def load_adata(
         seed: Random seed for downsampling
         base_dir: Base directory for relative paths
         backed: If True, use backed mode (disk-based). If 'r+', use read-write backed mode.
-                For .h5mu files, backed mode is not supported.
 
     Returns:
         AnnData (for .h5ad) or MuData (for .h5mu)
@@ -122,8 +121,11 @@ def load_adata(
 
     if path.suffix == ".h5mu":
         if backed:
-            print(f"Warning: Backed mode not supported for .h5mu files. Loading {path} into memory.")
-        adata = mu.read_h5mu(path)
+            mode = 'r+' if backed == 'r+' else True
+            adata = mu.read_h5mu(path, backed=mode)
+            print(f"Loaded {path} in backed mode (disk-based)")
+        else:
+            adata = mu.read_h5mu(path)
     elif path.suffix == ".h5ad":
         if backed:
             # Use backed mode for disk-based access
