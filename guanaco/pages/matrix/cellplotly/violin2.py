@@ -6,7 +6,7 @@ from scipy.stats import ttest_ind, mannwhitneyu, f_oneway, kruskal
 from statsmodels.formula.api import ols, mixedlm
 import warnings
 
-default_color = [
+DEFAULT_COLORS = [
     "#E69F00",
     "#56B4E9",
     "#009E73",
@@ -231,10 +231,15 @@ def calculate_p_values_by_mode(df, meta1, meta2, mode, test_method, labels=None,
     return p_values
 
 
-def assign_colors(levels, color_map=None):
+def assign_colors(levels, color_map=None, palette=None):
     if color_map is None:
         color_map = {}
-    default_colors = px.colors.qualitative.Plotly
+    
+    if palette:
+        default_colors = palette
+    else:
+        default_colors = DEFAULT_COLORS
+        
     for i, level in enumerate(sorted(levels)):
         if level not in color_map:
             color_map[level] = default_colors[i % len(default_colors)]
@@ -413,7 +418,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
 
 def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                      show_box=False, show_points=False, test_method='auto', 
-                     labels=None, color_map=None):
+                     labels=None, color_map=None, palette=None):
     """
     Create violin plots for gene expression data with support for multiple metadata designs.
     
@@ -442,6 +447,20 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
         expression_data = apply_transformation(expression_data, transformation, copy=False)
     
     # Build dataframe
+    df = pd.DataFrame({
+        'Expression': expression_data,
+        'meta1': adata.obs[meta1].values
+    })
+    
+    # Use internal column name 'meta1' to avoid conflict if meta1 column name is 'Expression'
+    # But we need to keep original meta1 name for display... 
+    # Actually the previous code used:
+    # df = pd.DataFrame({
+    #     'Expression': expression_data,
+    #     meta1: adata.obs[meta1].values
+    # })
+    # Let's stick to the previous code structure for safety, just update signature and assign_colors call.
+    
     df = pd.DataFrame({
         'Expression': expression_data,
         meta1: adata.obs[meta1].values
@@ -476,9 +495,9 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
     # For nested designs, color by meta1 (the parent category)
     # For crossed/sparse designs, color by meta2
     if design_type == 'nested':
-        color_map = assign_colors(meta1_cats, color_map)
+        color_map = assign_colors(meta1_cats, color_map, palette=palette)
     elif meta2_cats:
-        color_map = assign_colors(meta2_cats, color_map)
+        color_map = assign_colors(meta2_cats, color_map, palette=palette)
     
     # Determine test method
     meta1_levels = len(meta1_cats)
@@ -508,15 +527,15 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 color_map, show_box, points_mode
             )
-        elif design_type in ['crossed', 'sparse']:
-            # Crossed/Sparse design: each combination gets its own x position
-            fig, title, xaxis_title = _create_crossed_violin(
-                fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
-            )
         elif len(meta2_cats) == 2:
             # Split violin for binary comparison
             fig, title, xaxis_title = _create_split_violin(
+                fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
+                color_map, show_box, points_mode
+            )
+        elif design_type in ['crossed', 'sparse']:
+            # Crossed/Sparse design: each combination gets its own x position
+            fig, title, xaxis_title = _create_crossed_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 color_map, show_box, points_mode
             )
@@ -533,8 +552,14 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 color_map, show_box, points_mode
             )
+        elif len(meta2_cats) == 2:
+            # Split violin for binary comparison
+            fig, title, xaxis_title = _create_split_violin(
+                fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
+                color_map, show_box, points_mode
+            )
         else:
-            # Use crossed violin for crossed/sparse designs
+            # Use crossed violin for crossed/sparse designs with more than 2 meta2 categories
             fig, title, xaxis_title = _create_crossed_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 color_map, show_box, points_mode
@@ -543,7 +568,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
     # Calculate and add p-values
     if test_method and test_method != 'none':
         p_values = calculate_p_values_by_mode(df, meta1, meta2, mode, test_method, labels, design_type)
-        split_violin = (mode == 'mode2' and meta2 and len(meta2_cats) == 2 and design_type != 'nested')
+        split_violin = (mode in ['mode2', 'mode3', 'mode4'] and meta2 and len(meta2_cats) == 2 and design_type in ['crossed', 'sparse'])
         add_p_value_annotations_new(fig, p_values, df, mode, meta1, meta2, split_violin, design_type)
     
     _apply_common_layout(fig, df, key, title, xaxis_title, meta2, mode, show_points)
@@ -619,7 +644,7 @@ def _create_single_meta_violin(fig, df, key, meta1, meta1_cats, show_box, points
             meanline_visible=True,
             width=0.8,
             spanmode=spanmode,
-            fillcolor=default_color[i % len(default_color)],
+            fillcolor=DEFAULT_COLORS[i % len(DEFAULT_COLORS)],
             line_color='DarkSlateGrey',
             hoveron='violins',
             jitter=0.05,
@@ -677,7 +702,7 @@ def _create_split_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 points=points_mode,
                 meanline_visible=True,
                 spanmode=spanmode,
-                fillcolor=color_map.get(m2_group, default_color[j % len(default_color)]),
+                fillcolor=color_map.get(m2_group, DEFAULT_COLORS[j % len(DEFAULT_COLORS)]),
                 line_color='DarkSlateGrey',
                 hoveron='violins',
                 jitter=0.05,
@@ -747,7 +772,7 @@ def _create_nested_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
             points=points_mode,
             meanline_visible=True,
             spanmode=spanmode,
-            fillcolor=color_map.get(m1_group, default_color[m1_idx % len(default_color)]),
+            fillcolor=color_map.get(m1_group, DEFAULT_COLORS[m1_idx % len(DEFAULT_COLORS)]),
             line_color='DarkSlateGrey',
             hoveron='violins',
             hoverinfo='y+name',
@@ -821,7 +846,7 @@ def _create_crossed_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 points=points_mode,
                 meanline_visible=True,
                 spanmode=spanmode,
-                fillcolor=color_map.get(m2_group, default_color[j % len(default_color)]),
+                fillcolor=color_map.get(m2_group, DEFAULT_COLORS[j % len(DEFAULT_COLORS)]),
                 line_color='DarkSlateGrey',
                 hoveron='violins',
                 hoverinfo='y+name',
@@ -884,7 +909,7 @@ def _create_grouped_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 points=points_mode,
                 meanline_visible=True,
                 spanmode=spanmode,
-                fillcolor=color_map.get(m2_group, default_color[j % len(default_color)]),
+                fillcolor=color_map.get(m2_group, DEFAULT_COLORS[j % len(DEFAULT_COLORS)]),
                 line_color='DarkSlateGrey',
                 hoveron='violins',
                 hoverinfo='y+name',

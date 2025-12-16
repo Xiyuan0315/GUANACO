@@ -1682,10 +1682,11 @@ def matrix_callbacks(app, adata, prefix):
          Input(f'{prefix}-show-box2', 'value'),
          Input(f'{prefix}-show-scatter2', 'value'),
          Input(f'{prefix}-violin2-log-or-zscore', 'value'),
+         Input(f'{prefix}-discrete-color-map-dropdown', 'value'),
          Input(f'{prefix}-selected-cells-store', 'data')]
     )
     def update_violin2(gene_selection, meta1, meta2, mode, test_method,
-                       show_box2, show_points, transformation, selected_cells):
+                       show_box2, show_points, transformation, selected_palette_name, selected_cells):
         if selected_cells:
             filtered_adata = filter_data(adata, None, None, selected_cells)
         else:
@@ -1699,6 +1700,10 @@ def matrix_callbacks(app, adata, prefix):
         if mode in ['mode2', 'mode3', 'mode4'] and meta2 is None:
             raise PreventUpdate
             
+        palette = None
+        if selected_palette_name:
+             palette = palette_json["color_palettes"].get(selected_palette_name)
+
         return plot_violin2_new(
             filtered_adata,
             key=gene_selection,
@@ -1710,7 +1715,8 @@ def matrix_callbacks(app, adata, prefix):
             show_points='show' in show_points if show_points else False,
             test_method=test_method,
             labels=None,
-            color_map=None
+            color_map=None,
+            palette=palette
         )
     
     @app.callback(

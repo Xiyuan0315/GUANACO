@@ -489,7 +489,6 @@ else:
     backed_mode = False
 
 datasets = initialize_data(lazy_load=lazy_load, backed_mode=backed_mode)
-# Don't print dataset info at startup to avoid loading data
-# Use colors from config if available, otherwise use defaults
+
 cfg = load_config(JSON_PATH)
 color_config = cfg.get("color", DEFAULT_COLORS)  
