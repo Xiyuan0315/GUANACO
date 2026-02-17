@@ -14,7 +14,9 @@ from guanaco.pages.matrix.cellplotly.embedding import (
     plot_embedding,
     plot_coexpression_embedding,
 )
-from guanaco.pages.matrix.cellplotly.heatmap import plot_unified_heatmap
+from guanaco.pages.matrix.cellplotly.heatmap import (
+    plot_unified_heatmap,
+)
 from guanaco.pages.matrix.cellplotly.violin1 import plot_violin1
 from guanaco.pages.matrix.cellplotly.violin2 import plot_violin2_new
 from guanaco.pages.matrix.cellplotly.stacked_bar import plot_stacked_bar

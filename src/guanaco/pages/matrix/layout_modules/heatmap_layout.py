@@ -80,14 +80,18 @@ def generate_heatmap_layout(adata, prefix):
         dropdown_style={"width": "200px", "marginBottom": "10px"},
     )
 
-    secondary_annotation_colormap_dropdown = labeled_dropdown(
-        "Secondary Annotation ColorMap:",
-        f"{prefix}-heatmap-secondary-colormap-dropdown",
-        [{"label": name, "value": name} for name in palette_names],
-        value="Pastel",
-        placeholder="Select colormap for secondary annotation",
-        clearable=False,
-        dropdown_style={"width": "200px", "marginBottom": "10px"},
+    secondary_annotation_colormap_dropdown = html.Div(
+        labeled_dropdown(
+            "Secondary Annotation ColorMap:",
+            f"{prefix}-heatmap-secondary-colormap-dropdown",
+            [{"label": name, "value": name} for name in palette_names],
+            value="Pastel",
+            placeholder="Select colormap for secondary annotation",
+            clearable=False,
+            dropdown_style={"width": "200px", "marginBottom": "10px"},
+        ),
+        id=f"{prefix}-heatmap-secondary-colormap-wrapper",
+        style={"display": "none"},
     )
 
     draggable_container = dash_draggable.GridLayout(

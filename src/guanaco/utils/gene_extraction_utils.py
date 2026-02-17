@@ -305,15 +305,15 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
         result_df.insert(0, groupby, group_modes)
         return result_df
 
-    unique_groups = pd.unique(df[groupby])
-    group_data = df[groupby].to_numpy()
+    # Factorize once to avoid fragile object equality (e.g. tuple group keys).
+    group_codes, unique_groups = pd.factorize(df[groupby], sort=False)
 
     binned_blocks = []
     binned_group_labels = []
     total_cells = len(df)
 
-    for group in unique_groups:
-        group_idx = np.flatnonzero(group_data == group)
+    for code, group in enumerate(unique_groups):
+        group_idx = np.flatnonzero(group_codes == code)
         n_cells_in_group = group_idx.size
         if n_cells_in_group == 0:
             continue

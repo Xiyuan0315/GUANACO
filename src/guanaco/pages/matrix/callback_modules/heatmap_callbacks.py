@@ -16,6 +16,15 @@ def register_heatmap_callbacks(
     cached_figure_set,
 ):
     @app.callback(
+        Output(f"{prefix}-heatmap-secondary-colormap-wrapper", "style"),
+        Input(f"{prefix}-heatmap-label-dropdown", "value"),
+    )
+    def toggle_secondary_colormap_dropdown(secondary_annotation):
+        if secondary_annotation and secondary_annotation != "None":
+            return {"display": "block"}
+        return {"display": "none"}
+
+    @app.callback(
         Output(f"{prefix}-heatmap", "figure"),
         [
             Input(f"{prefix}-single-cell-genes-selection", "value"),
@@ -65,7 +74,7 @@ def register_heatmap_callbacks(
                 }
 
         labels_need_post_filter = bool(selected_cells) and bool(selected_labels)
-        return plot_unified_heatmap(
+        common_kwargs = dict(
             adata=filtered_adata,
             genes=selected_genes,
             groupby1=selected_annotation,
@@ -83,3 +92,4 @@ def register_heatmap_callbacks(
             adata_obs=adata.obs,
             data_already_filtered=not labels_need_post_filter,
         )
+        return plot_unified_heatmap(**common_kwargs)
