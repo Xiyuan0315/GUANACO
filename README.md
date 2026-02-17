@@ -2,7 +2,7 @@
 <table border="0" cellspacing="0" cellpadding="0">
   <tr>
     <td width="120" align="center" valign="top">
-      <img src="guanaco/assets/logo.png" width="100" alt="GUANACO logo" />
+      <img src="src/guanaco/assets/logo.png" width="100" alt="GUANACO logo" />
     </td>
     <td style="padding-left: 20px;">
       <strong>GUANACO</strong> (Graphical Unified Analysis and Navigation of Cellular Omics) is a Python-based platform that empowers biologists to explore multi-omics single-cell data directly in the browser with clicks<br><br>
@@ -32,7 +32,7 @@
 Example Interface: [Launch the interactive demo](https://guanaco-demo.chen-sysimeta-lab.com/)
 
 
-## Installation
+## Installation (Pixi Recommended)
 
 ### 1. Clone the repository
 ```bash
@@ -40,41 +40,77 @@ git clone https://github.com/Systems-Immunometabolism-Lab/guanaco-viz.git
 cd guanaco-viz
 ```
 
-### 2. (Recommended) Create a virtual environment
-
-Using **venv** (Python ≥3.10):
-
-```
-python -m venv venv
-source venv/bin/activate   # on Linux/Mac
-venv\Scripts\activate      # on Windows
-```
-
-Using **conda**:
-
-```
-# Create a new conda environment (Python 3.10 or later)
-conda create -n guanaco python=3.10
-conda activate guanaco
-```
-
-Using **pixi**:
-
-```
-# Create and enter environment defined in pixi.toml
-pixi shell
-pixi add pip
-```
-
-### 3. Install from local directory
+### 2. Create the Pixi environment
 
 ```bash
-pip install .
+pixi install
 ```
-Or for development (editable install):
+
+Python compatibility: `>=3.10,<3.13` (recommended: Python 3.11 or 3.12).
+
+### 3. Install GUANACO package into the Pixi environment
+
+For normal use:
+
 ```bash
-pip install -e .
+pixi run install
 ```
+
+For development (editable install):
+
+```
+pixi run install-dev
+```
+
+### 4. Run GUANACO
+
+```bash
+pixi run guanaco -c config.json -d data_folder
+```
+
+Or use the predefined task:
+
+```bash
+pixi run run
+```
+
+### 5. Build distributable artifacts
+
+```bash
+pixi run build
+```
+
+This produces wheel and source distributions in `dist/`.
+
+### 6. Publish to PyPI
+
+1. Update `version` in `pyproject.toml`.
+2. Build and validate package files:
+
+```bash
+pixi run build
+pixi run pypi-check
+```
+
+3. Upload to TestPyPI (recommended first):
+
+```bash
+pixi run python -m twine upload --repository testpypi dist/*
+```
+
+4. Upload to PyPI:
+
+```bash
+pixi run python -m twine upload dist/*
+```
+
+### Install from PyPI (for users)
+
+```bash
+pip install guanaco-viz
+guanaco --help
+```
+
 ## Usage
 ```bash
 guanaco -c config.json -d data_folder

@@ -1,0 +1,55 @@
+[workspace]
+authors = ["Xiyuan Zhang <97223450+Xiyuan0315@users.noreply.github.com>"]
+channels = ["conda-forge"]
+description = "GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization"
+name = "guanaco-viz"
+platforms = ["osx-arm64", "linux-64"]
+version = "1.0"
+
+[tasks]
+install = "pip install ."
+install-dev = "pip install -e ."
+build = "python -m build"
+pypi-check = "python -m twine check dist/*"
+test = "PYTHONPATH=src pytest"
+tests = "PYTHONPATH=src pytest"
+lint = "ruff check src tests"
+format = "ruff format src tests"
+run = "guanaco -c example_config.json -d ."
+
+[dependencies]
+python = ">=3.10,<3.13"
+dash = "2.18.0.*"
+dash-bootstrap-components = "1.3.0.*"
+dash-bio = "1.0.2.*"
+plotly = ">=5.19.0,<6.0.0"
+pandas = ">=2.0.0"
+numpy = ">=1.24.0,<2.0.0"
+statsmodels = "0.14.4.*"
+anndata = "0.11.4.*"
+muon = "0.1.7.*"
+logomaker = "0.8.*"
+aiobotocore = "2.15.2.*"
+boto3 = "1.35.36.*"
+botocore = "1.35.36.*"
+urllib3 = "1.26.14.*"
+s3transfer = "0.10.3.*"
+tqdm = "4.64.1.*"
+python-dotenv = "1.0.0.*"
+click = "*"
+gunicorn = "21.2.0.*"
+scipy = ">=1.11,<1.14"
+pip = "*"
+python-build = ">=1.2.2,<2"
+twine = ">=6,<7"
+pytest = ">=8.4.1,<9"
+ruff = ">=0.12.8,<0.13"
+datashader = ">=0.18.2,<0.19"
+colorcet = ">=3.1.0,<4"
+
+[pypi-dependencies]
+guanaco-viz = { path = ".", editable = true }
+dash-ag-grid = "==32.3.2"
+dash-draggable = "==0.1.2"
+pyjaspar = "==3.0.0"
+pyfaidx = "==0.7.2"

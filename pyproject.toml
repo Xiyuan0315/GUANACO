@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guanaco-viz"
+version = "1.0"
+description = "GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+  { name = "Xiyuan Zhang", email = "xiyuan315@outlook.com" }
+]
+keywords = ["single-cell", "multi-omics", "visualization", "dash", "bioinformatics"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Visualization"
+]
+dependencies = [
+  "dash==2.18.0",
+  "dash-bootstrap-components==1.3.0",
+  "dash-bio==1.0.2",
+  "dash-draggable==0.1.2",
+  "dash-ag-grid==32.3.2",
+  "plotly>=5.19.0,<6.0.0",
+  "colorcet>=3.1.0",
+  "pandas>=2.0.0",
+  "numpy>=1.24.0,<2.0.0",
+  "scipy>=1.11,<1.14",
+  "statsmodels==0.14.4",
+  "anndata==0.11.4",
+  "muon==0.1.7",
+  "logomaker>=0.8,<0.9",
+  "pyfaidx==0.7.2",
+  "pyjaspar==3.0.0",
+  "aiobotocore==2.15.2",
+  "boto3==1.35.36",
+  "botocore==1.35.36",
+  "s3transfer==0.10.3",
+  "urllib3==1.26.14",
+  "tqdm==4.64.1",
+  "python-dotenv==1.0.0",
+  "click",
+  "gunicorn==21.2.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/Systems-Immunometabolism-Lab/guanaco-viz"
+Repository = "https://github.com/Systems-Immunometabolism-Lab/guanaco-viz"
+Documentation = "https://systems-immunometabolism-lab.github.io/guanaco-viz/"
+
+[project.scripts]
+guanaco = "guanaco.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "build>=1.2"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["guanaco", "guanaco.*"]
+
+[tool.setuptools.package-data]
+"guanaco" = ["assets/*", "assets/**/*", "pages/matrix/cvd_color.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
