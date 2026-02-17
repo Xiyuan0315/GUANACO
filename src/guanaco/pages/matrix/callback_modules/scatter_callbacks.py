@@ -188,6 +188,7 @@ def register_scatter_callbacks(
             Input(f"{prefix}-spatial-imgkey-dropdown", "value"),
             Input(f"{prefix}-gene-scatter", "relayoutData"),
         ],
+        State(f"{prefix}-annotation-scatter", "relayoutData"),
     )
     def update_annotation_scatter(
         clustering_method,
@@ -205,9 +206,30 @@ def register_scatter_callbacks(
         filtered_data,
         spatial_img_key,
         gene_relayout,
+        annotation_relayout,
     ):
         if not annotation:
             raise exceptions.PreventUpdate
+
+        triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+        # Keep left/right plots synced when the right plot was zoomed/reset.
+        cross_relayout = (
+            gene_relayout
+            if triggered_prop == f"{prefix}-gene-scatter.relayoutData"
+            else None
+        )
+        # Preserve current view on style-only updates; reset on geometry/data changes.
+        if triggered_prop in {
+            f"{prefix}-clustering-dropdown.value",
+            f"{prefix}-x-axis.value",
+            f"{prefix}-y-axis.value",
+            f"{prefix}-global-filtered-data.data",
+            f"{prefix}-spatial-imgkey-dropdown.value",
+        }:
+            self_relayout = None
+        else:
+            self_relayout = annotation_relayout
+        effective_relayout = cross_relayout if cross_relayout is not None else self_relayout
 
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
         filtered_sig = filtered_data_signature(filtered_data)
@@ -238,7 +260,7 @@ def register_scatter_callbacks(
         )
         cached_fig = cached_figure_get(cache_key)
         if cached_fig is not None:
-            return apply_relayout(cached_fig, gene_relayout)
+            return apply_relayout(cached_fig, effective_relayout)
 
         fig = plot_embedding(
             adata=plot_adata,
@@ -260,7 +282,7 @@ def register_scatter_callbacks(
             img_key=spatial_img_key,
         )
         cached_figure_set(cache_key, fig)
-        return apply_relayout(fig, gene_relayout)
+        return apply_relayout(fig, effective_relayout)
 
     @app.callback(
         Output(f"{prefix}-gene-scatter", "figure"),
@@ -285,6 +307,7 @@ def register_scatter_callbacks(
             Input(f"{prefix}-global-filtered-data", "data"),
             Input(f"{prefix}-spatial-imgkey-dropdown", "value"),
         ],
+        State(f"{prefix}-gene-scatter", "relayoutData"),
     )
     def update_gene_scatter(
         gene_name,
@@ -306,9 +329,30 @@ def register_scatter_callbacks(
         discrete_color_map,
         filtered_data,
         spatial_img_key,
+        gene_relayout,
     ):
         if not gene_name:
             raise exceptions.PreventUpdate
+
+        triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+        # Keep left/right plots synced when the left plot was zoomed/reset.
+        cross_relayout = (
+            annotation_relayout
+            if triggered_prop == f"{prefix}-annotation-scatter.relayoutData"
+            else None
+        )
+        # Preserve current view on style-only updates; reset on geometry/data changes.
+        if triggered_prop in {
+            f"{prefix}-clustering-dropdown.value",
+            f"{prefix}-x-axis.value",
+            f"{prefix}-y-axis.value",
+            f"{prefix}-global-filtered-data.data",
+            f"{prefix}-spatial-imgkey-dropdown.value",
+        }:
+            self_relayout = None
+        else:
+            self_relayout = gene_relayout
+        effective_relayout = cross_relayout if cross_relayout is not None else self_relayout
 
         render_backend = embedding_render_backend
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
@@ -337,7 +381,7 @@ def register_scatter_callbacks(
         )
         cached_fig = cached_figure_get(cache_key)
         if cached_fig is not None:
-            return apply_relayout(cached_fig, annotation_relayout)
+            return apply_relayout(cached_fig, effective_relayout)
 
         if gene_name in adata.var_names:
             if coexpression_mode == "coexpression" and gene2_name:
@@ -414,7 +458,7 @@ def register_scatter_callbacks(
                 img_key=spatial_img_key,
             )
         cached_figure_set(cache_key, fig)
-        return apply_relayout(fig, annotation_relayout)
+        return apply_relayout(fig, effective_relayout)
 
     @app.callback(
         [

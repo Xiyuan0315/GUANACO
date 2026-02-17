@@ -164,6 +164,7 @@ def apply_relayout(fig, relayout):
 
     # 3) Reset axes (autorange)
     if "xaxis.autorange" in relayout or "autosize" in relayout:
+
         fig.update_layout(
             xaxis=dict(autorange=True),
             yaxis=dict(autorange=True),
