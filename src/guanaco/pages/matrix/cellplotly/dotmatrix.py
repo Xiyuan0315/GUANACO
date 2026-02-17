@@ -8,6 +8,33 @@ from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram as _scipy_d
 from scipy.spatial.distance import pdist
 
 
+def _resolve_continuous_colorscale(color_map):
+    if not isinstance(color_map, str):
+        return color_map
+    if not color_map.startswith("cc:"):
+        return color_map
+
+    cc_name = color_map.split(":", 1)[1].strip()
+    if not cc_name:
+        return "Viridis"
+
+    try:
+        import colorcet as cc
+    except Exception:
+        return "Viridis"
+
+    palette = cc.palette.get(cc_name)
+    if palette is None:
+        return "Viridis"
+
+    colors = list(palette)
+    if len(colors) < 2:
+        return "Viridis"
+
+    denom = len(colors) - 1
+    return [[i / denom, c] for i, c in enumerate(colors)]
+
+
 def plot_dot_matrix(
     adata, genes, groupby, selected_labels,
     transformation=None, standardization=None,
@@ -15,7 +42,8 @@ def plot_dot_matrix(
     cluster='none', method='average', metric='correlation',
     transpose=False
 ):
-    
+    color_map = _resolve_continuous_colorscale(color_map)
+
     valid_genes = [gene for gene in genes if gene in adata.var_names]
     if not valid_genes:
         raise PreventUpdate

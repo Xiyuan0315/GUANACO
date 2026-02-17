@@ -42,9 +42,28 @@ def _palette_names():
     return list(palette_json["color_palettes"].keys())
 
 
+def _continuous_colormap_options():
+    options = [{"label": scale, "value": scale} for scale in px.colors.named_colorscales()]
+    try:
+        import colorcet as cc
+
+        cc_names = sorted(
+            name for name in cc.palette.keys()
+            if "glasbey" not in name.lower()
+        )
+        options.extend(
+            {"label": f"colorcet/{name}", "value": f"cc:{name}"}
+            for name in cc_names
+        )
+    except Exception:
+        # colorcet is optional; keep Plotly maps if unavailable.
+        pass
+    return options
+
+
 def generate_heatmap_layout(adata, prefix):
     label_list = adata.obs.columns.to_list()
-    colorscales = px.colors.named_colorscales()
+    colorscales = _continuous_colormap_options()
     palette_names = _palette_names()
 
     heatmap_transformation_selection = labeled_radioitems(
@@ -72,9 +91,9 @@ def generate_heatmap_layout(adata, prefix):
     )
 
     heatmap_color_map_dropdown = labeled_dropdown(
-        "Color Map:",
+        "Continuous ColorMap:",
         f"{prefix}-heatmap-colorscale-dropdown",
-        [{"label": scale, "value": scale} for scale in colorscales],
+        colorscales,
         value="viridis",
         clearable=False,
         dropdown_style={"width": "200px", "marginBottom": "10px"},

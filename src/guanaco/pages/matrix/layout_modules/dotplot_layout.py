@@ -6,8 +6,27 @@ from dash import dcc, html
 from guanaco.config import common_config
 
 
+def _continuous_colormap_options():
+    options = [{"label": scale, "value": scale} for scale in px.colors.named_colorscales()]
+    try:
+        import colorcet as cc
+
+        cc_names = sorted(
+            name for name in cc.palette.keys()
+            if "glasbey" not in name.lower()
+        )
+        options.extend(
+            {"label": f"colorcet/{name}", "value": f"cc:{name}"}
+            for name in cc_names
+        )
+    except Exception:
+        # colorcet is optional; keep Plotly maps if unavailable.
+        pass
+    return options
+
+
 def generate_dotplot_layout(prefix):
-    colorscales = px.colors.named_colorscales()
+    colorscales = _continuous_colormap_options()
 
     row1 = dbc.Row(
         [
@@ -123,10 +142,10 @@ def generate_dotplot_layout(prefix):
                     ),
                     html.Div(
                         [
-                            html.Label("Color Map:", style={"fontWeight": "bold", "marginBottom": "5px", "fontSize": "0.9em"}),
+                            html.Label("Continuous ColorMap:", style={"fontWeight": "bold", "marginBottom": "5px", "fontSize": "0.9em"}),
                             dcc.Dropdown(
                                 id=f"{prefix}-dotmatrix-color-map-dropdown",
-                                options=[{"label": scale, "value": scale} for scale in colorscales],
+                                options=colorscales,
                                 value="viridis",
                                 clearable=False,
                                 style={"width": "200px", "marginBottom": "10px"},

@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from guanaco.utils.gene_extraction_utils import (
-    extract_multiple_genes, apply_transformation, bin_cells_for_heatmap
+    extract_gene_expression, apply_transformation, bin_cells_for_heatmap
 )
 
 # ==========================================================
@@ -66,9 +66,13 @@ def _extract_gene_df_after_filter(ctx, valid_genes):
     if valid_genes is None or len(valid_genes) == 0:
         return pd.DataFrame()
     source_adata = original_adata if cell_indices_array is not None else adata
-    gene_df = extract_multiple_genes(source_adata, valid_genes, cell_indices=cell_indices_array)
-    gene_df.index = filtered_obs_names
-    gene_df.insert(0, 'CellID', filtered_obs_names)
+    row_indices = np.asarray(cell_indices_array, dtype=np.int64) if cell_indices_array is not None else None
+    n_cells = len(filtered_obs_names)
+    gene_matrix = np.empty((n_cells, len(valid_genes)), dtype=np.float32)
+    for j, gene in enumerate(valid_genes):
+        expr = np.asarray(extract_gene_expression(source_adata, gene, use_cache=True), dtype=np.float32)
+        gene_matrix[:, j] = expr[row_indices] if row_indices is not None else expr
+    gene_df = pd.DataFrame(gene_matrix, columns=valid_genes, index=filtered_obs_names)
     return gene_df
 
 
@@ -83,6 +87,7 @@ def _apply_transformations(gene_df, valid_genes, log, z_score):
 
 
 def _make_expression_heatmap(matrix, genes, color_map, log, z_score, colorbar_len):
+    color_map = _resolve_continuous_colorscale(color_map)
     if z_score:
         z_max = max(abs(matrix.min()), abs(matrix.max()))
         zmin, zmax, zmid = -z_max, z_max, 0
@@ -117,6 +122,33 @@ def _make_annotation_bar(groups, group_sizes, color_map, width=1):
             width=width,
         ))
     return traces
+
+
+def _resolve_continuous_colorscale(color_map):
+    if not isinstance(color_map, str):
+        return color_map
+    if not color_map.startswith("cc:"):
+        return color_map
+
+    cc_name = color_map.split(":", 1)[1].strip()
+    if not cc_name:
+        return "Viridis"
+
+    try:
+        import colorcet as cc
+    except Exception:
+        return "Viridis"
+
+    palette = cc.palette.get(cc_name)
+    if palette is None:
+        return "Viridis"
+
+    colors = list(palette)
+    if len(colors) < 2:
+        return "Viridis"
+
+    denom = len(colors) - 1
+    return [[i / denom, c] for i, c in enumerate(colors)]
 
 
 def _add_boundaries(fig, group_sizes, row=1, col=1, width=1, n_genes=None):
@@ -193,7 +225,7 @@ def _legend_annotations(groupby1, label_list1, groupby1_label_color_map, has_sec
 def plot_unified_heatmap(
     adata, genes, groupby1, groupby2=None, labels=None, log=False, z_score=False,
     boundary=False, color_map='Viridis', groupby1_label_color_map=None,
-    groupby2_label_color_map=None, max_cells=20000, n_bins=4000, transformation=None,
+    groupby2_label_color_map=None, max_cells=10000, n_bins=4000, transformation=None,
     adata_obs=None, data_already_filtered=False
 ):
     log, z_score = _map_transformation_args(transformation, log, z_score)
@@ -222,9 +254,9 @@ def plot_unified_heatmap(
     annotation_columns = [groupby1]
     if groupby2 and groupby2 != 'None' and groupby2 != groupby1:
         annotation_columns.append(groupby2)
-    label_df = pd.DataFrame(filtered_obs[annotation_columns]).copy()
-    label_df.index = filtered_obs_names
-    heatmap_df = gene_df.join(label_df, on='CellID', how='left')
+    heatmap_df = gene_df.copy()
+    for annotation in annotation_columns:
+        heatmap_df[annotation] = filtered_obs[annotation].to_numpy()
 
     # Binning for large datasets (apply even when secondary categorical annotation is present)
     if len(heatmap_df) > max_cells:
@@ -362,7 +394,7 @@ def plot_unified_heatmap(
 
 def plot_heatmap2_continuous(
     adata, genes, groupby1, continuous_key, labels=None, log=False, z_score=False,
-    color_map='Viridis', groupby1_label_color_map=None, max_cells=20000, n_bins=4000,
+    color_map='Viridis', groupby1_label_color_map=None, max_cells=10000, n_bins=4000,
     adata_obs=None, data_already_filtered=False
 ):
     valid_genes = _validate_genes(adata, genes)
@@ -377,12 +409,10 @@ def plot_heatmap2_continuous(
     filtered_obs_names = ctx['filtered_obs_names']
 
     gene_df = _extract_gene_df_after_filter(ctx, valid_genes)
-    label_df = pd.DataFrame(filtered_obs[[groupby1, continuous_key]]).copy()
-    label_df.index = filtered_obs_names
-    heatmap_df = gene_df.join(label_df, on='CellID', how='left')
-
-    transformed = _apply_transformations(heatmap_df[['CellID'] + valid_genes].copy(), valid_genes, log, z_score)
-    heatmap_df[valid_genes] = transformed[valid_genes]
+    gene_df = _apply_transformations(gene_df, valid_genes, log, z_score)
+    heatmap_df = gene_df.copy()
+    heatmap_df[groupby1] = filtered_obs[groupby1].to_numpy()
+    heatmap_df[continuous_key] = filtered_obs[continuous_key].to_numpy()
 
     sorted_heatmap_df = heatmap_df.sort_values(continuous_key)
     use_binning = len(sorted_heatmap_df) > max_cells

@@ -56,7 +56,31 @@ def register_heatmap_callbacks(
         if active_tab != "heatmap-tab":
             return current_figure if current_figure else go.Figure()
 
-        filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
+        cache_key = make_cache_key(
+            "heatmap",
+            adata,
+            selected_genes=hash_list_signature(selected_genes),
+            selected_annotation=selected_annotation,
+            selected_labels=hash_list_signature(selected_labels),
+            transformation=transformation,
+            heatmap_color=heatmap_color,
+            secondary_annotation=secondary_annotation,
+            discrete_color_map=discrete_color_map,
+            secondary_colormap=secondary_colormap,
+            selected_cells=hash_list_signature(selected_cells),
+            is_backed=bool(hasattr(adata, "isbacked") and adata.isbacked),
+            n_obs=adata.n_obs,
+        )
+        cached_fig = cached_figure_get(cache_key)
+        if cached_fig is not None:
+            return cached_fig
+
+        # Keep the source AnnData stable when possible so gene-vector cache hits are maximized.
+        if selected_cells:
+            plot_adata = adata[selected_cells]
+        else:
+            plot_adata = adata
+
         groupby1_label_color_map = None
         if discrete_color_map:
             discrete_palette = palette_json["color_palettes"][discrete_color_map]
@@ -73,9 +97,9 @@ def register_heatmap_callbacks(
                     label: secondary_palette[i % len(secondary_palette)] for i, label in enumerate(unique_labels2)
                 }
 
-        labels_need_post_filter = bool(selected_cells) and bool(selected_labels)
+        labels_need_post_filter = bool(selected_labels)
         common_kwargs = dict(
-            adata=filtered_adata,
+            adata=plot_adata,
             genes=selected_genes,
             groupby1=selected_annotation,
             groupby2=secondary_annotation
@@ -92,4 +116,6 @@ def register_heatmap_callbacks(
             adata_obs=adata.obs,
             data_already_filtered=not labels_need_post_filter,
         )
-        return plot_unified_heatmap(**common_kwargs)
+        fig = plot_unified_heatmap(**common_kwargs)
+        cached_figure_set(cache_key, fig)
+        return fig
