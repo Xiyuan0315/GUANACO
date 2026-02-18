@@ -586,18 +586,7 @@ def plot_embedding(
 
     if embedding_key == "spatial":
         _apply_spatial_background(fig, spatial_image, img_alpha=img_alpha)
-    if render_backend == "datashader":
-        fig.add_annotation(
-            x=0,
-            y=1.08,
-            xref="paper",
-            yref="paper",
-            text="Datashader mode currently applies to continuous embedding only.",
-            showarrow=False,
-            font=dict(size=11, color="darkred"),
-            xanchor="left",
-            yanchor="bottom",
-        )
+
     return fig
 
 
