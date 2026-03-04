@@ -2,7 +2,7 @@ import numpy as np
 import plotly.graph_objs as go
 from dash.exceptions import PreventUpdate
 import pandas as pd
-from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
+from guanaco.utils.gene_extraction_utils import extract_gene_expression
 
 from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram as _scipy_dendro
 from scipy.spatial.distance import pdist
@@ -40,7 +40,7 @@ def plot_dot_matrix(
     transformation=None, standardization=None,
     color_map='Viridis', plot_type='dotplot',
     cluster='none', method='average', metric='correlation',
-    transpose=False
+    transpose=False, selected_cells=None
 ):
     color_map = _resolve_continuous_colorscale(color_map)
 
@@ -48,54 +48,58 @@ def plot_dot_matrix(
     if not valid_genes:
         raise PreventUpdate
 
-    # Determine which groups to process and precompute indices once
-    group_to_indices = adata.obs.groupby(groupby, sort=False, observed=True).indices
-    if selected_labels:
-        groups_to_process = [g for g in selected_labels if g in group_to_indices]
+    # Scanpy-like flow: cached gene vectors + vectorized grouped aggregations.
+    group_series = adata.obs[groupby]
+    use_selected_cells = selected_cells is not None and len(selected_cells) > 0
+    if use_selected_cells:
+        selected_pos = adata.obs_names.get_indexer(selected_cells)
+        row_indices = selected_pos[selected_pos >= 0].astype(np.int64, copy=False)
+    elif selected_labels:
+        label_mask = group_series.isin(selected_labels).to_numpy()
+        row_indices = np.flatnonzero(label_mask).astype(np.int64, copy=False)
     else:
-        groups_to_process = list(group_to_indices.keys())
-    
-    # Initialize results dictionaries
-    aggregated_results = {}
-    fraction_results = {}
-    gene_expressions = {}
-    for gene in valid_genes:
-        # Extract from original adata (not views) to ensure cache hits
-        gene_expressions[gene] = extract_gene_expression(adata, gene)
-    
-    # Process each group separately using the cached gene data
-    for group in groups_to_process:
-        # Use precomputed indices to avoid rescanning all cells for each group
-        group_indices = group_to_indices.get(group)
-        
-        if group_indices is None or len(group_indices) == 0:
-            continue
-            
-        group_expression_list = []
-        
-        for gene in valid_genes:
-            gene_expr = gene_expressions[gene][group_indices]
-            
-            if transformation:
-                gene_expr = apply_transformation(gene_expr, transformation, copy=False)
-            agg_value = np.nanmean(gene_expr)
-            
-            fraction = np.mean(gene_expr > 0)
-            
-            group_expression_list.append({
-                'gene': gene,
-                'aggregated': agg_value,
-                'fraction': fraction
-            })
-        
-        # Store results for this group
-        aggregated_results[group] = {gene_data['gene']: gene_data['aggregated'] for gene_data in group_expression_list}
-        fraction_results[group] = {gene_data['gene']: gene_data['fraction'] for gene_data in group_expression_list}
-    
-    # Convert to DataFrames
-    aggregated_data = pd.DataFrame(aggregated_results).T
-    fraction_expressing = pd.DataFrame(fraction_results).T
-    
+        row_indices = np.arange(adata.n_obs, dtype=np.int64)
+
+    if row_indices.size == 0:
+        raise PreventUpdate
+
+    group_values = group_series.iloc[row_indices]
+    if selected_labels and not use_selected_cells:
+        present_groups = set(pd.unique(group_values))
+        groups_to_process = [g for g in selected_labels if g in present_groups]
+    else:
+        groups_to_process = list(pd.unique(group_values))
+
+    if not groups_to_process:
+        raise PreventUpdate
+
+    n_cells = row_indices.size
+    gene_matrix = np.empty((n_cells, len(valid_genes)), dtype=np.float32)
+    for j, gene in enumerate(valid_genes):
+        expr = extract_gene_expression(adata, gene, use_cache=True, dtype=np.float32)
+        gene_matrix[:, j] = expr[row_indices]
+    expr_df = pd.DataFrame(gene_matrix, columns=valid_genes)
+
+    if transformation and transformation not in ("None", "none"):
+        expr_matrix = gene_matrix.copy()
+        if transformation in ("log", "log1p"):
+            np.log1p(expr_matrix, out=expr_matrix)
+        elif transformation in ("zscore", "z_score"):
+            means = expr_matrix.mean(axis=0)
+            stds = expr_matrix.std(axis=0)
+            expr_matrix = expr_matrix - means
+            np.divide(expr_matrix, stds, out=expr_matrix, where=stds > 0)
+            lower = np.percentile(expr_matrix, 1, axis=0)
+            upper = np.percentile(expr_matrix, 99, axis=0)
+            expr_matrix = np.clip(expr_matrix, lower, upper)
+        expr_df = pd.DataFrame(expr_matrix, columns=valid_genes)
+
+    group_cat = pd.Categorical(group_values, categories=groups_to_process, ordered=True)
+    aggregated_data = expr_df.groupby(group_cat, observed=True, sort=False).mean()
+    fraction_expressing = (expr_df > 0).groupby(group_cat, observed=True, sort=False).mean()
+    aggregated_data.index.name = None
+    fraction_expressing.index.name = None
+
     # Apply standardization if needed
     if standardization == 'var':
         # Standardize per gene (each column)
@@ -107,7 +111,8 @@ def plot_dot_matrix(
     
     # Figure out base lists
     if selected_labels:
-        base_groups = [label for label in aggregated_data.index if label in selected_labels]
+        present_groups = set(aggregated_data.index)
+        base_groups = [label for label in selected_labels if label in present_groups]
     else:
         base_groups = list(aggregated_data.index)
     base_genes = [g for g in valid_genes]
@@ -133,41 +138,44 @@ def plot_dot_matrix(
     col_Z = _compute_linkage(cluster_df.values.T) if cluster in ('col', 'both') else None
 
     if cluster in ('row', 'both'):
-        groups = [row_labels_base[i] for i in leaves_list(row_Z)] if row_Z is not None else base_groups
+        group_order = [row_labels_base[i] for i in leaves_list(row_Z)] if row_Z is not None else base_groups
     else:
-        # Keep previous reverse default when not clustering
-        groups = base_groups[::-1]
+        group_order = base_groups
 
     if cluster in ('col', 'both'):
-        ordered_genes = [col_labels_base[i] for i in leaves_list(col_Z)] if col_Z is not None else base_genes
-        valid_genes = ordered_genes
-    # else keep valid_genes as is
-    
-    vmin = float(aggregated_data[valid_genes].min().min())
-    vmax = float(aggregated_data[valid_genes].max().max())
-
-    # --- Setup axes items based on transpose ---
-    if transpose:
-        x_items = groups
-        y_items = valid_genes
-        # Dendrogram flags
-        show_right_dendro = (cluster in ('col', 'both') and len(valid_genes) > 1)
-        show_top_dendro = (cluster in ('row', 'both') and len(groups) > 1)
-        right_dendro_items = valid_genes
-        top_dendro_items = groups
+        gene_order = [col_labels_base[i] for i in leaves_list(col_Z)] if col_Z is not None else base_genes
     else:
-        x_items = valid_genes
-        y_items = groups
+        gene_order = base_genes
+
+    vmin = float(aggregated_data[gene_order].min().min())
+    vmax = float(aggregated_data[gene_order].max().max())
+
+    # Keep the visible top-to-bottom / left-to-right order aligned with user input.
+    if transpose:
+        x_items = group_order
+        y_items = gene_order
+        x_categoryarray = x_items
+        y_categoryarray = list(reversed(y_items))
         # Dendrogram flags
-        show_right_dendro = (cluster in ('row', 'both') and len(groups) > 1)
-        show_top_dendro = (cluster in ('col', 'both') and len(valid_genes) > 1)
-        right_dendro_items = groups
-        top_dendro_items = valid_genes
+        show_right_dendro = (cluster in ('col', 'both') and len(gene_order) > 1)
+        show_top_dendro = (cluster in ('row', 'both') and len(group_order) > 1)
+        right_dendro_items = y_categoryarray
+        top_dendro_items = x_categoryarray
+    else:
+        x_items = gene_order
+        y_items = group_order
+        x_categoryarray = x_items
+        y_categoryarray = list(reversed(y_items))
+        # Dendrogram flags
+        show_right_dendro = (cluster in ('row', 'both') and len(group_order) > 1)
+        show_top_dendro = (cluster in ('col', 'both') and len(gene_order) > 1)
+        right_dendro_items = y_categoryarray
+        top_dendro_items = x_categoryarray
 
     if plot_type == 'dotplot':
-        df_expression = aggregated_data.reset_index().melt(id_vars=['index'], value_vars=valid_genes, var_name='gene', value_name='expression')
+        df_expression = aggregated_data.reset_index().melt(id_vars=['index'], value_vars=gene_order, var_name='gene', value_name='expression')
         df_expression.rename(columns={'index': groupby}, inplace=True)
-        df_fraction = fraction_expressing.reset_index().melt(id_vars=['index'], value_vars=valid_genes, var_name='gene', value_name='fraction')
+        df_fraction = fraction_expressing.reset_index().melt(id_vars=['index'], value_vars=gene_order, var_name='gene', value_name='fraction')
         df_fraction.rename(columns={'index': groupby}, inplace=True)
         df_merged = pd.merge(df_expression, df_fraction, on=[groupby, 'gene'])
 
@@ -235,9 +243,9 @@ def plot_dot_matrix(
 
         layout_kwargs = dict(
             xaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=x_items),
+                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=x_categoryarray),
             yaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       categoryorder='array', categoryarray=y_items, domain=[0.0, main_y_top]),
+                       categoryorder='array', categoryarray=y_categoryarray, domain=[0.0, main_y_top]),
             # Size legend (right-middle)
             xaxis2=dict(domain=[0.74, 0.96], range=[0.1, 0.9], autorange=False, fixedrange=True,
                         showgrid=False, zeroline=False, showticklabels=False, uirevision='frac-legend'),
@@ -295,7 +303,7 @@ def plot_dot_matrix(
             ))
 
     else:  # matrixplot
-        z_data = aggregated_data.loc[groups, valid_genes].values
+        z_data = aggregated_data.loc[group_order, gene_order].values
         if transpose:
             z_data = z_data.T
             
@@ -324,9 +332,9 @@ def plot_dot_matrix(
 
         layout_kwargs = dict(
             xaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=x_items),
+                       domain=[0.0, main_x_right], categoryorder='array', categoryarray=x_categoryarray),
             yaxis=dict(showline=True, linewidth=2, linecolor='black', showgrid=False,
-                       categoryorder='array', categoryarray=y_items, domain=[0.0, main_y_top]),
+                       categoryorder='array', categoryarray=y_categoryarray, domain=[0.0, main_y_top]),
             margin=dict(r=120 if show_right_dendro else 80, t=70 if show_top_dendro else 20,
                         b=100, l=100),
             plot_bgcolor='white', paper_bgcolor='white'

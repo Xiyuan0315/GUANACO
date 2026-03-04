@@ -161,12 +161,18 @@ def _prepare_embedding_dataframe(
     return embedding_df, x_axis, y_axis, embedding_columns, spatial_image
 
 
-def _resolve_continuous_values(adata, key):
+def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=None):
+    if source_adata is None:
+        source_adata = adata
+    row_idx = None if cell_indices is None else np.asarray(cell_indices, dtype=np.int64)
+
     # Follow Scanpy-like precedence: obs -> var_names
     if key in adata.obs.columns:
         values = pd.to_numeric(adata.obs[key], errors="coerce").to_numpy()
-    elif key in adata.var_names:
-        values = extract_gene_expression(adata, key)
+    elif key in source_adata.var_names:
+        values = extract_gene_expression(source_adata, key)
+        if row_idx is not None:
+            values = values[row_idx]
     else:
         raise ValueError(
             f"Invalid key '{key}'. Expected an obs column or a gene in var_names."
@@ -438,6 +444,8 @@ def plot_embedding(
     img_key=None,
     library_id=None,
     img_alpha=1.0,
+    source_adata=None,
+    cell_indices=None,
 ):
     """
     Unified embedding plotter for both continuous and categorical coloring.
@@ -459,7 +467,12 @@ def plot_embedding(
     )
 
     if mode == "continuous":
-        values = _resolve_continuous_values(adata, color)
+        values = _resolve_continuous_values(
+            adata,
+            color,
+            source_adata=source_adata if source_adata is not None else adata,
+            cell_indices=cell_indices,
+        )
         values = _transform_continuous_values(values, transformation)
         x_values = embedding_df[x_axis].to_numpy(dtype=np.float32, copy=False)
         y_values = embedding_df[y_axis].to_numpy(dtype=np.float32, copy=False)
@@ -597,7 +610,8 @@ def plot_coexpression_embedding(
     transformation=None,
     color_map=None,
     marker_size=5, opacity=1,
-    legend_show='right', axis_show=True
+    legend_show='right', axis_show=True,
+    source_adata=None, cell_indices=None,
 ):
     """
     Plot co-expression of two genes on a 2D embedding.
@@ -607,9 +621,16 @@ def plot_coexpression_embedding(
         adata, embedding_key, x_axis=x_axis, y_axis=y_axis
     )
 
-    # Extract gene expression for both genes
-    gene1_expr = extract_gene_expression(adata, gene1)
-    gene2_expr = extract_gene_expression(adata, gene2)
+    if source_adata is None:
+        source_adata = adata
+    row_idx = None if cell_indices is None else np.asarray(cell_indices, dtype=np.int64)
+
+    # Extract gene expression for both genes from source adata, then subset rows.
+    gene1_expr = extract_gene_expression(source_adata, gene1)
+    gene2_expr = extract_gene_expression(source_adata, gene2)
+    if row_idx is not None:
+        gene1_expr = gene1_expr[row_idx]
+        gene2_expr = gene2_expr[row_idx]
     
     # Apply transformation if specified
     if transformation:

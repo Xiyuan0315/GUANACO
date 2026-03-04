@@ -29,6 +29,15 @@ def register_scatter_callbacks(
     cached_figure_get,
     cached_figure_set,
 ):
+    def _filtered_cell_indices(filtered_data):
+        if (
+            filtered_data
+            and filtered_data.get("cell_indices") is not None
+            and filtered_data.get("n_cells", adata.n_obs) < adata.n_obs
+        ):
+            return np.asarray(filtered_data["cell_indices"], dtype=np.int64)
+        return None
+
     @app.callback(
         Output(f"{prefix}-controls-container", "style"),
         Output(f"{prefix}-toggle-button", "children"),
@@ -232,6 +241,7 @@ def register_scatter_callbacks(
         effective_relayout = cross_relayout if cross_relayout is not None else self_relayout
 
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
+        filtered_cell_idx = _filtered_cell_indices(filtered_data)
         filtered_sig = filtered_data_signature(filtered_data)
 
         is_continuous = annotation in adata.var_names or is_continuous_annotation(adata, annotation)
@@ -280,6 +290,8 @@ def register_scatter_callbacks(
             legend_show=legend_show,
             axis_show=axis_show,
             img_key=spatial_img_key,
+            source_adata=adata,
+            cell_indices=filtered_cell_idx,
         )
         cached_figure_set(cache_key, fig)
         return apply_relayout(fig, effective_relayout)
@@ -356,6 +368,7 @@ def register_scatter_callbacks(
 
         render_backend = embedding_render_backend
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
+        filtered_cell_idx = _filtered_cell_indices(filtered_data)
         cache_key = make_cache_key(
             "gene_scatter",
             adata,
@@ -400,6 +413,8 @@ def register_scatter_callbacks(
                     opacity=opacity,
                     legend_show=legend_show,
                     axis_show=axis_show,
+                    source_adata=adata,
+                    cell_indices=filtered_cell_idx,
                 )
             else:
                 fig = plot_embedding(
@@ -418,6 +433,8 @@ def register_scatter_callbacks(
                     annotation=None,
                     axis_show=axis_show,
                     img_key=spatial_img_key,
+                    source_adata=adata,
+                    cell_indices=filtered_cell_idx,
                 )
         elif is_continuous_annotation(adata, gene_name):
             fig = plot_embedding(
@@ -435,6 +452,8 @@ def register_scatter_callbacks(
                 render_backend=render_backend,
                 axis_show=axis_show,
                 img_key=spatial_img_key,
+                source_adata=adata,
+                cell_indices=filtered_cell_idx,
             )
         else:
             if discrete_color_map is None:
@@ -456,6 +475,8 @@ def register_scatter_callbacks(
                 legend_show=legend_show,
                 axis_show=axis_show,
                 img_key=spatial_img_key,
+                source_adata=adata,
+                cell_indices=filtered_cell_idx,
             )
         cached_figure_set(cache_key, fig)
         return apply_relayout(fig, effective_relayout)
@@ -478,12 +499,14 @@ def register_scatter_callbacks(
         ],
     )
     def update_threshold_ranges(gene1, gene2, coexpression_mode, transformation, filtered_data):
-        plot_adata = resolve_plot_adata_from_filter(filtered_data)
+        filtered_cell_idx = _filtered_cell_indices(filtered_data)
         default_min, default_max, default_value = 0, 1, 0.5
         from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
 
-        if gene1 and gene1 in plot_adata.var_names:
-            gene1_expr = extract_gene_expression(plot_adata, gene1)
+        if gene1 and gene1 in adata.var_names:
+            gene1_expr = extract_gene_expression(adata, gene1)
+            if filtered_cell_idx is not None:
+                gene1_expr = gene1_expr[filtered_cell_idx]
             if transformation:
                 gene1_expr = apply_transformation(gene1_expr, transformation, copy=True)
             if gene1_expr.max() > gene1_expr.min():
@@ -495,8 +518,10 @@ def register_scatter_callbacks(
         else:
             gene1_min, gene1_max, gene1_value = default_min, default_max, default_value
 
-        if coexpression_mode == "coexpression" and gene2 and gene2 in plot_adata.var_names:
-            gene2_expr = extract_gene_expression(plot_adata, gene2)
+        if coexpression_mode == "coexpression" and gene2 and gene2 in adata.var_names:
+            gene2_expr = extract_gene_expression(adata, gene2)
+            if filtered_cell_idx is not None:
+                gene2_expr = gene2_expr[filtered_cell_idx]
             if transformation:
                 gene2_expr = apply_transformation(gene2_expr, transformation, copy=True)
             if gene2_expr.max() > gene2_expr.min():

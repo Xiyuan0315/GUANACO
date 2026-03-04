@@ -76,36 +76,20 @@ def register_dotplot_callbacks(
         if cached_fig is not None:
             return cached_fig
 
-        if adata.n_obs > 10000 or (hasattr(adata, "isbacked") and adata.isbacked):
-            fig = plot_dot_matrix(
-                adata,
-                selected_genes,
-                selected_annotation,
-                selected_labels,
-                transformation=transformation,
-                standardization=standardization,
-                color_map=color_map,
-                plot_type=plot_type_str,
-                cluster=cluster_mode or "none",
-                method=cluster_method or "average",
-                metric=cluster_metric or "correlation",
-                transpose=transpose,
-            )
-        else:
-            filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
-            fig = plot_dot_matrix(
-                filtered_adata,
-                selected_genes,
-                selected_annotation,
-                selected_labels,
-                transformation=transformation,
-                standardization=standardization,
-                color_map=color_map,
-                plot_type=plot_type_str,
-                cluster=cluster_mode or "none",
-                method=cluster_method or "average",
-                metric=cluster_metric or "correlation",
-                transpose=transpose,
-            )
+        fig = plot_dot_matrix(
+            adata,
+            selected_genes,
+            selected_annotation,
+            selected_labels,
+            transformation=transformation,
+            standardization=standardization,
+            color_map=color_map,
+            plot_type=plot_type_str,
+            cluster=cluster_mode or "none",
+            method=cluster_method or "average",
+            metric=cluster_metric or "correlation",
+            transpose=transpose,
+            selected_cells=selected_cells,
+        )
         cached_figure_set(cache_key, fig)
         return fig

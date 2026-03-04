@@ -1,234 +1,290 @@
+import time
+import gc
+from collections import OrderedDict
+
 import numpy as np
 import pandas as pd
 from scipy.sparse import issparse
-import time
-import gc
 
 
 class GeneExpressionCache:
-    """Cache for gene expression data to avoid repeated extractions."""
-    
-    def __init__(self, max_size=64, max_age_seconds=1800):  # Reduced to 64 items, 30-min expiration
-        self.cache = {}
-        self.max_size = max_size
-        self.max_age_seconds = max_age_seconds
-        self.timestamps = {}
-        self.access_order = []
-        
+    """O(1) LRU + TTL cache for 1D gene vectors."""
+
+    def __init__(self, max_size=64, max_age_seconds=1800):
+        self.max_size = int(max_size)
+        self.max_age_seconds = float(max_age_seconds)
+        self._data = OrderedDict()  # key -> (timestamp, value)
+
+    def _adata_id(self, adata):
+        # backed: filename is stable; else use id
+        if getattr(adata, "isbacked", False) and getattr(adata, "filename", None):
+            return ("backed", adata.filename)
+        return ("mem", id(adata))
+
     def _make_key(self, adata, gene, layer=None, use_raw=False):
-        """Create a unique key for caching."""
-        # For backed mode, use the filename as a stable identifier
-        if hasattr(adata, 'isbacked') and adata.isbacked and hasattr(adata, 'filename'):
-            adata_id = adata.filename
-        else:
-            adata_id = id(adata)
-        
-        # Include data shape to differentiate between filtered and unfiltered data
-        data_shape = adata.shape
-        
-        return (adata_id, gene, layer, use_raw, data_shape)
-    
-    def get(self, adata, gene, layer=None, use_raw=False):
-        """Get gene expression from cache or compute if not cached."""
+        # include shape to distinguish filtered/unfiltered views
+        return (self._adata_id(adata), adata.shape, gene, layer, bool(use_raw))
+
+    def get_or_compute(self, adata, gene, layer, use_raw, compute_fn):
         key = self._make_key(adata, gene, layer, use_raw)
-        current_time = time.time()
-        
-        # Check if cached and not expired
-        if key in self.cache:
-            if current_time - self.timestamps.get(key, 0) < self.max_age_seconds:
-                # Move to end of access order
-                if key in self.access_order:
-                    self.access_order.remove(key)
-                self.access_order.append(key)
-                return self.cache[key]  # Return reference, not copy (saves memory)
-            else:
-                # Expired - remove from cache
-                del self.cache[key]
-                del self.timestamps[key]
-                if key in self.access_order:
-                    self.access_order.remove(key)
-        
-        # Compute if not in cache - use extract without cache to avoid recursion
-        expr = extract_gene_expression(adata, gene, layer, use_raw, use_cache=False)
-        
-        # Add to cache with size limit
-        if len(self.cache) >= self.max_size:
-            # Remove least recently used
-            if self.access_order:
-                lru_key = self.access_order.pop(0)
-                del self.cache[lru_key]
-                del self.timestamps[lru_key]
-        
-        self.cache[key] = expr
-        self.timestamps[key] = current_time
-        self.access_order.append(key)
-        
-        # Periodic garbage collection
-        if len(self.cache) % 20 == 0:
+        now = time.time()
+
+        if key in self._data:
+            ts, val = self._data[key]
+            if now - ts < self.max_age_seconds:
+                self._data.move_to_end(key)  # mark as recently used
+                return val
+            # expired
+            del self._data[key]
+
+        val = compute_fn()
+        self._data[key] = (now, val)
+        self._data.move_to_end(key)
+
+        # evict LRU
+        while len(self._data) > self.max_size:
+            self._data.popitem(last=False)
+
+        # periodic garbage collection
+        if len(self._data) % 20 == 0:
             gc.collect()
-        
-        return expr
-    
+
+        return val
+
     def clear(self):
-        """Clear the cache and free memory."""
-        self.cache.clear()
-        self.timestamps.clear()
-        self.access_order.clear()
+        self._data.clear()
         gc.collect()
 
+    def info(self):
+        return {
+            "size": len(self._data),
+            "max_size": self.max_size,
+            "keys": list(self._data.keys()),
+        }
 
-def extract_gene_expression(adata, gene, layer=None, use_raw=False, use_cache=True):
+
+# --------------------------
+# Internal helper functions
+# --------------------------
+
+def _get_data_source(adata, use_raw: bool):
+    """Return adata.raw (if requested & present) else adata."""
+    return adata.raw if use_raw and getattr(adata, "raw", None) is not None else adata
+
+
+def _get_matrix(data_source, layer):
+    """Return matrix for layer or X."""
+    if layer is None:
+        return data_source.X
+    if layer not in data_source.layers:
+        raise KeyError(f"Layer '{layer}' not found.")
+    return data_source.layers[layer]
+
+
+def _gene_indexer(var_names: pd.Index, genes):
     """
-    Optimized gene expression extraction with caching support.
-    
-    Parameters:
-    -----------
+    Vectorized gene lookup: returns integer positions; -1 for missing.
+    genes can be a str or list-like.
+    """
+    if isinstance(genes, str):
+        genes = [genes]
+    idx = var_names.get_indexer(genes)
+    return np.asarray(idx, dtype=np.int64), list(genes)
+
+
+def _raise_if_missing(idx, genes):
+    if np.any(idx == -1):
+        missing = np.asarray(genes, dtype=object)[idx == -1]
+        raise KeyError(f"Genes not found: {missing.tolist()}")
+
+
+def _take_columns_backed_aware(X, col_idx):
+    """
+    Read X[:, col_idx] efficiently.
+
+    For many backed / on-disk arrays, reading columns in increasing order
+    can be faster. We read sorted columns then restore original order.
+    """
+    col_idx = np.asarray(col_idx, dtype=np.int64)
+    if col_idx.size == 0:
+        return X[:, :0]
+
+    order = np.argsort(col_idx)
+    sorted_idx = col_idx[order]
+
+    sub = X[:, sorted_idx]
+
+    inv = np.empty_like(order)
+    inv[order] = np.arange(order.size)
+    return sub[:, inv]
+
+
+# --------------------------
+# Public API
+# --------------------------
+
+_gene_cache = GeneExpressionCache(max_size=64, max_age_seconds=1800)
+
+
+def extract_gene_expression(
+    adata,
+    gene,
+    layer=None,
+    use_raw=False,
+    use_cache=True,
+    dtype=None,
+):
+    """
+    Fast 1D extraction for a single gene.
+
+    Parameters
+    ----------
     adata : AnnData
-        The annotated data object
     gene : str
-        Gene name to extract
-    layer : str, optional
-        Layer to extract from (default: None uses .X)
+    layer : str | None
     use_raw : bool
-        Whether to use raw data (default: False)
     use_cache : bool
-        Whether to use caching (default: True)
-    
-    Returns:
-    --------
-    np.ndarray
-        Gene expression values as 1D array
-    """
-    # Use cache if enabled
-    if use_cache:
-        return _gene_cache.get(adata, gene, layer, use_raw)
-    
-    # Direct extraction without cache
-    # Use raw data if requested
-    data_source = adata.raw if use_raw and adata.raw is not None else adata
-    
-    # Get gene index
-    if gene not in data_source.var_names:
-        raise ValueError(f"Gene '{gene}' not found in data")
-    
-    gene_idx = data_source.var_names.get_loc(gene)
-    
-    # Get expression matrix
-    if layer is not None:
-        if layer not in data_source.layers:
-            raise ValueError(f"Layer '{layer}' not found")
-        X = data_source.layers[layer]
-    else:
-        X = data_source.X
-    
-    # Extract gene expression
-    gene_data = X[:, gene_idx]
-    
-    # Handle sparse matrices efficiently
-    if issparse(gene_data):
-        # Only convert the specific column to dense
-        gene_expr = gene_data.toarray().flatten()
-    else:
-        gene_expr = gene_data.flatten() if hasattr(gene_data, 'flatten') else np.asarray(gene_data).flatten()
-    
-    return gene_expr
+    dtype : numpy dtype | None
+        If provided (e.g., np.float32), cast output without extra copy when possible.
 
+    Returns
+    -------
+    np.ndarray (1D)
+    """
+    def _compute():
+        data_source = _get_data_source(adata, use_raw)
+        X = _get_matrix(data_source, layer)
 
-def extract_multiple_genes(adata, genes, layer=None, use_raw=False, cell_indices=None):
-    """
-    Extract multiple genes efficiently in a single operation.
-    
-    Parameters:
-    -----------
-    adata : AnnData
-        The annotated data object
-    genes : list of str
-        List of gene names to extract
-    layer : str, optional
-        Layer to extract from (default: None uses .X)
-    use_raw : bool
-        Whether to use raw data (default: False)
-    cell_indices : array-like, optional
-        Optional cell indices to subset before extracting genes.
-    
-    Returns:
-    --------
-    pd.DataFrame
-        DataFrame with genes as columns and cells as rows
-    """
-    # Use raw data if requested
-    data_source = adata.raw if use_raw and adata.raw is not None else adata
-    
-    # Get gene indices
-    gene_indices = []
-    valid_genes = []
-    for gene in genes:
-        if gene in data_source.var_names:
-            gene_indices.append(data_source.var_names.get_loc(gene))
-            valid_genes.append(gene)
+        idx, genes = _gene_indexer(data_source.var_names, gene)
+        _raise_if_missing(idx, genes)
+        j = int(idx[0])
+
+        col = X[:, j]
+        if issparse(col):
+            out = col.toarray().ravel()
         else:
-            print(f"Warning: Gene '{gene}' not found in data")
-    
-    if not gene_indices:
-        raise ValueError("No valid genes found")
-    
-    # Get expression matrix
-    if layer is not None:
-        if layer not in data_source.layers:
-            raise ValueError(f"Layer '{layer}' not found")
-        X = data_source.layers[layer]
+            out = np.asarray(col).ravel()
+
+        if dtype is not None:
+            out = out.astype(dtype, copy=False)
+        return out
+
+    if use_cache:
+        return _gene_cache.get_or_compute(adata, gene, layer, use_raw, _compute)
+    return _compute()
+
+
+def extract_multiple_genes(
+    adata,
+    genes,
+    layer=None,
+    use_raw=False,
+    cell_indices=None,
+    allow_missing=False,
+    to_dense=True,
+    dtype=np.float32,
+):
+    """
+    Extract multiple genes efficiently.
+
+    Parameters
+    ----------
+    adata : AnnData
+    genes : list[str] | str
+    layer : str | None
+    use_raw : bool
+    cell_indices : array-like | None
+        Subset of cells to include (indices or boolean mask).
+    allow_missing : bool
+        If False, raise on any missing gene.
+        If True, drop missing genes.
+    to_dense : bool
+        If True, convert to dense (DataFrame requires dense).
+    dtype : numpy dtype | None
+        Cast dense arrays to dtype (default float32).
+
+    Returns
+    -------
+    pd.DataFrame
+        rows = cells, columns = genes
+    """
+    data_source = _get_data_source(adata, use_raw)
+    X = _get_matrix(data_source, layer)
+
+    idx, gene_list = _gene_indexer(data_source.var_names, genes)
+
+    if not allow_missing:
+        _raise_if_missing(idx, gene_list)
+        keep_mask = np.ones_like(idx, dtype=bool)
     else:
-        X = data_source.X
-    
+        keep_mask = idx != -1
+        idx = idx[keep_mask]
+        gene_list = list(np.asarray(gene_list, dtype=object)[keep_mask])
+        if idx.size == 0:
+            raise KeyError("No valid genes found.")
+
+    # Prefer row slicing first (helps backed mode)
     if cell_indices is not None:
-        try:
-            # Prefer row-first slicing to avoid loading all cells when backed/on-disk.
-            gene_data = X[cell_indices, :][:, gene_indices]
-        except Exception:
-            gene_data = X[:, gene_indices]
-            gene_data = gene_data[cell_indices, :]
+        cell_indices = np.asarray(cell_indices)
+        X_sub = X[cell_indices, :]
     else:
-        # Extract all genes at once
-        gene_data = X[:, gene_indices]
-    
-    # Convert to dense if sparse
-    if issparse(gene_data):
-        gene_data = gene_data.toarray()
-    elif hasattr(gene_data, 'compute'):  # Handle dask arrays
-        gene_data = gene_data.compute()
-    
+        X_sub = X
+
+    # Backed-aware column slicing
+    gene_data = _take_columns_backed_aware(X_sub, idx)
+
+    # Convert to dense if requested
+    if to_dense:
+        if issparse(gene_data):
+            gene_data = gene_data.toarray()
+        elif hasattr(gene_data, "compute"):  # dask arrays
+            gene_data = gene_data.compute()
+        else:
+            gene_data = np.asarray(gene_data)
+
+        if dtype is not None:
+            gene_data = gene_data.astype(dtype, copy=False)
+
     obs_index = adata.obs_names if cell_indices is None else adata.obs_names[cell_indices]
-    # Create DataFrame
-    df = pd.DataFrame(gene_data, columns=valid_genes, index=obs_index)
-    
-    return df
+    return pd.DataFrame(gene_data, columns=gene_list, index=obs_index)
 
 
-def apply_transformation(expr, method='log1p', copy=True, clip_percentile=99):
+def apply_transformation(expr, method="log1p", copy=True, clip_percentile=99):
+    """
+    Apply common transformations for visualization.
+
+    method:
+      - "log1p" / "log"
+      - "zscore" / "z_score" (with clipping to percentiles)
+    """
     if copy:
         expr = expr.copy()
-    
-    if method in ['zscore', 'z_score']:
-        # Z-score normalization
-        if isinstance(expr, pd.DataFrame):
-            expr = expr.apply(lambda x: (x - x.mean()) / x.std(), axis=0)
-        else:
-            mean = np.mean(expr)
-            std = np.std(expr)
-            expr = (expr - mean) / std if std > 0 else expr - mean
-        
-        # Clip to ±99% percentile
-        upper = np.percentile(expr, clip_percentile)
-        lower = np.percentile(expr, 100 - clip_percentile)
-        expr = np.clip(expr, lower, upper)
 
-    elif method in ['log1p', 'log']:
+    if method in ("zscore", "z_score"):
+        if isinstance(expr, pd.DataFrame):
+            mean = expr.mean(axis=0)
+            std = expr.std(axis=0).replace(0, np.nan)
+            expr = (expr - mean) / std
+            expr = expr.fillna(0.0)
+
+            arr = expr.to_numpy()
+            upper = np.nanpercentile(arr, clip_percentile)
+            lower = np.nanpercentile(arr, 100 - clip_percentile)
+            expr = expr.clip(lower=lower, upper=upper)
+        else:
+            expr = np.asarray(expr)
+            mean = expr.mean()
+            std = expr.std()
+            expr = (expr - mean) / std if std > 0 else (expr - mean)
+
+            upper = np.percentile(expr, clip_percentile)
+            lower = np.percentile(expr, 100 - clip_percentile)
+            expr = np.clip(expr, lower, upper)
+
+    elif method in ("log1p", "log"):
         expr = np.log1p(expr)
 
     return expr
-
-# Global cache instance
-_gene_cache = GeneExpressionCache()
 
 
 def clear_gene_cache():
@@ -238,45 +294,45 @@ def clear_gene_cache():
 
 def get_cache_info():
     """Get information about the current cache state."""
-    return {
-        'size': len(_gene_cache.cache),
-        'max_size': _gene_cache.max_size,
-        'keys': list(_gene_cache.cache.keys())
-    }
+    return _gene_cache.info()
 
 
 def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None):
     """
     Unified binning function for heatmap visualization to reduce memory usage.
-    
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     df : pd.DataFrame
         DataFrame with cells as rows, genes as columns
-    gene_columns : list
-        List of gene column names
+    gene_columns : list[str]
+        Gene column names
     groupby : str
         Column name for cell type/group
     n_bins : int
-        Number of bins to create
-    continuous_key : str, optional
-        If provided, sort by this continuous variable first (for heatmap2)
-    
-    Returns:
-    --------
+        Number of bins total (distributed across groups)
+    continuous_key : str | None
+        If provided, sort by this continuous variable first (continuous binning)
+
+    Returns
+    -------
     pd.DataFrame
         Binned dataframe with reduced number of rows
     """
     if len(df) == 0:
-        return df[[groupby, *gene_columns]].copy() if continuous_key is None else df[[groupby, continuous_key, *gene_columns]].copy()
+        cols = [groupby, *gene_columns] if continuous_key is None else [groupby, continuous_key, *gene_columns]
+        return df[cols].copy()
 
     n_bins = max(1, min(int(n_bins), len(df)))
+
+    # Use float32 view for gene matrix to reduce memory
     gene_data = df[gene_columns].to_numpy(dtype=np.float32, copy=False)
 
-    # If continuous ordering is requested, use continuous binning approach
+    # --- Continuous ordering binning (single global sequence) ---
     if continuous_key is not None:
         df_sorted = df.sort_values(continuous_key)
         n_cells = len(df_sorted)
+
         edges = np.unique(np.linspace(0, n_cells, num=n_bins + 1, dtype=int))
         starts = edges[:-1]
         ends = edges[1:]
@@ -295,6 +351,7 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
         continuous_sums = np.add.reduceat(sorted_continuous, starts)
         continuous_means = continuous_sums / (ends - starts)
 
+        # Mode group label per bin (fast enough at bin-count scale)
         group_modes = []
         for s, e in zip(starts, ends):
             values, counts = np.unique(sorted_group_data[s:e], return_counts=True)
@@ -305,7 +362,7 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
         result_df.insert(0, groupby, group_modes)
         return result_df
 
-    # Factorize once to avoid fragile object equality (e.g. tuple group keys).
+    # --- Group-wise binning ---
     group_codes, unique_groups = pd.factorize(df[groupby], sort=False)
 
     binned_blocks = []
@@ -319,13 +376,17 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
             continue
 
         group_gene_data = gene_data[group_idx]
+
+        # For tiny groups, keep as-is to avoid over-averaging
         if n_cells_in_group <= 10:
             binned_blocks.append(group_gene_data)
             binned_group_labels.extend([group] * n_cells_in_group)
             continue
 
+        # Allocate bins proportional to group size
         group_bins = max(1, int(n_bins * n_cells_in_group / total_cells))
         group_bins = min(group_bins, n_cells_in_group)
+
         edges = np.unique(np.linspace(0, n_cells_in_group, num=group_bins + 1, dtype=int))
         starts = edges[:-1]
         ends = edges[1:]
