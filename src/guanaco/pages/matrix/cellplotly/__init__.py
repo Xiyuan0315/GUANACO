@@ -1,1 +1,0 @@
-"""Cellplotly visualization components."""

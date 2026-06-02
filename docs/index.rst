@@ -9,3 +9,4 @@ GUANACO (Graphical Unified Analysis and Navigation of Cellular Omics) is a Pytho
 
    getting-started
    deployment/index
+   development/index

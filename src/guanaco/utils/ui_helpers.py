@@ -1,7 +1,7 @@
 from dash import dcc, html
 import dash_bootstrap_components as dbc
 
-from guanaco.config import common_config
+from guanaco.plot_config import common_config
 
 
 def labeled_dropdown(
@@ -86,6 +86,19 @@ def graph_flex_container(graph_id, *, graph_style=None):
         style={
             "height": '100%',
             "width": '100%',
+            "display": "flex",
+            "flex-direction": "column",
+            "flex-grow": "0",
+        },
+    )
+
+
+def component_flex_container(component_id, *, style=None):
+    return html.Div(
+        id=component_id,
+        style=style or {
+            "height": "100%",
+            "width": "100%",
             "display": "flex",
             "flex-direction": "column",
             "flex-grow": "0",

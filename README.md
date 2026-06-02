@@ -27,7 +27,7 @@
 - **100+ color maps** – Choose from a wide range of continuous and discrete palettes, including options optimized for color vision deficiencies.
 - **Interactive layout** – Resize plots, reorder axes, and zoom in on details all directly in the browser
 
-<img alt="figure" src="figure.png" />
+<img alt="figure" src="docs/assets/guanaco-interface.png" />
 
 Example Interface: [Launch the interactive demo](https://guanaco-demo.chen-sysimeta-lab.com/)
 
@@ -65,7 +65,7 @@ pixi run install-dev
 ### 4. Run GUANACO
 
 ```bash
-pixi run guanaco -c config.json -d data_folder
+pixi run guanaco -c config.json
 ```
 
 Or use the predefined task:
@@ -113,25 +113,40 @@ guanaco --help
 
 ## Usage
 ```bash
-guanaco -c config.json -d data_folder
+guanaco -c config.json
+```
+
+To create a config file with a GUI:
+
+```bash
+guanaco --config-wizard
+```
+
+You can also choose the output path up front:
+
+```bash
+guanaco --config-wizard -c /absolute/path/to/guanaco.json
 ```
 
 ### Command-line Options
 
-- `-c, --config`: Name of configuration JSON file (relative to --data-dir) (default: guanaco.json)
-- `-d, --data-dir`: Directory containing AnnData files referenced in config (default: current directory)
-- `-p, --port`: Port to run the Dash server on (default: 4399)
-- `--host`: Host to run the Dash server on (default: 0.0.0.0)
-- `--debug`: Run server in debug mode
-- `--max-cells`: Maximum number of cells to load per dataset (default: 8000)
-- `--backed-mode`: Enable backed mode for memory-efficient loading of large datasets
+- `-c, --config`: Path to the configuration JSON file (default: guanaco.json)
+- `--config-wizard`, `--generate-config`: Open a GUI wizard to create a GUANACO config file
+
+Runtime settings such as `port`, `host`, `max_cells`, `backed_mode`, and `embedding_render_backend` are defined in the top-level `settings` block of the config file.
 
 ## Configuration
 
-Create a configuration JSON file specifying your datasets. See `example_config.json` for a complete example configuration. Simpliest case for visualizing scRNA data(.h5ad) is:
+Create a configuration JSON file specifying your datasets. See `examples/configs/example_config.json` for a complete example configuration. Simpliest case for visualizing scRNA data(.h5ad) is:
 ```
 {
-  "Demo": {"sc_data": "PBMC_int.h5ad"}
+  "Demo": {"sc_data": "/absolute/path/to/PBMC_int.h5ad"},
+  "settings": {
+    "port": 4399,
+    "max_cells": 10000,
+    "backed_mode": false,
+    "embedding_render_backend": "scattergl"
+  }
 }
 ```
 

@@ -3,13 +3,14 @@ warnings.filterwarnings("ignore", category=FutureWarning, message=".*__version__
 
 from dash import dcc, html, Output, Input, MATCH, State
 from guanaco.app import app
-from guanaco.layout import (
+from guanaco.layouts import (
     navbar, tab_content, footprint, guanaco_footer, description_layout,
     anndata_layout, igv_layout, resize_tip_toast
 )
-from guanaco.pages.track.gene_browser import gene_browser_callbacks
+from guanaco.pages.track.callbacks import gene_browser_callbacks
 from guanaco.pages.matrix.callbacks import matrix_callbacks
-from guanaco.data_loader import datasets, get_discrete_labels
+from guanaco.data.loader import get_discrete_labels
+from guanaco.data.registry import datasets, embedding_render_backend
 import muon as mu
 
 mu.set_options(pull_on_update=False)
@@ -50,7 +51,7 @@ for name, dataset in datasets.items():
                     app,
                     mod_adata,
                     prefix,
-                    embedding_render_backend=dataset.embedding_render_backend,
+                    embedding_render_backend=embedding_render_backend,
                 )
         else:
             prefix = name
@@ -58,7 +59,7 @@ for name, dataset in datasets.items():
                 app,
                 dataset_adata,
                 prefix,
-                embedding_render_backend=dataset.embedding_render_backend,
+                embedding_render_backend=embedding_render_backend,
             )
 
     if dataset.genome_tracks is not None and dataset.ref_track is not None:
@@ -147,4 +148,4 @@ def update_igv_layout(active_tab):
 server = app.server
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug=True, port=4399)
+    app.run_server(host = '127.0.0.1', debug=True, port=4399)

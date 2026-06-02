@@ -7,6 +7,8 @@
 __pycache__/
 *.py[cod]
 *.so
+.ipynb_checkpoints/
+.DS_Store
 
 # build artifacts
 build/
@@ -18,3 +20,9 @@ dist-conda/
 # docs build artifacts
 docs/build/
 docs/_build/
+docs/.history/
+docs/*.html
+docs/*/*.html
+docs/searchindex.js
+docs/objects.inv
+docs/.buildinfo

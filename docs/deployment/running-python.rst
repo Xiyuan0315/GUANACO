@@ -79,7 +79,7 @@ Step 4. Run GUANACO
 
 .. code-block:: bash
 
-   nohup guanaco -c your_config.json --backed-mode &
+   nohup guanaco -c your_config.json &
 
 The app will be running at: http://<instance-public-ip>:4399/
 

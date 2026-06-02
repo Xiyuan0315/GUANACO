@@ -8,7 +8,7 @@ Usage (after installing the package):
     fw  # in Jupyter, this renders an interactive widget
 
 The wrappers lazily import the underlying plotting functions from
-guanaco.pages.matrix.cellplotly.* and convert the returned go.Figure to
+guanaco.pages.matrix.plots.* and convert the returned go.Figure to
 go.FigureWidget for use in notebooks.
 """
 
@@ -38,7 +38,7 @@ def embedding_continuous_widget(
     axis_show: bool = True,
 ):
     """Return a FigureWidget for a continuous embedding (e.g., gene expression)."""
-    from guanaco.pages.matrix.cellplotly.embedding import plot_continuous_embedding
+    from guanaco.pages.matrix.plots.embedding import plot_continuous_embedding
 
     fig = plot_continuous_embedding(
         adata=adata,
@@ -70,7 +70,7 @@ def embedding_categorical_widget(
     axis_show: bool = True,
 ):
     """Return a FigureWidget for a categorical embedding with fixed colors."""
-    from guanaco.pages.matrix.cellplotly.embedding import plot_categorical_embedding_with_fixed_colors
+    from guanaco.pages.matrix.plots.embedding import plot_categorical_embedding_with_fixed_colors
 
     fig = plot_categorical_embedding_with_fixed_colors(
         adata=adata,
@@ -103,7 +103,7 @@ def embedding_coexpression_widget(
     legend_show: str = 'on legend',
 ):
     """Return a FigureWidget for two-gene coexpression categories on embeddings."""
-    from guanaco.pages.matrix.cellplotly.embedding import plot_coexpression_embedding
+    from guanaco.pages.matrix.plots.embedding import plot_coexpression_embedding
 
     fig = plot_coexpression_embedding(
         adata=adata,
@@ -134,7 +134,7 @@ def embedding_continuous_annotation_widget(
     axis_show: bool = True,
 ):
     """Return a FigureWidget for continuous annotations on embeddings."""
-    from guanaco.pages.matrix.cellplotly.embedding import plot_continuous_annotation
+    from guanaco.pages.matrix.plots.embedding import plot_continuous_annotation
 
     fig = plot_continuous_annotation(
         adata=adata,
@@ -169,7 +169,7 @@ def heatmap_widget(
     adata_obs=None,
 ):
     """Return a FigureWidget for the unified heatmap plot."""
-    from guanaco.pages.matrix.cellplotly.heatmap import plot_unified_heatmap
+    from guanaco.pages.matrix.plots.heatmap import plot_unified_heatmap
 
     fig = plot_unified_heatmap(
         adata=adata,
@@ -204,7 +204,7 @@ def violin1_widget(
     adata_obs=None,
 ):
     """Return a FigureWidget for the first violin plot variant."""
-    from guanaco.pages.matrix.cellplotly.violin1 import plot_violin1
+    from guanaco.pages.matrix.plots.violin1 import plot_violin1
 
     fig = plot_violin1(
         adata=adata,
@@ -231,7 +231,7 @@ def violin2_widget(
     color_map = None
 ):
     """Return a FigureWidget for the second violin plot variant."""
-    from guanaco.pages.matrix.cellplotly.violin2 import plot_violin2_new
+    from guanaco.pages.matrix.plots.violin2 import plot_violin2_new
 
     fig = plot_violin2_new(
         adata, key, meta1, meta2, mode,
@@ -259,7 +259,7 @@ def dotmatrix_widget(
     metric='correlation'
 ):
     """Return a FigureWidget for the dot matrix plot."""
-    from guanaco.pages.matrix.cellplotly.dotmatrix import plot_dot_matrix
+    from guanaco.pages.matrix.plots.dotmatrix import plot_dot_matrix
     fig = plot_dot_matrix(
         adata=adata,
         genes=genes,
@@ -286,7 +286,7 @@ def stacked_bar_widget(
     x_order=None,
 ):
     """Return a FigureWidget for the stacked bar plot (or histogram when x_meta == y_meta)."""
-    from guanaco.pages.matrix.cellplotly.stacked_bar import plot_stacked_bar
+    from guanaco.pages.matrix.plots.stacked_bar import plot_stacked_bar
 
     fig = plot_stacked_bar(
         x_meta=x_meta,
@@ -311,7 +311,7 @@ def pseudotime_widget(
     color_map=None,
 ):
     """Return a FigureWidget for gene expression along pseudotime."""
-    from guanaco.pages.matrix.cellplotly.pseudotime import plot_genes_in_pseudotime
+    from guanaco.pages.matrix.plots.pseudotime import plot_genes_in_pseudotime
 
     fig = plot_genes_in_pseudotime(
         adata=adata,

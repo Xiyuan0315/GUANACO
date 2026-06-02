@@ -98,7 +98,7 @@ class LazyAnnData:
     def adata(self):
         """Load AnnData on first access."""
         if self._adata is None:
-            from guanaco.data_loader import load_adata
+            from guanaco.data.loader import load_adata
             self._adata = load_adata(
                 self.file_path,
                 max_cells=self.max_cells,

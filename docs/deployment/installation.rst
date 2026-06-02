@@ -76,16 +76,19 @@ Step 4. Run GUANACO
 
    guanaco -c your_config.json
 
+To create a config file with the GUI wizard:
+
+.. code-block:: bash
+
+   guanaco --config-wizard
+
 Additional options:
 
 * ``guanaco -h`` → show help  
-* ``guanaco -d DATA_DIR`` → specify data directory  
-* ``guanaco -p PORT`` → change port (default: 4399)  
-* ``guanaco --host HOST`` → change host (default: 0.0.0.0)  
-* ``guanaco --debug`` → run in debug mode  
-* ``guanaco --max-cells MAX_CELLS`` → adjust max cells (default: 8000)  
-* ``guanaco --seed SEED`` → set random seed for subsampling  
-* ``guanaco --backed-mode`` → recommended for large datasets, avoids memory issues  
+* ``guanaco -c CONFIG`` → specify the config file path  
+* ``guanaco --config-wizard`` → open the config generator GUI
+
+Runtime settings such as port, host, debug mode, downsampling, backed mode, and embedding rendering backend are configured in the top-level ``settings`` block of the JSON config file.
 
 .. note::
 

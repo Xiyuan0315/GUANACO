@@ -11,26 +11,25 @@ Basic command-line options:
    options:
      -h, --help            Show this help message and exit
      -c CONFIG, --config CONFIG
-                           Name of configuration JSON file (relative to --data-dir)
+                           Path to the configuration JSON file
                            (default: guanaco.json)
-     -d DATA_DIR, --data-dir DATA_DIR
-                           Directory containing AnnData files referenced in config
-                           (default: current directory)
-     -p PORT, --port PORT  Port to run the Dash server on (default: 4399)
-     --host HOST           Host to run the Dash server on (default: 0.0.0.0)
-     --debug               Run server in debug mode (default: False)
-     --max-cells MAX_CELLS Maximum number of cells to load per dataset (default: 10000)
-     --backed-mode         Enable backed mode for memory-efficient loading of
-                           large datasets (default: False)
+     --config-wizard, --generate-config
+                           Open a GUI wizard to create a GUANACO config file
 
 .. tip::
 
    **Quick start:**  
-   If the config file and data files are in the current directory, you can simply run:
+   Use an absolute config path when launching from a GUI or when the data is not in the current directory:
 
    .. code-block:: console
 
-      guanaco -c config.json
+      guanaco -c /path/to/guanaco.json
+
+   To create the config file with a GUI, run:
+
+   .. code-block:: console
+
+      guanaco --config-wizard
 
 
 
@@ -50,7 +49,7 @@ The GUANACO configuration file is written in JSON format and has **two main sect
 
    - **Matrix-based data**  
 
-     - ``sc_data`` (required): Name of a ``.h5ad`` or ``.h5mu`` file.  
+     - ``sc_data`` (required): Absolute path to a ``.h5ad`` or ``.h5mu`` file. Relative paths are still supported and are resolved against the config file directory.  
      - ``markers`` (optional): List of marker genes for plots (heatmaps, dot plots, violin plots, stacked bar plots, pseudotime plots).  
 
    - **Track-based data**  
@@ -66,6 +65,14 @@ The GUANACO configuration file is written in JSON format and has **two main sect
 
    - ``title`` (optional): Title of the GUANACO instance.  
    - ``color`` (optional): List of custom HEX colors applied to clusters and tracks.
+   - ``settings`` (optional): Runtime settings shared by all datasets in the config:
+
+     - ``host``: Host to run the Dash server on. Default: ``"0.0.0.0"``.
+     - ``port``: Port to run the Dash server on. Default: ``4399``.
+     - ``max_cells``: Maximum number of cells to load per dataset. Use ``null`` to disable downsampling. Default: ``10000``.
+     - ``lazy_load``: Load AnnData only when first opened. Default: ``true``.
+     - ``backed_mode``: Use disk-backed loading for large datasets. Values: ``false``, ``true``, or ``"r+"``. Default: ``false``.
+     - ``embedding_render_backend``: Embedding scatter rendering backend. Values: ``"scattergl"`` or ``"datashader"``. Default: ``"scattergl"``.
 
 
 Example Config File
@@ -76,7 +83,7 @@ Example Config File
    {
      "Study1": {
        "description": "PBMC single-cell RNA and ATAC integration study",
-       "sc_data": "pbmc.h5ad",
+       "sc_data": "/Users/example/data/pbmc.h5ad",
        "markers": ["MS4A1", "LYZ"],
        "genome": "hg38",
        "bucket_urls": ["https://atac-bucket-1/"],
@@ -85,10 +92,18 @@ Example Config File
      },
      "Study2": {
        "description": "Mouse skin study",
-       "sc_data": "skin.h5mu"
+       "sc_data": "/Users/example/data/skin.h5mu"
      },
      "title": "GUANACO",
-     "color": ["#1f77b4", "#ff7f0e", "#2ca02c"]
+     "color": ["#1f77b4", "#ff7f0e", "#2ca02c"],
+     "settings": {
+       "host": "0.0.0.0",
+       "port": 4399,
+       "max_cells": 10000,
+       "lazy_load": true,
+       "backed_mode": false,
+       "embedding_render_backend": "scattergl"
+     }
    }
 
 Once the config file is set and the AnnData and BigWig files are prepared, GUANACO can be accessed locally or deployed on a server.  
@@ -122,7 +137,7 @@ AWS S3 is recommended for simplicity and scalability.
 
 - **BigWig**: ``.bigwig``, ``.bw`` (ATAC peaks)  
 If you need to convert an ``.h5ad`` or ``.h5mu`` file to BigWig, refer to the Jupyter notebook example provided with **scCAMEL**:  
-`TACoWig_Template.ipynb <https://github.com/Systems-Immunometabolism-Lab/guanaco-viz/blob/main/TACoWig_Template.ipynb>`_
+`TACoWig_Template.ipynb <https://github.com/Systems-Immunometabolism-Lab/guanaco-viz/blob/main/examples/notebooks/TACoWig_Template.ipynb>`_
 
 - **Interaction files**: ``.bedpe``  
 - **Annotation tracks** (motifs, SNPs, etc.): ``.bed``, ``.bigBed`` (``.bb``)  
@@ -133,7 +148,7 @@ If you need to convert an ``.h5ad`` or ``.h5mu`` file to BigWig, refer to the Ju
      https://jaspar.elixir.no/tfbs_extraction/  
 
   2. Using our provided script:  
-     https://github.com/Systems-Immunometabolism-Lab/guanaco-viz/blob/main/motif_extraction
+     https://github.com/Systems-Immunometabolism-Lab/guanaco-viz/blob/main/scripts/motif_extraction
 
 **Bucket policy for public read access**
 

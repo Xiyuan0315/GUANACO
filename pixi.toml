@@ -15,7 +15,7 @@ test = "PYTHONPATH=src pytest"
 tests = "PYTHONPATH=src pytest"
 lint = "ruff check src tests"
 format = "ruff format src tests"
-run = "guanaco -c example_config.json -d ."
+run = "guanaco -c examples/configs/example_config.json -d ."
 
 [dependencies]
 python = ">=3.10,<3.13"
@@ -46,6 +46,11 @@ pytest = ">=8.4.1,<9"
 ruff = ">=0.12.8,<0.13"
 datashader = ">=0.18.2,<0.19"
 colorcet = ">=3.1.0,<4"
+cmcrameri = ">=1.9"
+ipython = ">=9.11.0,<10"
+jupyterlab = ">=4.5.6,<5"
+ipykernel = ">=7.2.0,<8"
+glasbey = ">=0.3.0,<0.4"
 
 [pypi-dependencies]
 guanaco-viz = { path = ".", editable = true }
