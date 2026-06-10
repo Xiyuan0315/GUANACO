@@ -415,8 +415,8 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
             )
 
 
-def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
-                     show_box=False, show_points=False, test_method='auto', 
+def plot_violin2_new(adata, key, meta1, meta2, mode, transformation=None, layer=None,
+                     show_box=False, show_points=False, test_method='auto',
                      labels=None, color_map=None, palette=None):
     """
     Create violin plots for gene expression data with support for multiple metadata designs.
@@ -440,7 +440,7 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation='log',
     
     # Extract and transform expression data
     from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
-    expression_data = extract_gene_expression(adata, key)
+    expression_data = extract_gene_expression(adata, key, layer=layer)
     
     if transformation:
         expression_data = apply_transformation(expression_data, transformation, copy=False)

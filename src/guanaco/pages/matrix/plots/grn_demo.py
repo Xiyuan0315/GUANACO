@@ -126,7 +126,6 @@ def _legend():
     }
     return html.Div(
         [
-            html.Div("Gene regulatory network", style={"fontWeight": "bold", "fontSize": "13px", "marginBottom": "6px"}),
             html.Div(
                 [
                     html.Div([html.Span(style={**swatch_style, "backgroundColor": "#E07A5F"}), html.Span("Source")], style=item_style),
@@ -189,26 +188,26 @@ def _edge_widths(filtered: pd.DataFrame) -> pd.Series:
     return scaled.fillna(3.0)
 
 
-def build_grn_cytoscape(
+def grn_graph(
     adata: Any,
     *,
-    component_id="grn-cytoscape-view",
     selected_context=ALL_CONTEXTS,
     edge_threshold: float | None = None,
     layout_name="cose",
+    node_font_size=12,
 ):
-    if cyto is None:
-        return _empty_grn_component("dash-cytoscape is not installed. Add dash-cytoscape to render GRN plots.")
+    """Backend-agnostic GRN graph for cytoscape.js.
 
-    try:
-        grn_df = grn_dataframe(adata)
-    except Exception as exc:
-        return _empty_grn_component(str(exc))
-
+    Returns ``{"elements", "stylesheet", "layout", "legend", "directed"}`` so it
+    can drive either the Dash ``cyto.Cytoscape`` component or the ipycytoscape
+    notebook widget (``gc.pl.grn``). Raises ``ValueError`` when there is nothing
+    to render.
+    """
+    grn_df = grn_dataframe(adata)
     context_column = grn_context_column(grn_df)
     filtered = _filter_grn_edges(grn_df, selected_context, context_column, edge_threshold)
     if filtered.empty:
-        return _empty_grn_component("No GRN edges match the current filters.")
+        raise ValueError("No GRN edges match the current filters.")
 
     source_nodes = set(filtered["source"].astype(str))
     nodes = {}
@@ -239,16 +238,14 @@ def build_grn_cytoscape(
         )
 
     node_elements = [{"data": node_data} for node_data in nodes.values()]
-    context_text = selected_context if selected_context and selected_context != ALL_CONTEXTS else "all contexts"
-    threshold_text = "" if edge_threshold is None or not grn_has_weight(grn_df) else f"; edge threshold {float(edge_threshold):.2f}"
-    subtitle = f"GRN edges for {context_text}{threshold_text}"
 
     stylesheet = [
         {
             "selector": "node",
             "style": {
                 "label": "data(label)",
-                "font-size": 12,
+                "font-size": node_font_size,
+                "font-weight": "bold",
                 "color": "#22333B",
                 "text-valign": "bottom",
                 "text-halign": "center",
@@ -310,11 +307,50 @@ def build_grn_cytoscape(
         },
     ]
 
+    return {
+        "elements": node_elements + edge_elements,
+        "stylesheet": stylesheet,
+        "layout": {"name": layout_name, "fit": True, "padding": 40},
+        "legend": {
+            "kind": "categorical",
+            "title": "Gene regulatory network",
+            "entries": [
+                {"label": "Source", "color": "#E07A5F"},
+                {"label": "Target", "color": "#3D5A80"},
+                {"label": "Activation (+)", "color": "#2A9D8F"},
+                {"label": "Repression (−)", "color": "#C0392B"},
+            ],
+        },
+        "directed": True,
+    }
+
+
+def build_grn_cytoscape(
+    adata: Any,
+    *,
+    component_id="grn-cytoscape-view",
+    selected_context=ALL_CONTEXTS,
+    edge_threshold: float | None = None,
+    layout_name="cose",
+):
+    """Dash GRN component (wraps :func:`grn_graph`)."""
+    if cyto is None:
+        return _empty_grn_component("dash-cytoscape is not installed. Add dash-cytoscape to render GRN plots.")
+    try:
+        graph = grn_graph(
+            adata,
+            selected_context=selected_context,
+            edge_threshold=edge_threshold,
+            layout_name=layout_name,
+        )
+    except Exception as exc:
+        return _empty_grn_component(str(exc))
+
     cytoscape_component = cyto.Cytoscape(
         id=component_id,
-        elements=node_elements + edge_elements,
-        layout={"name": layout_name, "fit": True, "padding": 40},
-        stylesheet=stylesheet,
+        elements=graph["elements"],
+        layout=graph["layout"],
+        stylesheet=graph["stylesheet"],
         minZoom=0.2,
         maxZoom=3.0,
         responsive=True,
@@ -323,7 +359,6 @@ def build_grn_cytoscape(
 
     return html.Div(
         [
-            html.Div(subtitle, style={"padding": "6px 10px 0 10px", "fontSize": "13px", "fontWeight": "bold", "color": "#2F3E46"}),
             _legend(),
             cytoscape_component,
         ],

@@ -2,7 +2,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from guanaco.utils.colors import continuous_colormap_options, discrete_palette_options
-from guanaco.plot_config import scatter_config, gene_scatter_config
+from guanaco.utils.plot_config import scatter_config, gene_scatter_config
 
 
 EMBEDDING_PREFIXES = {
@@ -26,10 +26,14 @@ def initialize_scatter_components(adata):
     return obsm_list, embedding_columns, default_embedding, default_columns
 
 
-def create_control_components(adata, prefix, *, role="left"):
-    obsm_list, embedding_columns, default_embedding, _ = initialize_scatter_components(adata)
+def create_control_components(adata, prefix, *, role="left", default_embedding=None):
+    obsm_list, embedding_columns, auto_embedding, _ = initialize_scatter_components(adata)
     id_prefix = prefix if role == "left" else f"{prefix}-right"
-    initial_embedding = "X_umap" if "X_umap" in obsm_list else default_embedding
+    # Honor a configured embedding when it exists; otherwise prefer UMAP, then auto.
+    if default_embedding and default_embedding in obsm_list:
+        initial_embedding = default_embedding
+    else:
+        initial_embedding = "X_umap" if "X_umap" in obsm_list else auto_embedding
     default_columns = embedding_columns[initial_embedding]
     clustering_dropdown = dcc.Dropdown(
         id=f"{id_prefix}-clustering-dropdown",
@@ -185,18 +189,28 @@ def create_global_metadata_filter(adata, prefix):
     )
 
 
-def generate_embedding_plots(adata, prefix):
+def generate_embedding_plots(adata, prefix, scatter_defaults=None):
+    scatter_defaults = scatter_defaults or {}
+    # Independent defaults for the left and right scatter panels.
+    cfg_embedding_left = scatter_defaults.get("embedding_left")
+    cfg_embedding_right = scatter_defaults.get("embedding_right")
+    cfg_color_left = scatter_defaults.get("color_left")
+    cfg_color_right = scatter_defaults.get("color_right")
     palette_options = discrete_palette_options()
-    scatter_transformation_selection = html.Div(
-        [
-            dbc.RadioItems(
-                id=f"{prefix}-scatter-log-or-zscore",
-                options=[{"label": "None", "value": None}, {"label": "Log", "value": "log"}],
-                value=None,
-                inline=True,
-                style={"fontSize": "14px"},
-            )
-        ]
+    # Global data-layer selector. Chooses which matrix feeds every expression
+    # plot (scatter, co-expression, violin, dotplot, heatmap, expression trend).
+    # "X" -> adata.X; other entries are adata.layers keys. Replaces the old
+    # per-plot Log toggles (X is conventionally already log-normalized).
+    layer_options = [{"label": "X (default)", "value": "X"}] + [
+        {"label": str(layer_name), "value": str(layer_name)}
+        for layer_name in getattr(adata, "layers", {}).keys()
+    ]
+    data_layer_selection = dcc.Dropdown(
+        id=f"{prefix}-data-layer",
+        options=layer_options,
+        value="X",
+        clearable=False,
+        style={"fontSize": "14px"},
     )
 
     scatter_order_selection = html.Div(
@@ -281,16 +295,30 @@ def generate_embedding_plots(adata, prefix):
         style={"display": "none"},
     )
 
-    annotations = adata.obs.columns.tolist()
+    # Exclude high-cardinality categorical annotations from the scatter color
+    # dropdown: more than 50 categories means >50 colors, which is unreadable and
+    # slow. Continuous (numeric) columns are always kept (continuous colormap).
+    annotations = []
+    for col in adata.obs.columns:
+        if adata.obs[col].dtype == "category" or adata.obs[col].dtype == "object":
+            unique_vals = adata.obs[col].unique()
+            if len(unique_vals) > 50:
+                continue
+        annotations.append(col)
     sample_genes = adata.var_names[:20].tolist()
     combined_list = annotations + sample_genes
-    default_annotation = annotations[0] if annotations else None
-    # Use an obs annotation as default on the right plot to avoid heavy
-    # gene-expression/datashader work at initial page load.
-    default_gene = annotations[0] if annotations else (sample_genes[0] if sample_genes else None)
+    # Surface configured genes even if they fall outside the sampled gene list.
+    for cfg_color in (cfg_color_left, cfg_color_right):
+        if cfg_color and cfg_color not in combined_list and cfg_color in adata.var_names:
+            combined_list = combined_list + [cfg_color]
 
-    clustering_dropdown, coordinates_dropdowns = create_control_components(adata, prefix)
-    right_clustering_dropdown, right_coordinates_dropdowns = create_control_components(adata, prefix, role="right")
+    default_annotation = cfg_color_left if cfg_color_left in combined_list else (annotations[0] if annotations else None)
+    # Default the right panel to an obs annotation to avoid heavy
+    # gene-expression/datashader work at initial page load.
+    default_gene = cfg_color_right if cfg_color_right in combined_list else (annotations[0] if annotations else (sample_genes[0] if sample_genes else None))
+
+    clustering_dropdown, coordinates_dropdowns = create_control_components(adata, prefix, default_embedding=cfg_embedding_left)
+    right_clustering_dropdown, right_coordinates_dropdowns = create_control_components(adata, prefix, role="right", default_embedding=cfg_embedding_right)
     spatial_imgkey_control = html.Div(
         [
             html.Label("Spatial Image:", className="control-label"),
@@ -311,6 +339,8 @@ def generate_embedding_plots(adata, prefix):
         [
             dcc.Store(id=f"{prefix}-selected-cells-store"),
             dcc.Store(id=f"{prefix}-left-highlighted-cells-store"),
+            # Dummy output for the clientside axis reset-link callback (side-effect only).
+            dcc.Store(id=f"{prefix}-axis-reset-link"),
             create_global_metadata_filter(adata, prefix),
             dbc.Row(
                 [
@@ -318,11 +348,11 @@ def generate_embedding_plots(adata, prefix):
                         html.Div(
                             [
                                 html.Div([html.Label("Dimension Reduction Left:", className="control-label"), clustering_dropdown], className="dbc", style={"marginBottom": "15px"}),
-                                html.Div([html.Label("Dimension Reduction Right:", className="control-label"), right_clustering_dropdown], className="dbc", style={"marginBottom": "15px"}),
-                                spatial_imgkey_control,
                                 html.Div([html.Div(coordinates_dropdowns, id=f"{prefix}-coordinates-dropdowns")], className="dbc", style={"marginBottom": "15px"}),
+                                html.Div([html.Label("Dimension Reduction Right:", className="control-label"), right_clustering_dropdown], className="dbc", style={"marginBottom": "15px"}),
                                 html.Div([html.Div(right_coordinates_dropdowns, id=f"{prefix}-right-coordinates-dropdowns")], className="dbc", style={"marginBottom": "15px"}),
-                                html.Div([html.Label("Transformation:", className="control-label"), scatter_transformation_selection], style={"marginBottom": "15px"}),
+                                spatial_imgkey_control,
+                                html.Div([html.Label("Data layer:", className="control-label"), data_layer_selection], className="dbc", style={"marginBottom": "15px"}),
                                 html.Button("More controls", id=f"{prefix}-toggle-button", n_clicks=0, style={"marginBottom": "10px", "border": "1px solid", "borderRadius": "5px"}),
                                 graphic_control,
                             ]

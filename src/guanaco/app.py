@@ -19,5 +19,13 @@ app = dash.Dash(
     suppress_callback_exceptions=True
 )
 
+# Enable dash-cytoscape's extra layouts and SVG image export, used by the
+# PAGA / GRN "Download SVG" buttons. No-op if dash-cytoscape isn't installed.
+try:
+    import dash_cytoscape as _cyto
+    _cyto.load_extra_layouts()
+except Exception:
+    pass
+
 config = load_config(JSON_PATH)
 app.title = config.get("title", "GUANACO")

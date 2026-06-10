@@ -11,7 +11,7 @@ from scipy.spatial.distance import pdist
 
 def plot_dot_matrix(
     adata, genes, groupby, selected_labels,
-    transformation=None, standardization=None,
+    transformation=None, standardization=None, layer=None,
     color_map='Viridis', plot_type='dotplot',
     cluster='none', method='average', metric='correlation',
     transpose=False, selected_cells=None
@@ -50,7 +50,7 @@ def plot_dot_matrix(
     n_cells = row_indices.size
     gene_matrix = np.empty((n_cells, len(valid_genes)), dtype=np.float32)
     for j, gene in enumerate(valid_genes):
-        expr = extract_gene_expression(adata, gene, use_cache=True, dtype=np.float32)
+        expr = extract_gene_expression(adata, gene, layer=layer, use_cache=True, dtype=np.float32)
         gene_matrix[:, j] = expr[row_indices]
     expr_df = pd.DataFrame(gene_matrix, columns=valid_genes)
 
@@ -63,15 +63,26 @@ def plot_dot_matrix(
     aggregated_data.index.name = None
     fraction_expressing.index.name = None
 
-    # Apply standardization if needed
-    if standardization == 'var':
-        # Standardize per gene (each column)
+    # Standardization: per-gene (column) z-score. The toggle only changes the
+    # reference population for each gene's mean/std.
+    #   across_cells  -> mean/std over all individual cells
+    #   across_groups -> mean/std over the per-group means (scanpy standard_scale='var', signed)
+    # Legacy values ('var'/'group') kept for the notebook API (gc.pl.matrixplot).
+    standardized = standardization in ("across_cells", "across_groups")
+    if standardization == "across_cells":
+        mu = expr_df.mean(axis=0)
+        sd = expr_df.std(axis=0).replace(0, 1.0)
+        aggregated_data = (aggregated_data - mu) / sd
+    elif standardization == "across_groups":
+        mu = aggregated_data.mean(axis=0)
+        sd = aggregated_data.std(axis=0).replace(0, 1.0)
+        aggregated_data = (aggregated_data - mu) / sd
+    elif standardization == "var":  # legacy: min-max per gene
         aggregated_data = (aggregated_data - aggregated_data.min()) / (aggregated_data.max() - aggregated_data.min())
-    elif standardization == 'group':
-        # Standardize per group (each row)
+    elif standardization == "group":  # legacy: z-score per group (row)
         aggregated_data = (aggregated_data.sub(aggregated_data.mean(axis=1), axis=0)
                                         .div(aggregated_data.std(axis=1), axis=0))
-    
+
     # Figure out base lists
     if selected_labels:
         present_groups = set(aggregated_data.index)
@@ -112,6 +123,14 @@ def plot_dot_matrix(
 
     vmin = float(aggregated_data[gene_order].min().min())
     vmax = float(aggregated_data[gene_order].max().max())
+    if standardized:
+        # Symmetric, zero-centred range so the diverging colours read correctly.
+        m = max(abs(vmin), abs(vmax)) or 1.0
+        vmin, vmax = -m, m
+        label = "cells" if standardization == "across_cells" else "groups"
+        colorbar_title = f"z-score (across {label})"
+    else:
+        colorbar_title = "Mean Expression"
 
     # Keep the visible top-to-bottom / left-to-right order aligned with user input.
     if transpose:
@@ -176,7 +195,7 @@ def plot_dot_matrix(
                 cmax=vmax,
                 line=dict(color='black', width=0.5),
                 colorbar=dict(
-                    title=f'Mean Expression ({transformation})' if transformation and transformation != 'None' else 'Mean Expression',
+                    title=colorbar_title,
                     tickfont=dict(color='DarkSlateGrey', size=10),
                     len=0.6,
                     yanchor="middle",
@@ -275,11 +294,11 @@ def plot_dot_matrix(
             x=x_items,
             y=y_items,
             colorscale=color_map,
-            zmid=None,
+            zmid=0 if standardized else None,
             zmin=vmin,
             zmax=vmax,
             colorbar=dict(
-                title=f'Mean Expression ({transformation})' if transformation and transformation != 'None' else 'Mean Expression',
+                title=colorbar_title,
                 tickfont=dict(color='DarkSlateGrey', size=10),
                 len=0.6,
                 yanchor="middle",

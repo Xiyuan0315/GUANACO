@@ -1,6 +1,7 @@
 import dash_draggable
 from dash import html
 
+from guanaco.utils.render_guard import rendered_key_store
 from guanaco.utils.colors import discrete_palette_options
 from guanaco.utils.ui_helpers import (
     labeled_dropdown,
@@ -14,12 +15,12 @@ def generate_heatmap_layout(adata, prefix):
     palette_options = discrete_palette_options()
 
     heatmap_transformation_selection = labeled_radioitems(
-        "Transformation:",
-        f"{prefix}-heatmap-transformation",
+        "Standardization:",
+        f"{prefix}-heatmap-standardization",
         [
             {"label": "None", "value": "None"},
-            {"label": "Log", "value": "log"},
-            {"label": "Z-score (across cell)", "value": "z_score"},
+            {"label": "Across cells", "value": "across_cells"},
+            {"label": "Across groups", "value": "across_groups"},
         ],
         value="None",
         inline=True,
@@ -59,6 +60,7 @@ def generate_heatmap_layout(adata, prefix):
 
     return html.Div(
         [
+            rendered_key_store(prefix, "heatmap"),
             heatmap_transformation_selection,
             heatmap_secondary_dropdown,
             secondary_annotation_colormap_dropdown,

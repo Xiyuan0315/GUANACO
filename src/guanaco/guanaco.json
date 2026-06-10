@@ -1,0 +1,29 @@
+{
+  "Dataset1": {
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/paul15_grn.h5ad",
+    "optional_plot_components": [
+      "heatmap",
+      "violin",
+      "dotplot",
+      "stacked-bar"
+    ],
+    "color": [
+      "#E69F00",
+      "#56B4E9",
+      "#009E73",
+      "#F0E442",
+      "#0072B2",
+      "#D55E00",
+      "#CC79A7"
+    ]
+  },
+  "title": "GUANACO",
+  "settings": {
+    "host": "0.0.0.0",
+    "port": 4399,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": false,
+    "embedding_render_backend": "scattergl"
+  }
+}

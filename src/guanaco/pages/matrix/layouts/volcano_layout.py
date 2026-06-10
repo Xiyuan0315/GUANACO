@@ -9,7 +9,7 @@ from guanaco.pages.matrix.plots.volcano import (
     volcano_entry_options,
     x_axis_options,
 )
-from guanaco.plot_config import common_config
+from guanaco.utils.plot_config import common_config
 from guanaco.utils.ui_helpers import labeled_dropdown
 
 
@@ -188,4 +188,7 @@ def generate_volcano_layout(adata, prefix):
         style={"backgroundColor": "transparent", "padding": "0px", "border": "none", "boxShadow": "none"},
     )
 
-    return html.Div([controls, draggable_container], style={"padding": "20px", "marginBottom": "15px"})
+    return html.Div(
+        [dcc.Store(id=f"{prefix}-volcano-rendered-key"), controls, draggable_container],
+        style={"padding": "20px", "marginBottom": "15px"},
+    )

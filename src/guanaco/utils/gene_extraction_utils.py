@@ -8,12 +8,33 @@ from scipy.sparse import issparse
 
 
 class GeneExpressionCache:
-    """O(1) LRU + TTL cache for 1D gene vectors."""
+    """O(1) LRU + TTL cache for 1D gene vectors, bounded by item count *and* bytes.
 
-    def __init__(self, max_size=64, max_age_seconds=1800):
+    Each entry is an ``n_obs``-length vector, so its size scales with the dataset.
+    The byte budgets make the cache self-scaling: large datasets keep fewer
+    vectors resident, which matters in backed mode where all cells are served.
+    """
+
+    def __init__(
+        self,
+        max_size=64,
+        max_age_seconds=1800,
+        max_bytes=256 * 1024 * 1024,
+        max_pinned_bytes=128 * 1024 * 1024,
+    ):
         self.max_size = int(max_size)
         self.max_age_seconds = float(max_age_seconds)
+        self.max_bytes = int(max_bytes)
+        self.max_pinned_bytes = int(max_pinned_bytes)
         self._data = OrderedDict()  # key -> (timestamp, value)
+        self._pinned = {}  # key -> value; never expires (still bounded by bytes)
+        self._data_bytes = 0
+        self._pinned_bytes = 0
+
+    @staticmethod
+    def _nbytes(value):
+        """Best-effort byte size of a cached vector (numpy array)."""
+        return int(getattr(value, "nbytes", 0) or 0)
 
     def _adata_id(self, adata):
         # backed: filename is stable; else use id
@@ -25,8 +46,35 @@ class GeneExpressionCache:
         # include shape to distinguish filtered/unfiltered views
         return (self._adata_id(adata), adata.shape, gene, layer, bool(use_raw))
 
+    def _pop_data(self, key):
+        """Remove an LRU entry and decrement the byte counter."""
+        item = self._data.pop(key, None)
+        if item is not None:
+            self._data_bytes -= self._nbytes(item[1])
+
+    def _evict_data(self):
+        """Evict LRU entries until within both the item and byte budgets."""
+        while self._data and (
+            len(self._data) > self.max_size or self._data_bytes > self.max_bytes
+        ):
+            old_key, (_, old_val) = self._data.popitem(last=False)
+            self._data_bytes -= self._nbytes(old_val)
+
+    def _store_data(self, key, val, now):
+        self._pop_data(key)  # avoid double-counting if replacing
+        self._data[key] = (now, val)
+        self._data_bytes += self._nbytes(val)
+        self._data.move_to_end(key)
+        self._evict_data()
+
     def get_or_compute(self, adata, gene, layer, use_raw, compute_fn):
         key = self._make_key(adata, gene, layer, use_raw)
+
+        # Pinned genes are always served from memory and never expire/evict.
+        pinned = self._pinned.get(key)
+        if pinned is not None:
+            return pinned
+
         now = time.time()
 
         if key in self._data:
@@ -35,15 +83,10 @@ class GeneExpressionCache:
                 self._data.move_to_end(key)  # mark as recently used
                 return val
             # expired
-            del self._data[key]
+            self._pop_data(key)
 
         val = compute_fn()
-        self._data[key] = (now, val)
-        self._data.move_to_end(key)
-
-        # evict LRU
-        while len(self._data) > self.max_size:
-            self._data.popitem(last=False)
+        self._store_data(key, val, now)
 
         # periodic garbage collection
         if len(self._data) % 20 == 0:
@@ -51,14 +94,43 @@ class GeneExpressionCache:
 
         return val
 
+    def pin(self, adata, gene, layer, use_raw, compute_fn):
+        """Compute (if needed) and keep a gene vector pinned in memory.
+
+        Pinning is skipped once ``max_pinned_bytes`` is reached; the vector is then
+        stored as an ordinary (evictable) LRU entry instead, so prewarming a huge
+        dataset can't grow without bound.
+        """
+        key = self._make_key(adata, gene, layer, use_raw)
+        if key in self._pinned:
+            return self._pinned[key]
+        val = compute_fn()
+        nb = self._nbytes(val)
+        if self._pinned_bytes + nb > self.max_pinned_bytes:
+            # Over the pin budget: keep it, but as an evictable LRU entry.
+            self._store_data(key, val, time.time())
+            return val
+        self._pinned[key] = val
+        self._pinned_bytes += nb
+        # Drop any LRU copy so we don't keep two references to the same vector.
+        self._pop_data(key)
+        return val
+
     def clear(self):
         self._data.clear()
+        self._pinned.clear()
+        self._data_bytes = 0
+        self._pinned_bytes = 0
         gc.collect()
 
     def info(self):
         return {
             "size": len(self._data),
+            "pinned": len(self._pinned),
             "max_size": self.max_size,
+            "data_mb": round(self._data_bytes / 1024 / 1024, 1),
+            "pinned_mb": round(self._pinned_bytes / 1024 / 1024, 1),
+            "max_mb": round(self.max_bytes / 1024 / 1024, 1),
             "keys": list(self._data.keys()),
         }
 
@@ -98,6 +170,26 @@ def _raise_if_missing(idx, genes):
         raise KeyError(f"Genes not found: {missing.tolist()}")
 
 
+def _compute_gene_vector(adata, gene, layer=None, use_raw=False, dtype=None):
+    """Read a single gene's 1D expression vector from X/layer (disk or memory)."""
+    data_source = _get_data_source(adata, use_raw)
+    X = _get_matrix(data_source, layer)
+
+    idx, genes = _gene_indexer(data_source.var_names, gene)
+    _raise_if_missing(idx, genes)
+    j = int(idx[0])
+
+    col = X[:, j]
+    if issparse(col):
+        out = col.toarray().ravel()
+    else:
+        out = np.asarray(col).ravel()
+
+    if dtype is not None:
+        out = out.astype(dtype, copy=False)
+    return out
+
+
 def _take_columns_backed_aware(X, col_idx):
     """
     Read X[:, col_idx] efficiently.
@@ -123,7 +215,47 @@ def _take_columns_backed_aware(X, col_idx):
 # Public API
 # --------------------------
 
-_gene_cache = GeneExpressionCache(max_size=64, max_age_seconds=1800)
+# Byte ceiling lowered from the 256 MB default: the interactive workflow shows
+# < ~20 genes at a time (added/removed one by one), so a smaller resident working
+# set is enough and caps memory on very large datasets. The heatmap additionally
+# uses a binned-per-gene cache (see plots/heatmap.py) so it no longer depends on
+# full-length columns staying resident.
+_gene_cache = GeneExpressionCache(
+    max_size=64, max_age_seconds=1800, max_bytes=64 * 1024 * 1024
+)
+
+# Default cap on how many config genes we pre-load per dataset.
+PIN_GENE_LIMIT = 50
+
+
+def pin_genes(adata, genes, layer=None, use_raw=False, max_genes=PIN_GENE_LIMIT, dtype=np.float32):
+    """Pre-load (pin) gene vectors into memory so the first access is instant.
+
+    Intended for backed datasets, where the first read of a gene otherwise hits
+    disk. Pinned vectors are never evicted by the LRU cache and never expire.
+    Genes missing from ``adata.var_names`` are skipped. Returns the count pinned.
+    """
+    if isinstance(genes, str):
+        genes = [genes]
+    if not genes:
+        return 0
+
+    var_names = adata.var_names
+    pinned = 0
+    for gene in genes:
+        if max_genes is not None and pinned >= max_genes:
+            break
+        if gene not in var_names:
+            continue
+        _gene_cache.pin(
+            adata,
+            gene,
+            layer,
+            use_raw,
+            lambda g=gene: _compute_gene_vector(adata, g, layer, use_raw, dtype),
+        )
+        pinned += 1
+    return pinned
 
 
 def extract_gene_expression(
@@ -132,7 +264,7 @@ def extract_gene_expression(
     layer=None,
     use_raw=False,
     use_cache=True,
-    dtype=None,
+    dtype=np.float32,
 ):
     """
     Fast 1D extraction for a single gene.
@@ -145,29 +277,17 @@ def extract_gene_expression(
     use_raw : bool
     use_cache : bool
     dtype : numpy dtype | None
-        If provided (e.g., np.float32), cast output without extra copy when possible.
+        Cast output to this dtype without an extra copy when possible. Defaults to
+        ``np.float32`` so cached vectors are half the size of float64 (display
+        plots don't need float64 precision); pass ``None`` to keep the source
+        dtype.
 
     Returns
     -------
     np.ndarray (1D)
     """
     def _compute():
-        data_source = _get_data_source(adata, use_raw)
-        X = _get_matrix(data_source, layer)
-
-        idx, genes = _gene_indexer(data_source.var_names, gene)
-        _raise_if_missing(idx, genes)
-        j = int(idx[0])
-
-        col = X[:, j]
-        if issparse(col):
-            out = col.toarray().ravel()
-        else:
-            out = np.asarray(col).ravel()
-
-        if dtype is not None:
-            out = out.astype(dtype, copy=False)
-        return out
+        return _compute_gene_vector(adata, gene, layer, use_raw, dtype)
 
     if use_cache:
         return _gene_cache.get_or_compute(adata, gene, layer, use_raw, _compute)
@@ -360,6 +480,8 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
         result_df = pd.DataFrame(gene_means, columns=gene_columns)
         result_df.insert(0, continuous_key, continuous_means.astype(np.float32))
         result_df.insert(0, groupby, group_modes)
+        # Number of original cells aggregated into each bin (for true-count widths).
+        result_df['__bin_size__'] = (ends - starts).astype(np.int64)
         return result_df
 
     # --- Group-wise binning ---
@@ -367,6 +489,7 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
 
     binned_blocks = []
     binned_group_labels = []
+    binned_sizes = []
     total_cells = len(df)
 
     for code, group in enumerate(unique_groups):
@@ -377,10 +500,11 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
 
         group_gene_data = gene_data[group_idx]
 
-        # For tiny groups, keep as-is to avoid over-averaging
+        # For tiny groups, keep as-is to avoid over-averaging (each row = 1 cell)
         if n_cells_in_group <= 10:
             binned_blocks.append(group_gene_data)
             binned_group_labels.extend([group] * n_cells_in_group)
+            binned_sizes.extend([1] * n_cells_in_group)
             continue
 
         # Allocate bins proportional to group size
@@ -400,11 +524,14 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
 
         binned_blocks.append(group_means)
         binned_group_labels.extend([group] * group_means.shape[0])
+        binned_sizes.extend((ends - starts).astype(np.int64).tolist())
 
     if not binned_blocks:
-        return pd.DataFrame(columns=[groupby, *gene_columns])
+        return pd.DataFrame(columns=[groupby, *gene_columns, '__bin_size__'])
 
     binned_gene_data = np.vstack(binned_blocks)
     result_df = pd.DataFrame(binned_gene_data, columns=gene_columns)
     result_df.insert(0, groupby, binned_group_labels)
+    # Number of original cells aggregated into each bin (for true-count widths).
+    result_df['__bin_size__'] = np.asarray(binned_sizes, dtype=np.int64)
     return result_df

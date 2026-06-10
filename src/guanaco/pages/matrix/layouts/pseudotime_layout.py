@@ -8,6 +8,9 @@ from guanaco.utils.ui_helpers import graph_flex_container, labeled_dropdown, lab
 def generate_pseudotime_layout(prefix):
     return html.Div(
         [
+            # Tracks the cache key of the figure currently shown, so the callback
+            # can skip recomputing/redrawing on tab switches when nothing changed.
+            dcc.Store(id=f"{prefix}-pseudotime-rendered-key"),
             dbc.Row(
                 [
                     dbc.Col(

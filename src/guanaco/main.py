@@ -11,6 +11,7 @@ from guanaco.pages.track.callbacks import gene_browser_callbacks
 from guanaco.pages.matrix.callbacks import matrix_callbacks
 from guanaco.data.loader import get_discrete_labels
 from guanaco.data.registry import datasets, embedding_render_backend
+from guanaco.utils.gene_extraction_utils import pin_genes
 import muon as mu
 
 mu.set_options(pull_on_update=False)
@@ -47,19 +48,27 @@ for name, dataset in datasets.items():
             for mod in dataset_adata.mod.keys():
                 mod_adata = dataset_adata.mod[mod]
                 prefix = f"{name}-{mod}"
+                # Pre-load config marker genes into memory for backed RNA data.
+                if dataset.backed_mode and mod == "rna" and dataset.gene_markers:
+                    pin_genes(mod_adata, dataset.gene_markers)
                 matrix_callbacks(
                     app,
                     mod_adata,
                     prefix,
                     embedding_render_backend=embedding_render_backend,
+                    color_config=dataset.color_config,
                 )
         else:
             prefix = name
+            # Pre-load config marker genes into memory so the first access is instant.
+            if dataset.backed_mode and dataset.gene_markers:
+                pin_genes(dataset_adata, dataset.gene_markers)
             matrix_callbacks(
                 app,
                 dataset_adata,
                 prefix,
                 embedding_render_backend=embedding_render_backend,
+                color_config=dataset.color_config,
             )
 
     if dataset.genome_tracks is not None and dataset.ref_track is not None:
@@ -113,6 +122,7 @@ def update_anndata_layout(selected_modality, active_tab):
         label_list,
         prefix,
         optional_plot_components=dataset.optional_plot_components,
+        scatter_defaults=dataset.scatter_defaults,
     )
 
 @app.callback(

@@ -1,6 +1,6 @@
 import dash
 import plotly.graph_objects as go
-from dash import Input, Output, State
+from dash import Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
 from guanaco.utils.colors import resolve_discrete_palette
@@ -40,9 +40,8 @@ def register_violin_callbacks(
             Input(f"{prefix}-single-cell-genes-selection", "value"),
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
-            Input(f"{prefix}-violin-log-or-zscore", "value"),
+            Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-show-box1", "value"),
-            Input(f"{prefix}-show-scatter1", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-selected-cells-store", "data"),
         ],
@@ -52,14 +51,14 @@ def register_violin_callbacks(
         selected_genes,
         selected_annotation,
         selected_labels,
-        transformation,
+        data_layer,
         show_box_plot,
-        show_scatter1,
         discrete_color_map,
         selected_cells,
         current_cache,
     ):
-        cache_key = f"{selected_genes}_{selected_annotation}_{selected_labels}_{transformation}_{show_box_plot}_{show_scatter1}_{discrete_color_map}_{selected_cells}"
+        layer = data_layer if data_layer and data_layer != "X" else None
+        cache_key = f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_{show_box_plot}_{discrete_color_map}_{selected_cells}"
 
         if current_cache is None:
             current_cache = {}
@@ -80,9 +79,8 @@ def register_violin_callbacks(
             selected_genes,
             selected_annotation,
             labels=selected_labels,
-            transformation=transformation,
+            layer=layer,
             show_box="show" in show_box_plot if show_box_plot else False,
-            show_points="show" in show_scatter1 if show_scatter1 else False,
             groupby_label_color_map=color_map,
             adata_obs=adata.obs,
             data_already_filtered=True,
@@ -107,21 +105,30 @@ def register_violin_callbacks(
         return current_cache
 
     @app.callback(
-        Output(f"{prefix}-violin-plot1", "figure"),
+        [
+            Output(f"{prefix}-violin-plot1", "figure"),
+            Output(f"{prefix}-violin1-rendered-key", "data"),
+        ],
         [
             Input(f"{prefix}-violin-plot-cache-store", "data"),
             Input(f"{prefix}-single-cell-tabs", "value"),
         ],
-        [State(f"{prefix}-violin-plot1", "figure")],
+        [
+            State(f"{prefix}-violin-plot1", "figure"),
+            State(f"{prefix}-violin1-rendered-key", "data"),
+        ],
     )
-    def display_violin1(cache_data, active_tab, current_figure):
+    def display_violin1(cache_data, active_tab, current_figure, rendered_key):
         if active_tab != "violin-tab":
-            return current_figure if current_figure else go.Figure()
-        if cache_data and "current_key" in cache_data:
-            current_key = cache_data["current_key"]
-            if current_key in cache_data:
-                return go.Figure(cache_data[current_key])
-        return current_figure if current_figure else go.Figure()
+            return no_update, no_update
+
+        current_key = cache_data.get("current_key") if cache_data else None
+        # Already showing the figure for this key: don't redraw on a tab switch.
+        if current_key and current_key == rendered_key and current_figure:
+            return no_update, no_update
+        if current_key and current_key in cache_data:
+            return go.Figure(cache_data[current_key]), current_key
+        return no_update, no_update
 
     @app.callback(Output(f"{prefix}-mode-explanation", "children"), Input(f"{prefix}-mode-selection", "value"))
     def update_mode_explanation(mode):
@@ -198,12 +205,13 @@ def register_violin_callbacks(
             Input(f"{prefix}-test-method-selection", "value"),
             Input(f"{prefix}-show-box2", "value"),
             Input(f"{prefix}-show-scatter2", "value"),
-            Input(f"{prefix}-violin2-log-or-zscore", "value"),
+            Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-selected-cells-store", "data"),
         ],
     )
-    def update_violin2(gene_selection, meta1, meta2, mode, test_method, show_box2, show_points, transformation, selected_palette_name, selected_cells):
+    def update_violin2(gene_selection, meta1, meta2, mode, test_method, show_box2, show_points, data_layer, selected_palette_name, selected_cells):
+        layer = data_layer if data_layer and data_layer != "X" else None
         if selected_cells:
             filtered_adata = filter_data(adata, None, None, selected_cells)
         else:
@@ -232,7 +240,7 @@ def register_violin_callbacks(
             meta1=meta1,
             meta2=meta2,
             mode=mode,
-            transformation=transformation,
+            layer=layer,
             show_box="show" in show_box2 if show_box2 else False,
             show_points="show" in show_points if show_points else False,
             test_method=test_method,

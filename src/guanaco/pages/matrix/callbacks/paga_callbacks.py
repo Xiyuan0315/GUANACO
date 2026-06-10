@@ -1,6 +1,7 @@
 from dash import Input, Output, State, html, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
+from guanaco.utils.render_guard import signature
 
 
 def _empty_paga_component(message):
@@ -69,7 +70,10 @@ def register_paga_callbacks(
         return obs_style, gene_style
 
     @app.callback(
-        Output(f"{prefix}-paga", "children"),
+        [
+            Output(f"{prefix}-paga", "children"),
+            Output(f"{prefix}-paga-rendered-key", "data"),
+        ],
         [
             Input(f"{prefix}-paga-color-mode", "value"),
             Input(f"{prefix}-paga-obs-dropdown", "value"),
@@ -81,6 +85,9 @@ def register_paga_callbacks(
             Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-selected-cells-store", "data"),
             Input(f"{prefix}-single-cell-tabs", "value"),
+        ],
+        [
+            State(f"{prefix}-paga-rendered-key", "data"),
         ],
     )
     def update_paga(
@@ -94,16 +101,24 @@ def register_paga_callbacks(
         selected_labels,
         selected_cells,
         active_tab,
+        rendered_key,
     ):
         if active_tab != "paga-tab":
-            return no_update
+            return no_update, no_update
 
         color_mode = color_mode or "obs"
 
         if color_mode == "gene" and not gene:
-            return _empty_paga_component("Select a gene to color the PAGA graph.")
+            return _empty_paga_component("Select a gene to color the PAGA graph."), None
         if color_mode == "obs" and not obs_key:
-            return _empty_paga_component("Select an obs column to color the PAGA graph.")
+            return _empty_paga_component("Select an obs column to color the PAGA graph."), None
+
+        cache_key = signature(
+            "paga", color_mode, obs_key, gene, continuous_colormap, discrete_colormap,
+            edge_threshold, selected_annotation, selected_labels, selected_cells,
+        )
+        if cache_key == rendered_key:
+            return no_update, no_update
 
         discrete_palette = None
         if color_mode == "obs":
@@ -116,7 +131,7 @@ def register_paga_callbacks(
 
         edge_threshold = float(edge_threshold if edge_threshold is not None else 0.03)
 
-        return build_paga_cytoscape(
+        component = build_paga_cytoscape(
             adata,
             component_id=f"{prefix}-paga-cytoscape-view",
             color_mode=color_mode,
@@ -129,3 +144,16 @@ def register_paga_callbacks(
             selected_labels=selected_labels,
             selected_cells=selected_cells,
         )
+        return component, cache_key
+
+    # Download the PAGA network as SVG (the Cytoscape equivalent of the Plotly
+    # camera icon). Setting generateImage triggers a client-side download.
+    @app.callback(
+        Output(f"{prefix}-paga-cytoscape-view", "generateImage"),
+        Input(f"{prefix}-paga-download-svg", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def download_paga_svg(n_clicks):
+        if not n_clicks:
+            return no_update
+        return {"type": "svg", "action": "download", "filename": "paga_network"}

@@ -553,7 +553,7 @@ sed -n '210,342p' pages/matrix/callbacks/scatter_callbacks.py
             Input(f"{prefix}-scatter-legend-toggle", "value"),
             Input(f"{prefix}-axis-toggle", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
-            Input(f"{prefix}-scatter-log-or-zscore", "value"),
+            Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-plot-order", "value"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-global-filtered-data", "data"),

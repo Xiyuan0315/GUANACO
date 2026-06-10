@@ -1,0 +1,29 @@
+{
+  "PBMC_S3": {
+    "sc_data": "s3://my-bucket/path/pbmc.zarr",
+    "description": "PBMC AnnData read directly from an S3 .zarr store",
+    "markers": ["MS4A1", "IL7R", "CD8A", "FCER1A", "CD14", "MS4A7", "NKG7"],
+    "optional_plot_components": ["dotplot", "heatmap", "violin"]
+  },
+  "PBMC_GCS": {
+    "sc_data": "gs://my-bucket/path/pbmc.zarr",
+    "description": "Same dataset served from Google Cloud Storage"
+  },
+  "PBMC_HTTPS": {
+    "sc_data": "https://example.com/datasets/pbmc.zarr",
+    "description": "Public .zarr store over HTTPS"
+  },
+  "PBMC_LOCAL_ZARR": {
+    "sc_data": "/absolute/path/to/pbmc.zarr",
+    "description": "Local .zarr directory (absolute path)"
+  },
+  "title": "GUANACO cloud demo",
+  "settings": {
+    "host": "0.0.0.0",
+    "port": 4399,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": false,
+    "embedding_render_backend": "scattergl"
+  }
+}

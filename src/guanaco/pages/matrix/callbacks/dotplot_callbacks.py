@@ -1,5 +1,4 @@
-from dash import Input, Output, State
-import plotly.graph_objects as go
+from dash import Input, Output, State, no_update
 
 
 
@@ -16,13 +15,16 @@ def register_dotplot_callbacks(
     cached_figure_set,
 ):
     @app.callback(
-        Output(f"{prefix}-dotplot", "figure"),
+        [
+            Output(f"{prefix}-dotplot", "figure"),
+            Output(f"{prefix}-dotplot-rendered-key", "data"),
+        ],
         [
             Input(f"{prefix}-single-cell-genes-selection", "value"),
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-plot-type-switch", "value"),
-            Input(f"{prefix}-dotplot-log-or-zscore", "value"),
+            Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-dotplot-standardization", "value"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-dotplot-cluster-mode", "value"),
@@ -32,14 +34,17 @@ def register_dotplot_callbacks(
             Input(f"{prefix}-selected-cells-store", "data"),
             Input(f"{prefix}-single-cell-tabs", "value"),
         ],
-        [State(f"{prefix}-dotplot", "figure")],
+        [
+            State(f"{prefix}-dotplot", "figure"),
+            State(f"{prefix}-dotplot-rendered-key", "data"),
+        ],
     )
     def update_dotplot(
         selected_genes,
         selected_annotation,
         selected_labels,
         plot_type_selection,
-        transformation,
+        data_layer,
         standardization,
         color_map,
         cluster_mode,
@@ -49,12 +54,14 @@ def register_dotplot_callbacks(
         selected_cells,
         active_tab,
         current_figure,
+        rendered_key,
     ):
         if active_tab != "dotplot-tab":
-            return current_figure if current_figure else go.Figure()
+            return no_update, no_update
 
         transpose = "swap" in transpose_selection if transpose_selection else False
         plot_type_str = "matrixplot" if plot_type_selection and "matrixplot" in plot_type_selection else "dotplot"
+        layer = data_layer if data_layer and data_layer != "X" else None
         cache_key = make_cache_key(
             "dotplot",
             adata,
@@ -62,7 +69,7 @@ def register_dotplot_callbacks(
             selected_annotation=selected_annotation,
             selected_labels=hash_list_signature(selected_labels),
             plot_type=plot_type_str,
-            transformation=transformation,
+            data_layer=data_layer,
             standardization=standardization,
             color_map=color_map,
             cluster_mode=cluster_mode or "none",
@@ -73,16 +80,19 @@ def register_dotplot_callbacks(
             is_backed=bool(hasattr(adata, "isbacked") and adata.isbacked),
             n_obs=adata.n_obs,
         )
+        if rendered_key == cache_key and current_figure:
+            return no_update, no_update
+
         cached_fig = cached_figure_get(cache_key)
         if cached_fig is not None:
-            return cached_fig
+            return cached_fig, cache_key
 
         fig = plot_dot_matrix(
             adata,
             selected_genes,
             selected_annotation,
             selected_labels,
-            transformation=transformation,
+            layer=layer,
             standardization=standardization,
             color_map=color_map,
             plot_type=plot_type_str,
@@ -93,4 +103,4 @@ def register_dotplot_callbacks(
             selected_cells=selected_cells,
         )
         cached_figure_set(cache_key, fig)
-        return fig
+        return fig, cache_key

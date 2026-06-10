@@ -1,44 +1,17 @@
 import dash_draggable
 from dash import dcc, html
 
-from guanaco.plot_config import common_config
-from guanaco.utils.ui_helpers import labeled_dropdown, labeled_radioitems, switch_checklist
+from guanaco.utils.plot_config import common_config
+from guanaco.utils.ui_helpers import labeled_dropdown, switch_checklist
 
 
 def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
-    violin1_transformation_selection = labeled_radioitems(
-        "Transformation:",
-        f"{prefix}-violin-log-or-zscore",
-        [
-            {"label": "None", "value": "False"},
-            {"label": "Log", "value": "log"},
-        ],
-        value="False",
-        inline=True,
-        radio_style={"marginLeft": "10px"},
-        wrapper_style={"marginBottom": "15px"},
-    )
-
-    violin2_transformation_selection = labeled_radioitems(
-        "Transformation:",
-        f"{prefix}-violin2-log-or-zscore",
-        [
-            {"label": "None", "value": "False"},
-            {"label": "Log", "value": "log"},
-        ],
-        value="False",
-        inline=False,
-        wrapper_style={"marginBottom": "10px"},
-    )
-
+    # Data source is governed by the global "Data layer:" dropdown in the scatter
+    # panel; violin no longer has its own Log transform.
     violin_show_box1 = switch_checklist(f"{prefix}-show-box1", "Show Box Plot")
-    violin_show_scatter1 = switch_checklist(f"{prefix}-show-scatter1", "Show Scatter Points")
 
     violin1_more_options = html.Div(
-        [
-            html.Label("More Options:", style={"fontWeight": "bold"}),
-            html.Div([violin_show_box1, violin_show_scatter1], style={"display": "flex", "gap": "20px"}),
-        ],
+        [violin_show_box1],
         style={"marginBottom": "15px"},
     )
 
@@ -108,9 +81,9 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
         [
             html.Div(
                 [
-                    violin1_transformation_selection,
                     violin1_more_options,
                     dcc.Store(id=f"{prefix}-violin-plot-cache-store"),
+                    dcc.Store(id=f"{prefix}-violin1-rendered-key"),
                     dcc.Loading(
                         id="loading-violin1",
                         type="circle",
@@ -132,7 +105,6 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
                         style={"textAlign": "center", "margin": "10px 0", "fontWeight": "bold"},
                     ),
                     violin2_gene_selection,
-                    violin2_transformation_selection,
                     html.Div([meta1_selection, meta2_selection], style={"display": "flex", "marginBottom": "10px", "gap": "10px"}),
                     html.Div([mode_selection, test_method_selection], style={"display": "flex", "marginBottom": "10px", "gap": "10px"}),
                     html.Div(

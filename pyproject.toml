@@ -38,9 +38,11 @@ dependencies = [
   "pandas>=2.0.0",
   "numpy>=1.24.0,<2.0.0",
   "scipy>=1.11,<1.14",
-  "statsmodels==0.14.4",
-  "anndata==0.11.4",
+  "statsmodels>=0.14.5,<0.15",
+  "anndata>=0.12,<0.13",
   "muon==0.1.7",
+  "dask>=2024.1",
+  "fsspec>=2024.1",
   "logomaker>=0.8,<0.9",
   "pyfaidx==0.7.2",
   "pyjaspar==3.0.0",
@@ -62,8 +64,12 @@ Documentation = "https://systems-immunometabolism-lab.github.io/guanaco-viz/"
 
 [project.scripts]
 guanaco = "guanaco.cli:main"
+guanaco-desktop = "guanaco.desktop:desktop_main"
 
 [project.optional-dependencies]
+desktop = [
+  "pywebview>=5.0"
+]
 dev = [
   "pytest>=8",
   "ruff>=0.6",

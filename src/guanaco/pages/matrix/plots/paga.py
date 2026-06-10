@@ -344,10 +344,35 @@ def _build_paga_legend_items(color_map):
     )
 
 
-def build_paga_cytoscape(
+def _categorical_legend_data(title, color_map):
+    """Backend-agnostic categorical legend: {kind, title, entries:[{label,color}]}."""
+    return {
+        "kind": "categorical",
+        "title": title,
+        "entries": [{"label": str(label), "color": color} for label, color in color_map.items()],
+    }
+
+
+def _continuous_legend_data(values, continuous_color_map, title):
+    """Backend-agnostic continuous legend: {kind, title, vmin, vmax, stops}."""
+    values = np.asarray(values, dtype=float)
+    finite = values[np.isfinite(values)]
+    colorscale = resolve_continuous_colorscale(continuous_color_map)
+    stops = [str(c) for c in sample_colorscale(colorscale, list(np.linspace(0, 1, 9)))]
+    if finite.size == 0:
+        return {"kind": "continuous", "title": title, "vmin": None, "vmax": None, "stops": stops}
+    return {
+        "kind": "continuous",
+        "title": title,
+        "vmin": float(finite.min()),
+        "vmax": float(finite.max()),
+        "stops": stops,
+    }
+
+
+def paga_graph(
     adata,
     *,
-    component_id="paga-cytoscape-view",
     color_mode="obs",
     obs_key=None,
     gene=None,
@@ -357,13 +382,16 @@ def build_paga_cytoscape(
     selected_annotation=None,
     selected_labels=None,
     selected_cells=None,
+    node_font_size=11,
 ):
-    if cyto is None:
-        return html.Div(
-            "dash-cytoscape is not installed. Add `dash-cytoscape` to the environment to render pie-chart PAGA nodes.",
-            style={"padding": "16px", "color": "#7A1F1F", "backgroundColor": "#FDECEC", "border": "1px solid #F5C2C7", "borderRadius": "6px"},
-        )
+    """Backend-agnostic PAGA graph for cytoscape.js.
 
+    Returns ``{"elements", "stylesheet", "layout", "legend_items", "legend",
+    "directed"}`` so it can drive either the Dash ``cyto.Cytoscape`` component or
+    the ipycytoscape notebook widget (``gc.pl.paga``). ``legend_items`` is a Dash
+    component (web app only); ``legend`` is a plain dict the notebook widget uses
+    to draw its own legend.
+    """
     context = _prepare_paga_context(
         adata,
         selected_annotation=selected_annotation,
@@ -401,17 +429,21 @@ def build_paga_cytoscape(
         node_color_values = _continuous_group_summary(gene_expr, filtered_group_series, group_categories)
         node_fill_colors = _values_to_colors(node_color_values, continuous_color_map)
         legend_items = _continuous_colorbar_legend(node_color_values, continuous_color_map, f"mean {gene}")
+        legend_data = _continuous_legend_data(node_color_values, continuous_color_map, f"mean {gene}")
         continuous_value_label = gene
         node_mode = "solid"
     else:
         if not obs_key:
-            raise ValueError("Select an obs column to color the PAGA graph.")
+            # Default to the column PAGA was computed on -- the canonical PAGA
+            # view where each node is colored by its own group.
+            obs_key = paga_groupby
 
         obs_values = filtered_obs[obs_key]
         if pd.api.types.is_numeric_dtype(obs_values):
             node_color_values = _continuous_group_summary(obs_values.to_numpy(dtype=float), filtered_group_series, group_categories)
             node_fill_colors = _values_to_colors(node_color_values, continuous_color_map)
             legend_items = _continuous_colorbar_legend(node_color_values, continuous_color_map, f"mean {obs_key}")
+            legend_data = _continuous_legend_data(node_color_values, continuous_color_map, f"mean {obs_key}")
             continuous_value_label = obs_key
             node_mode = "solid"
         else:
@@ -430,6 +462,7 @@ def build_paga_cytoscape(
                 prefer_fallback=discrete_palette is not None,
             )
             legend_items = _build_paga_legend_items(color_map)
+            legend_data = _categorical_legend_data(obs_key, color_map)
             node_mode = "pie"
 
     for index, group in enumerate(group_categories):
@@ -511,7 +544,8 @@ def build_paga_cytoscape(
                 "background-color": "data(background_color)",
                 "border-width": 1,
                 "border-color": "white",
-                "font-size": 11,
+                "font-size": node_font_size,
+                "font-weight": "bold",
                 "color": "#2F3E46",
                 "text-valign": "bottom",
                 "text-halign": "center",
@@ -535,11 +569,56 @@ def build_paga_cytoscape(
         stylesheet[0]["style"][f"pie-{slice_index + 1}-background-color"] = f"data(pie_{slice_index + 1}_color)"
         stylesheet[0]["style"][f"pie-{slice_index + 1}-background-size"] = f"data(pie_{slice_index + 1}_size)"
 
+    return {
+        "elements": node_elements + edge_elements,
+        "stylesheet": stylesheet,
+        "layout": {"name": "preset", "fit": True, "padding": 40},
+        "legend_items": legend_items,
+        "legend": legend_data,
+        "directed": False,
+    }
+
+
+def build_paga_cytoscape(
+    adata,
+    *,
+    component_id="paga-cytoscape-view",
+    color_mode="obs",
+    obs_key=None,
+    gene=None,
+    continuous_color_map="Viridis",
+    discrete_palette=None,
+    edge_threshold=0.03,
+    selected_annotation=None,
+    selected_labels=None,
+    selected_cells=None,
+):
+    """Dash PAGA component (wraps :func:`paga_graph`)."""
+    if cyto is None:
+        return html.Div(
+            "dash-cytoscape is not installed. Add `dash-cytoscape` to the environment to render pie-chart PAGA nodes.",
+            style={"padding": "16px", "color": "#7A1F1F", "backgroundColor": "#FDECEC", "border": "1px solid #F5C2C7", "borderRadius": "6px"},
+        )
+
+    graph = paga_graph(
+        adata,
+        color_mode=color_mode,
+        obs_key=obs_key,
+        gene=gene,
+        continuous_color_map=continuous_color_map,
+        discrete_palette=discrete_palette,
+        edge_threshold=edge_threshold,
+        selected_annotation=selected_annotation,
+        selected_labels=selected_labels,
+        selected_cells=selected_cells,
+    )
+    legend_items = graph["legend_items"]
+
     cytoscape_component = cyto.Cytoscape(
         id=component_id,
-        layout={"name": "preset", "fit": True, "padding": 40},
-        elements=node_elements + edge_elements,
-        stylesheet=stylesheet,
+        layout=graph["layout"],
+        elements=graph["elements"],
+        stylesheet=graph["stylesheet"],
         minZoom=0.2,
         maxZoom=3.0,
         autoungrabify=False,

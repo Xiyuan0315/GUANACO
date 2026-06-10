@@ -40,16 +40,7 @@ def _load_settings(config_path: Path) -> dict:
     merged = DEFAULT_SETTINGS | settings
     merged["lazy_load"] = _as_bool(merged["lazy_load"], field="lazy_load")
 
-    backed_mode = merged["backed_mode"]
-    if isinstance(backed_mode, str):
-        normalized = backed_mode.strip().lower()
-        if normalized == "r+":
-            backed_mode = "r+"
-        else:
-            backed_mode = _as_bool(normalized, field="backed_mode")
-    elif not isinstance(backed_mode, bool):
-        raise ValueError("settings.backed_mode must be a boolean or 'r+'")
-    merged["backed_mode"] = backed_mode
+    merged["backed_mode"] = _as_bool(merged["backed_mode"], field="backed_mode")
 
     backend = str(merged["embedding_render_backend"]).lower()
     if backend not in {"scattergl", "datashader"}:
@@ -76,12 +67,11 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--config-wizard",
-        "--generate-config",
+        "--config-builder",
         action="store_true",
-        help="Open a GUI wizard to create a GUANACO config file"
+        help="Open a GUI to build a GUANACO config file"
     )
-    
+
     args = parser.parse_args()
     
     # Validate config file exists. Relative config paths are resolved from the
@@ -90,7 +80,7 @@ def parse_args():
     if not config_path.is_absolute():
         config_path = config_path.resolve()
 
-    if args.config_wizard:
+    if args.config_builder:
         args.config = config_path
         args.config_dir = config_path.parent
         args.settings = None
@@ -108,6 +98,57 @@ def parse_args():
     return args
 
 
+SPLASH_HTML = """
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  html,body{height:100%;margin:0}
+  body{display:flex;flex-direction:column;align-items:center;
+       justify-content:center;font-family:-apple-system,Segoe UI,Roboto,
+       sans-serif;background:#0f1115;color:#e6e6e6}
+  .spinner{width:46px;height:46px;border:4px solid #2a2d34;
+           border-top-color:#4ea1ff;border-radius:50%;
+           animation:spin 0.9s linear infinite;margin-bottom:22px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .t{font-size:20px;font-weight:600;letter-spacing:.5px}
+  .s{font-size:13px;color:#8a8f98;margin-top:8px}
+</style></head><body>
+  <div class="spinner"></div>
+  <div class="t">🧬 GUANACO</div>
+  <div class="s">Starting up, loading your data…</div>
+</body></html>
+"""
+
+
+def apply_settings_env(settings: dict, config_path: Path) -> None:
+    """Publish the active config + settings as environment variables.
+
+    Data loading happens at import time inside ``guanaco.data.registry``, which
+    reads these variables, so they must be set *before* ``guanaco.main`` (or
+    ``guanaco.app``) is imported.
+    """
+    os.environ['GUANACO_CONFIG'] = str(config_path)
+    if settings["max_cells"] is not None:
+        os.environ['GUANACO_MAX_CELLS'] = str(settings["max_cells"])
+    os.environ['GUANACO_LAZY_LOAD'] = "true" if settings["lazy_load"] else "false"
+    os.environ['GUANACO_BACKED_MODE'] = str(settings["backed_mode"]).lower()
+    os.environ['GUANACO_EMBEDDING_RENDER_BACKEND'] = settings["embedding_render_backend"]
+
+
+def _wait_for_server(url: str, timeout: float = 30.0) -> bool:
+    """Poll the local server until it responds, so the window never shows a
+    blank/error page while Dash is still booting. Returns True once ready."""
+    import time
+    import urllib.request
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1):
+                return True
+        except Exception:
+            time.sleep(0.15)
+    return False
+
+
 def main():
     """Main entry point for GUANACO CLI."""
     import time
@@ -115,7 +156,7 @@ def main():
     
     args = parse_args()
 
-    if args.config_wizard:
+    if args.config_builder:
         from guanaco.config_wizard import launch_config_wizard
 
         result = launch_config_wizard(args.config)
@@ -128,15 +169,9 @@ def main():
         args.config_dir = config_path.parent
         args.settings = _load_settings(config_path)
     
-    # Set environment variables from CLI args
-    os.environ['GUANACO_DATA_DIR'] = str(args.config_dir)
-    os.environ['GUANACO_CONFIG'] = str(args.config)
-    if args.settings["max_cells"] is not None:
-        os.environ['GUANACO_MAX_CELLS'] = str(args.settings["max_cells"])
-    os.environ['GUANACO_LAZY_LOAD'] = "true" if args.settings["lazy_load"] else "false"
-    os.environ['GUANACO_BACKED_MODE'] = str(args.settings["backed_mode"]).lower()
-    os.environ['GUANACO_EMBEDDING_RENDER_BACKEND'] = args.settings["embedding_render_backend"]
-    
+    # Set environment variables from CLI args (must precede importing the app)
+    apply_settings_env(args.settings, args.config)
+
     print("🧬 Starting GUANACO server...")
     print(f"📄 Config file: {args.config}")
     print(f"📁 Relative data path base: {args.config_dir}")

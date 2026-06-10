@@ -2,7 +2,8 @@ import dash_bootstrap_components as dbc
 import dash_draggable
 from dash import dcc, html
 
-from guanaco.plot_config import common_config
+from guanaco.utils.plot_config import common_config
+from guanaco.utils.render_guard import rendered_key_store
 
 
 def generate_dotplot_layout(prefix):
@@ -10,25 +11,13 @@ def generate_dotplot_layout(prefix):
         [
             html.Div(
                 [
-                    html.Label("Transformation: ", style={"fontWeight": "bold", "marginBottom": "5px"}),
-                    dbc.RadioItems(
-                        id=f"{prefix}-dotplot-log-or-zscore",
-                        options=[{"label": "None", "value": "None"}, {"label": "Log", "value": "log"}],
-                        value="None",
-                        inline=True,
-                        style={"marginRight": "15px"},
-                    ),
-                ]
-            ),
-            html.Div(
-                [
                     html.Label("Standardization:", style={"fontWeight": "bold", "marginBottom": "5px"}),
                     dbc.RadioItems(
                         id=f"{prefix}-dotplot-standardization",
                         options=[
                             {"label": "None", "value": "None"},
-                            {"label": "By variable", "value": "var"},
-                            {"label": "By label", "value": "group"},
+                            {"label": "Across cells", "value": "across_cells"},
+                            {"label": "Across groups", "value": "across_groups"},
                         ],
                         value="None",
                         inline=True,
@@ -158,4 +147,7 @@ def generate_dotplot_layout(prefix):
         style={"backgroundColor": "transparent", "padding": "0px", "border": "none", "boxShadow": "none"},
     )
 
-    return html.Div([row1, row2, draggable_container], style={"padding": "20px", "marginBottom": "15px"})
+    return html.Div(
+        [rendered_key_store(prefix, "dotplot"), row1, row2, draggable_container],
+        style={"padding": "20px", "marginBottom": "15px"},
+    )

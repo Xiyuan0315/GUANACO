@@ -1,7 +1,7 @@
 from dash import dcc, html
 import dash_bootstrap_components as dbc
 
-from guanaco.plot_config import common_config
+from guanaco.utils.plot_config import common_config
 
 
 def labeled_dropdown(
@@ -14,12 +14,16 @@ def labeled_dropdown(
     clearable=True,
     multi=False,
     label_style=None,
+    label_id=None,
     dropdown_style=None,
     wrapper_style=None,
 ):
+    label_kwargs = {'style': label_style or {'fontWeight': 'bold', 'marginBottom': '5px'}}
+    if label_id is not None:
+        label_kwargs['id'] = label_id
     return html.Div(
         [
-            html.Label(label, style=label_style or {'fontWeight': 'bold', 'marginBottom': '5px'}),
+            html.Label(label, **label_kwargs),
             dcc.Dropdown(
                 id=dropdown_id,
                 options=options,

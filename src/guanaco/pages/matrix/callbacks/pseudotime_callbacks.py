@@ -1,4 +1,4 @@
-from dash import Input, Output, State
+from dash import Input, Output, State, no_update
 import plotly.graph_objects as go
 
 from guanaco.utils.colors import resolve_discrete_palette
@@ -20,7 +20,10 @@ def register_pseudotime_callbacks(
     cached_figure_set,
 ):
     @app.callback(
-        Output(f"{prefix}-pseudotime-plot", "figure"),
+        [
+            Output(f"{prefix}-pseudotime-plot", "figure"),
+            Output(f"{prefix}-pseudotime-rendered-key", "data"),
+        ],
         [
             Input(f"{prefix}-single-cell-tabs", "value"),
             Input(f"{prefix}-single-cell-genes-selection", "value"),
@@ -28,13 +31,17 @@ def register_pseudotime_callbacks(
             Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-pseudotime-min-expr-slider", "value"),
             Input(f"{prefix}-pseudotime-transformation", "value"),
+            Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-pseudotime-key-dropdown", "value"),
             Input(f"{prefix}-marker-size-slider", "value"),
             Input(f"{prefix}-opacity-slider", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-selected-cells-store", "data"),
         ],
-        [State(f"{prefix}-pseudotime-plot", "figure")],
+        [
+            State(f"{prefix}-pseudotime-plot", "figure"),
+            State(f"{prefix}-pseudotime-rendered-key", "data"),
+        ],
     )
     def update_pseudotime_plot(
         selected_tab,
@@ -43,15 +50,18 @@ def register_pseudotime_callbacks(
         selected_labels,
         min_expr,
         transformation,
+        data_layer,
         pseudotime_key,
         marker_size,
         opacity,
         discrete_color_map,
         selected_cells,
         current_figure,
+        rendered_key,
     ):
         if selected_tab != "pseudotime-tab":
-            return current_figure if current_figure else go.Figure()
+            # Not the active tab: leave whatever is there untouched.
+            return no_update, no_update
 
         if not selected_genes:
             fig = go.Figure()
@@ -71,7 +81,7 @@ def register_pseudotime_callbacks(
                 height=400,
                 margin=dict(t=50, b=50, l=50, r=50),
             )
-            return fig
+            return fig, None
 
         cache_key = make_cache_key(
             "pseudotime",
@@ -81,15 +91,21 @@ def register_pseudotime_callbacks(
             selected_labels=hash_list_signature(selected_labels),
             min_expr=min_expr,
             transformation=transformation,
+            data_layer=data_layer,
             pseudotime_key=pseudotime_key,
             marker_size=marker_size,
             opacity=opacity,
             discrete_color_map=discrete_color_map,
             selected_cells=hash_list_signature(selected_cells),
         )
+        # Already showing the figure for these exact parameters: do nothing,
+        # so a plain tab switch neither recomputes nor redraws.
+        if rendered_key == cache_key and current_figure:
+            return no_update, no_update
+
         cached_fig = cached_figure_get(cache_key)
         if cached_fig is not None:
-            return cached_fig
+            return cached_fig, cache_key
 
         filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
 
@@ -131,7 +147,7 @@ def register_pseudotime_callbacks(
                     height=400,
                     margin=dict(t=50, b=50, l=50, r=50),
                 )
-                return fig
+                return fig, None
 
         fig = plot_genes_in_pseudotime(
             filtered_adata,
@@ -140,12 +156,13 @@ def register_pseudotime_callbacks(
             groupby=selected_annotation,
             min_expr=min_expr,
             transformation=transformation,
+            layer=data_layer if data_layer and data_layer != "X" else None,
             color_map=color_map,
             marker_size=marker_size,
             opacity=opacity,
         )
         cached_figure_set(cache_key, fig)
-        return fig
+        return fig, cache_key
 
     @app.callback(
         [Output(f"{prefix}-pseudotime-key-dropdown", "options"), Output(f"{prefix}-pseudotime-key-dropdown", "value")],

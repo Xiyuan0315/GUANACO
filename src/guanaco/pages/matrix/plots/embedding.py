@@ -130,7 +130,7 @@ def _prepare_embedding_dataframe(
     return embedding_df, x_axis, y_axis, embedding_columns, spatial_image
 
 
-def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=None):
+def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=None, layer=None):
     if source_adata is None:
         source_adata = adata
     row_idx = None if cell_indices is None else np.asarray(cell_indices, dtype=np.int64)
@@ -139,7 +139,7 @@ def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=No
     if key in adata.obs.columns:
         values = pd.to_numeric(adata.obs[key], errors="coerce").to_numpy()
     elif key in source_adata.var_names:
-        values = extract_gene_expression(source_adata, key)
+        values = extract_gene_expression(source_adata, key, layer=layer)
         if row_idx is not None:
             values = values[row_idx]
     else:
@@ -209,6 +209,41 @@ def _apply_embedding_layout(fig, *, title_text, x_axis, y_axis, axis_show, margi
     fig.update_yaxes(showline=True, linewidth=2, linecolor="black")
 
 
+def _datashader_canvas(ds, x_vals, y_vals):
+    """Finite data bounds + a proportionally-sized datashader Canvas.
+
+    ``x_vals``/``y_vals`` must already be finite float arrays. Returns
+    ``(canvas, x_min, x_max, y_min, y_max, x_span, y_span)``, or ``None`` if the
+    bounds are not finite.
+    """
+    x_min, x_max = float(np.nanmin(x_vals)), float(np.nanmax(x_vals))
+    y_min, y_max = float(np.nanmin(y_vals)), float(np.nanmax(y_vals))
+    if not all(np.isfinite(v) for v in (x_min, x_max, y_min, y_max)):
+        return None
+    if x_min == x_max:
+        x_max = x_min + 1e-6
+    if y_min == y_max:
+        y_max = y_min + 1e-6
+
+    x_span = max(x_max - x_min, 1e-6)
+    y_span = max(y_max - y_min, 1e-6)
+    base = 900
+    if x_span >= y_span:
+        plot_width = 1000
+        plot_height = int(max(350, min(1400, base * (y_span / x_span))))
+    else:
+        plot_height = 1000
+        plot_width = int(max(350, min(1400, base * (x_span / y_span))))
+
+    canvas = ds.Canvas(
+        plot_width=int(plot_width),
+        plot_height=int(plot_height),
+        x_range=(x_min, x_max),
+        y_range=(y_min, y_max),
+    )
+    return canvas, x_min, x_max, y_min, y_max, x_span, y_span
+
+
 def _build_datashader_continuous_figure(
     x_values,
     y_values,
@@ -236,32 +271,12 @@ def _build_datashader_continuous_figure(
     y_vals = np.asarray(y_values[valid_mask], dtype=np.float32)
     c_vals = np.asarray(color_values[valid_mask], dtype=np.float32)
 
-    x_min, x_max = float(np.nanmin(x_vals)), float(np.nanmax(x_vals))
-    y_min, y_max = float(np.nanmin(y_vals)), float(np.nanmax(y_vals))
-    if not np.isfinite(x_min) or not np.isfinite(x_max) or not np.isfinite(y_min) or not np.isfinite(y_max):
+    result = _datashader_canvas(ds, x_vals, y_vals)
+    if result is None:
         return None, "invalid axis bounds"
-    if x_min == x_max:
-        x_max = x_min + 1e-6
-    if y_min == y_max:
-        y_max = y_min + 1e-6
-
-    x_span = max(x_max - x_min, 1e-6)
-    y_span = max(y_max - y_min, 1e-6)
-    base = 900
-    if x_span >= y_span:
-        plot_width = 1000
-        plot_height = int(max(350, min(1400, base * (y_span / x_span))))
-    else:
-        plot_height = 1000
-        plot_width = int(max(350, min(1400, base * (x_span / y_span))))
+    canvas = result[0]
 
     ds_df = pd.DataFrame({"x": x_vals, "y": y_vals, "v": c_vals})
-    canvas = ds.Canvas(
-        plot_width=int(plot_width),
-        plot_height=int(plot_height),
-        x_range=(x_min, x_max),
-        y_range=(y_min, y_max),
-    )
     agg = canvas.points(ds_df, "x", "y", agg=ds.mean("v"))
     z = np.asarray(agg.values, dtype=np.float32)
     if z.size == 0 or np.isnan(z).all():
@@ -296,6 +311,130 @@ def _build_datashader_continuous_figure(
         margin=dict(t=40, r=20, l=50, b=50),
     )
     _apply_spatial_background(fig, spatial_image, img_alpha=img_alpha)
+    return fig, None
+
+
+def _build_datashader_categorical_figure(
+    x_values,
+    y_values,
+    cat_values,
+    *,
+    label_to_color_dict,
+    value_key,
+    x_axis,
+    y_axis,
+    axis_show,
+    legend_show="on legend",
+    marker_size=5,
+):
+    """Server-side categorical rasterization via datashader.
+
+    Aggregates per category with ``ds.count_cat`` and blends them into a single
+    RGBA image with ``tf.shade`` (using the same ``label_to_color_dict`` as the
+    scattergl path so colors match). The image is embedded at data coordinates,
+    so the figure payload is constant regardless of cell count. Zero-point dummy
+    traces provide the legend. Returns ``(fig, None)`` on success or
+    ``(None, reason)`` so the caller can fall back to scattergl.
+
+    Note: a rasterized layer has no per-point hover or lasso, so the caller only
+    uses this when nothing is highlighted/selected.
+    """
+    try:
+        import datashader as ds
+        import datashader.transfer_functions as tf
+    except Exception as exc:
+        return None, f"datashader unavailable: {exc}"
+
+    valid_mask = np.isfinite(x_values) & np.isfinite(y_values)
+    if not np.any(valid_mask):
+        return None, "all coordinates are NaN/inf after filtering"
+
+    x_vals = np.asarray(x_values[valid_mask], dtype=np.float32)
+    y_vals = np.asarray(y_values[valid_mask], dtype=np.float32)
+    cat_strs = np.asarray([str(c) for c in np.asarray(cat_values)[valid_mask]], dtype=object)
+
+    result = _datashader_canvas(ds, x_vals, y_vals)
+    if result is None:
+        return None, "invalid axis bounds"
+    canvas, x_min, x_max, y_min, y_max, x_span, y_span = result
+
+    df = pd.DataFrame({"x": x_vals, "y": y_vals, "cat": pd.Categorical(cat_strs)})
+    present_categories = list(df["cat"].cat.categories)
+    if not present_categories:
+        return None, "no categories to render"
+
+    # Align the color key with the scattergl mapping; grey for anything missing.
+    color_key = {
+        cat: label_to_color_dict.get(cat, "#808080") for cat in present_categories
+    }
+
+    agg = canvas.points(df, "x", "y", agg=ds.count_cat("cat"))
+    if int(agg.sum()) == 0:
+        return None, "datashader aggregation produced empty grid"
+
+    shaded = tf.shade(agg, color_key=color_key, how="eq_hist")
+    pil_img = shaded.to_pil()  # top row = max y, ready for layout-image placement
+
+    fig = go.Figure()
+    # The rasterized embedding as a single background image at data coordinates.
+    fig.update_layout(
+        images=[dict(
+            source=pil_img,
+            xref="x", yref="y",
+            x=x_min, y=y_max,
+            sizex=x_span, sizey=y_span,
+            xanchor="left", yanchor="top",
+            sizing="stretch",
+            layer="below",
+        )]
+    )
+
+    on_data = legend_show == "on data"
+    # Zero-point dummy traces give a categorical legend without any per-cell data.
+    if not on_data:
+        for cat in present_categories:
+            fig.add_trace(go.Scattergl(
+                x=[None],
+                y=[None],
+                mode="markers",
+                marker=dict(size=marker_size, color=color_key[cat]),
+                name=str(cat),
+                showlegend=True,
+                hoverinfo="skip",
+            ))
+    else:
+        # Label each category at its centroid directly on the plot.
+        for cat in present_categories:
+            sel = cat_strs == cat
+            if not np.any(sel):
+                continue
+            fig.add_annotation(
+                x=float(np.median(x_vals[sel])),
+                y=float(np.median(y_vals[sel])),
+                text=f"<b>{cat}</b>",
+                showarrow=False,
+                font=dict(size=12, color="black"),
+                xanchor="center",
+                yanchor="middle",
+                opacity=0.9,
+            )
+
+    _apply_embedding_layout(
+        fig,
+        title_text=value_key,
+        x_axis=x_axis,
+        y_axis=y_axis,
+        axis_show=axis_show,
+        margin=dict(t=40, r=20, l=50, b=50),
+        # The raster bakes the cells into an image, so the legend can't hide/show
+        # categories. Make it a non-interactive color reference: a legend click
+        # would otherwise fire restyleData -> the highlight cascade, which forces
+        # the linked plot into an all-grey scattergl. Disabling itemclick stops it.
+        legend=dict(itemclick=False, itemdoubleclick=False),
+    )
+    # Pin axes to the data bounds so the image lines up with the raster.
+    fig.update_xaxes(range=[x_min, x_max])
+    fig.update_yaxes(range=[y_min, y_max])
     return fig, None
 
 
@@ -407,6 +546,26 @@ def _build_continuous_embedding_figure(
     return fig
 
 
+def _color_is_continuous(adata, color, *, threshold=50):
+    """Decide whether ``color`` should be drawn with a continuous colormap.
+
+    A gene (in ``var_names``) is always continuous. An ``obs`` column is
+    continuous only when it is numeric with many distinct values (e.g.
+    ``n_counts`` / ``n_genes``); a low-cardinality numeric (cluster ids stored as
+    ints) or any non-numeric column stays categorical. Mirrors the web app's
+    ``is_continuous_annotation`` so the notebook API and app agree -- without it,
+    a continuous obs like ``n_count_all`` gets thousands of discrete colors,
+    which is wrong and very slow.
+    """
+    if color in adata.var_names:
+        return True
+    if color in adata.obs.columns:
+        dtype = adata.obs[color].dtype
+        if getattr(dtype, "kind", None) in ("i", "u", "f"):
+            return adata.obs[color].nunique() >= threshold
+    return False
+
+
 def plot_embedding(
     adata,
     embedding_key,
@@ -417,6 +576,7 @@ def plot_embedding(
     mode="auto",
     adata_full=None,
     transformation=None,
+    layer=None,
     order=None,
     continuous_color_map="Viridis",
     discrete_color_map=None,
@@ -437,7 +597,7 @@ def plot_embedding(
     Unified embedding plotter for both continuous and categorical coloring.
     """
     if mode == "auto":
-        mode = "continuous" if color in adata.var_names else "categorical"
+        mode = "continuous" if _color_is_continuous(adata, color) else "categorical"
     if mode not in {"continuous", "categorical"}:
         raise ValueError(f"Unsupported mode '{mode}'. Expected 'continuous' or 'categorical'.")
 
@@ -463,6 +623,7 @@ def plot_embedding(
             color,
             source_adata=source_adata if source_adata is not None else adata,
             cell_indices=cell_indices,
+            layer=layer,
         )
         values = _transform_continuous_values(values, transformation)
         x_values = embedding_df[x_axis].to_numpy(dtype=np.float32, copy=False)
@@ -523,6 +684,26 @@ def plot_embedding(
     x_values = embedding_df[x_axis].to_numpy(dtype=np.float32, copy=False)
     y_values = embedding_df[y_axis].to_numpy(dtype=np.float32, copy=False)
     color_values = adata.obs[color].to_numpy()
+
+    # Server-side rasterization for large datasets: only when nothing is
+    # highlighted (the raster has no per-point lasso/hover) and there's no
+    # spatial background to compose with. Falls back to scattergl on any issue.
+    if render_backend == "datashader" and highlighted_mask is None and spatial_image is None:
+        ds_fig, _ds_err = _build_datashader_categorical_figure(
+            x_values,
+            y_values,
+            color_values,
+            label_to_color_dict={str(k): v for k, v in label_to_color_dict.items()},
+            value_key=color,
+            x_axis=x_axis,
+            y_axis=y_axis,
+            axis_show=axis_show,
+            legend_show=legend_show,
+            marker_size=marker_size,
+        )
+        if ds_fig is not None:
+            return ds_fig
+
     unique_labels_filtered = sorted(pd.unique(color_values))
     plot_mask = np.ones(color_values.size, dtype=bool) if highlighted_mask is None else highlighted_mask
     label_to_indices = {}
@@ -532,17 +713,25 @@ def plot_embedding(
 
     fig = go.Figure()
 
-    fig.add_trace(go.Scattergl(
-        x=x_values,
-        y=y_values,
-        mode="markers",
-        marker=dict(size=marker_size, color="lightgrey", opacity=opacity * 0.3),
-        name="Background",
-        customdata=obs_names,
-        hoverinfo="skip",
-        showlegend=False,
-        visible=True,
-    ))
+    # The grey "Background" trace only serves to show cells that aren't in a
+    # colored trace. Without a highlight, the colored per-label traces already
+    # cover every cell, so the background is fully overdrawn and invisible --
+    # skip it. Drawing it would serialize a second full set of per-cell arrays
+    # (x/y + all obs_names), which is a major contributor to the first-page-load
+    # memory peak in backed mode (all cells served). When highlighting, the
+    # background is needed to grey out non-highlighted cells; it carries no
+    # customdata since hover is skipped and selection targets the colored traces.
+    if highlighted_mask is not None:
+        fig.add_trace(go.Scattergl(
+            x=x_values,
+            y=y_values,
+            mode="markers",
+            marker=dict(size=marker_size, color="lightgrey", opacity=opacity * 0.3),
+            name="Background",
+            hoverinfo="skip",
+            showlegend=False,
+            visible=True,
+        ))
 
     for label in unique_labels_filtered:
         indices = np.asarray(label_to_indices.get(label, []), dtype=np.int32)
@@ -610,17 +799,23 @@ def plot_coexpression_embedding(
     x_axis=None, y_axis=None,
     threshold1=0.5, threshold2=0.5,
     transformation=None,
+    layer=None,
     color_map=None,
     marker_size=5, opacity=1,
     legend_show='right', axis_show=True,
+    img_key=None, library_id=None, img_alpha=1.0,
     source_adata=None, cell_indices=None, highlighted_cell_ids=None,
 ):
     """
     Plot co-expression of two genes on a 2D embedding.
     Cells are categorized into 4 groups based on expression thresholds.
     """
-    embedding_df, x_axis, y_axis, _, _ = _prepare_embedding_dataframe(
-        adata, embedding_key, x_axis=x_axis, y_axis=y_axis
+    # auto_select_spatial=True so a "spatial" basis resolves its tissue image (and
+    # scales the coords into the image's pixel space); without it the image is
+    # dropped and the points float on a white background.
+    embedding_df, x_axis, y_axis, _, spatial_image = _prepare_embedding_dataframe(
+        adata, embedding_key, x_axis=x_axis, y_axis=y_axis,
+        img_key=img_key, library_id=library_id, auto_select_spatial=True,
     )
 
     if source_adata is None:
@@ -628,8 +823,8 @@ def plot_coexpression_embedding(
     row_idx = None if cell_indices is None else np.asarray(cell_indices, dtype=np.int64)
 
     # Extract gene expression for both genes from source adata, then subset rows.
-    gene1_expr = extract_gene_expression(source_adata, gene1)
-    gene2_expr = extract_gene_expression(source_adata, gene2)
+    gene1_expr = extract_gene_expression(source_adata, gene1, layer=layer)
+    gene2_expr = extract_gene_expression(source_adata, gene2, layer=layer)
     if row_idx is not None:
         gene1_expr = gene1_expr[row_idx]
         gene2_expr = gene2_expr[row_idx]
@@ -772,5 +967,10 @@ def plot_coexpression_embedding(
         showline=True, linewidth=2, linecolor='black',
         tickfont=dict(color='black' if axis_show else 'rgba(0,0,0,0)')
     )
+
+    # Draw the tissue image beneath the points for a spatial basis (matches
+    # plot_embedding). Done last so it sets the final axis ranges/aspect.
+    if embedding_key == "spatial":
+        _apply_spatial_background(fig, spatial_image, img_alpha=img_alpha)
 
     return fig

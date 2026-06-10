@@ -1,6 +1,7 @@
 from dash import Input, Output, State, dcc, html, no_update
 from dash.exceptions import PreventUpdate
-import plotly.graph_objects as go
+
+from guanaco.utils.render_guard import signature
 
 from guanaco.pages.matrix.plots.volcano import (
     DEFAULT_PADJ_THRESHOLD,
@@ -55,6 +56,7 @@ def register_volcano_callbacks(app, adata, prefix):
     @app.callback(
         Output(f"{prefix}-volcano-plot", "figure"),
         Output(f"{prefix}-volcano-deg-summary", "children"),
+        Output(f"{prefix}-volcano-rendered-key", "data"),
         Input(f"{prefix}-volcano-entry-dropdown", "value"),
         Input(f"{prefix}-volcano-x-axis-dropdown", "value"),
         Input(f"{prefix}-volcano-padj-threshold", "value"),
@@ -62,6 +64,7 @@ def register_volcano_callbacks(app, adata, prefix):
         Input(f"{prefix}-volcano-top-n", "value"),
         Input(f"{prefix}-single-cell-tabs", "value"),
         State(f"{prefix}-volcano-plot", "figure"),
+        State(f"{prefix}-volcano-rendered-key", "data"),
     )
     def update_volcano_plot(
         entry_name,
@@ -71,11 +74,16 @@ def register_volcano_callbacks(app, adata, prefix):
         top_n,
         active_tab,
         current_figure,
+        rendered_key,
     ):
         if active_tab != "volcano-tab":
-            return current_figure if current_figure else go.Figure(), no_update
+            return no_update, no_update, no_update
         if not entry_name:
-            return empty_volcano_figure("No volcano or rank_genes_groups result is available."), "No DE result selected."
+            return empty_volcano_figure("No volcano or rank_genes_groups result is available."), "No DE result selected.", None
+
+        cache_key = signature("volcano", entry_name, x_field, padj_threshold, x_threshold, top_n)
+        if cache_key == rendered_key and current_figure:
+            return no_update, no_update, no_update
 
         try:
             payload = load_volcano_payload(adata)
@@ -98,9 +106,9 @@ def register_volcano_callbacks(app, adata, prefix):
             summary = _summary_component(
                 deg_summary(entry, x_field, resolved_padj_threshold, resolved_x_threshold)
             )
-            return fig, summary
+            return fig, summary, cache_key
         except Exception as exc:
-            return empty_volcano_figure(str(exc)), html.Div(str(exc), style={"color": "#b42318"})
+            return empty_volcano_figure(str(exc)), html.Div(str(exc), style={"color": "#b42318"}), None
 
     @app.callback(
         Output(f"{prefix}-volcano-degs-download", "data"),

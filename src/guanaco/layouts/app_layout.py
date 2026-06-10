@@ -202,13 +202,13 @@ def create_modality_tabs(dataset, tab):
     )
 
 # AnnData layout (scatter and other plots)
-def anndata_layout(adata, default_gene_markers, discrete_label_list, prefix, optional_plot_components=None):
+def anndata_layout(adata, default_gene_markers, discrete_label_list, prefix, optional_plot_components=None, scatter_defaults=None):
     return dbc.Container(
         fluid=True,
         children=[
             dbc.Card(
                 [
-                    html.Div(generate_embedding_plots(adata, prefix), style={'padding': '20px'}),
+                    html.Div(generate_embedding_plots(adata, prefix, scatter_defaults=scatter_defaults), style={'padding': '20px'}),
                     html.Hr(style={'border': '1px solid #ddd'}),
                     html.Div(
                         generate_other_plots(

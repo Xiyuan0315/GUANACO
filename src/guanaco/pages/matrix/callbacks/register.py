@@ -44,7 +44,7 @@ from guanaco.pages.matrix.callbacks.paga_callbacks import register_paga_callback
 from guanaco.pages.matrix.callbacks.volcano_callbacks import register_volcano_callbacks
 from guanaco.pages.matrix.callbacks.grn_demo_callbacks import register_grn_demo_callbacks
 from guanaco.utils.colors import discrete_palette_config
-from guanaco.data.registry import color_config
+from guanaco.data.registry import color_config as _default_color_config
 warnings.filterwarnings('ignore', message='.*observed=False.*')
 
 palette_json = discrete_palette_config()
@@ -82,7 +82,11 @@ class FigureMemoCache:
             self._store.popitem(last=False)
 
 
-_figure_cache = FigureMemoCache(max_items=24, ttl_seconds=300)
+# Each cached figure dict can embed per-cell arrays (scatter x/y/color/obs_names),
+# so a handful of large figures dominates RAM. Keep the item count small; scatter
+# callbacks additionally skip caching above a cell-count threshold (see
+# SCATTER_FIGURE_CACHE_MAX_CELLS in scatter_callbacks.py).
+_figure_cache = FigureMemoCache(max_items=6, ttl_seconds=300)
 
 
 def _hash_list_signature(values):
@@ -354,22 +358,27 @@ def is_continuous_annotation(adata, annotation, threshold=50):
     """Check if an annotation is continuous based on unique value count and data type."""
     if annotation not in adata.obs.columns:
         return False
-    
-    # Check data type
+
+    # Any numeric dtype: kind 'i'/'u' (signed/unsigned int) or 'f' (float). This
+    # covers uint16/uint32/etc. (e.g. n_genes, n_umis) that an exact dtype-name
+    # list misses -- otherwise they're treated as categorical and a column with
+    # thousands of unique values renders thousands of traces and crashes.
     dtype = adata.obs[annotation].dtype
-    if dtype in ['float32', 'float64', 'int32', 'int64']:
-        # Numeric type - check unique values
+    if getattr(dtype, "kind", None) in ("i", "u", "f"):
         n_unique = adata.obs[annotation].nunique()
         return n_unique >= threshold
     return False
 
 # ============= Main Callback Functions =============
 
-def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl"):
+def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", color_config=None):
     """Combined callback registration for both scatter and other plots"""
     embedding_render_backend = str(embedding_render_backend).lower()
     if embedding_render_backend not in {"scattergl", "datashader"}:
         embedding_render_backend = "scattergl"
+
+    # Use the dataset's palette when provided; otherwise fall back to the global default.
+    color_config = color_config or _default_color_config
 
     obs_columns = adata.obs.columns.to_list()
     obs_columns_lower = [c.lower() for c in obs_columns]
@@ -599,10 +608,6 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl"):
         color_config=color_config,
         plot_embedding=plot_embedding,
         plot_coexpression_embedding=plot_coexpression_embedding,
-        make_cache_key=_make_cache_key,
-        filtered_data_signature=_filtered_data_signature,
-        cached_figure_get=_cached_figure_get,
-        cached_figure_set=_cached_figure_set,
     )
 
     # ===== Other Plots Callbacks =====
@@ -646,6 +651,7 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl"):
         filter_data=filter_data,
         plot_unified_heatmap=plot_unified_heatmap,
         palette_json=palette_json,
+        color_config=color_config,
         make_cache_key=_make_cache_key,
         hash_list_signature=_hash_list_signature,
         cached_figure_get=_cached_figure_get,

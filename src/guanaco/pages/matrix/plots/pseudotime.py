@@ -23,6 +23,7 @@ def plot_genes_in_pseudotime(
     groupby=None,
     min_expr=0.5,
     transformation='none',
+    layer=None,
     color_map=None,
     marker_size=3,
     opacity=0.6,
@@ -68,6 +69,7 @@ def plot_genes_in_pseudotime(
     expr_df = extract_multiple_genes(
         adata,
         valid_genes,
+        layer=layer,
         allow_missing=False,
         to_dense=True,
         dtype=np.float32,

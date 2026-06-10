@@ -1,21 +1,29 @@
 import dash_ag_grid as dag
+import dash_bootstrap_components as dbc
 import dash_draggable
 from dash import dcc, html
 
-from guanaco.plot_config import common_config
+from guanaco.utils.plot_config import common_config
 from guanaco.utils.ui_helpers import labeled_dropdown, labeled_radioitems
 
 
 def generate_stacked_bar_layout(discrete_label_list, prefix):
-    x_axis_dropdown = labeled_dropdown(
-        "Cell info (x-axis):",
-        f"{prefix}-stacked-bar-x-axis",
+    stack_by_label_id = f"{prefix}-stack-by-label"
+    stack_by_dropdown = labeled_dropdown(
+        "Stack bars by:",
+        f"{prefix}-stacked-bar-stack-by",
         [{"label": meta, "value": meta} for meta in discrete_label_list],
         value=discrete_label_list[0] if discrete_label_list else None,
         clearable=False,
-        placeholder="Select metadata for x-axis",
+        placeholder="Select metadata for the stacked color layers",
+        label_id=stack_by_label_id,
         dropdown_style={"marginBottom": "15px"},
         wrapper_style={"marginBottom": "15px"},
+    )
+    stack_by_tooltip = dbc.Tooltip(
+        "X-axis: 'Select Annotation' (groups shown come from 'Select Labels' in the "
+        "left panel). Stacked layers: the 'Stack bars by' variable.",
+        target=stack_by_label_id,
     )
 
     norm_box = labeled_radioitems(
@@ -52,21 +60,18 @@ def generate_stacked_bar_layout(discrete_label_list, prefix):
         gridCols=12,
     )
 
-    info_text = html.Div(
-        [
-            html.P(
-                [
-                    html.I(className="fas fa-info-circle", style={"marginRight": "5px"}),
-                    "The stacked layers come from 'Select Annotation' and 'Select Labels' in the left control panel",
-                ],
-                style={"color": "#6c757d", "fontSize": "14px", "marginBottom": "15px"},
-            )
-        ]
-    )
-
+    x_axis_order_title_id = f"{prefix}-x-axis-order-title"
     x_axis_order_component = html.Div(
         [
-            html.Label("X-axis group order:", style={"fontWeight": "bold", "marginBottom": "10px"}),
+            html.Label(
+                "X-axis group order:",
+                id=x_axis_order_title_id,
+                style={"fontWeight": "bold", "marginBottom": "10px"},
+            ),
+            dbc.Tooltip(
+                "Drag column headers to reorder x-axis groups.",
+                target=x_axis_order_title_id,
+            ),
             dag.AgGrid(
                 id=f"{prefix}-stacked-bar-x-order-grid",
                 rowData=[],
@@ -97,10 +102,6 @@ def generate_stacked_bar_layout(discrete_label_list, prefix):
                 style={"height": "40px", "marginBottom": "10px", "overflow": "hidden"},
                 className="ag-theme-alpine",
             ),
-            html.P(
-                "Drag column headers to reorder x-axis groups.",
-                style={"fontSize": "12px", "color": "#6c757d", "marginTop": "5px", "marginBottom": "15px"},
-            ),
         ]
     )
 
@@ -109,8 +110,9 @@ def generate_stacked_bar_layout(discrete_label_list, prefix):
     return html.Div(
         [
             column_order_store,
-            info_text,
-            x_axis_dropdown,
+            dcc.Store(id=f"{prefix}-stacked-bar-rendered-key"),
+            stack_by_dropdown,
+            stack_by_tooltip,
             norm_box,
             draggable_bar,
             x_axis_order_component,

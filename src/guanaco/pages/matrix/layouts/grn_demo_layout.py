@@ -1,4 +1,3 @@
-import dash_draggable
 from dash import dcc, html
 
 from guanaco.pages.matrix.plots.grn_demo import (
@@ -67,16 +66,30 @@ def generate_grn_demo_layout(adata, prefix):
                 id=f"{prefix}-grn-demo-threshold-wrapper",
                 style={"marginBottom": "10px", "display": "block" if has_weight else "none"},
             ),
+            html.Button(
+                "⬇ Download SVG",
+                id=f"{prefix}-grn-demo-download-svg",
+                n_clicks=0,
+                style={"border": "1px solid #ccc", "borderRadius": "5px",
+                       "padding": "5px 10px", "backgroundColor": "white", "cursor": "pointer"},
+            ),
         ]
     )
 
-    draggable_container = dash_draggable.GridLayout(
-        id=f"{prefix}-draggable-grn-demo",
-        className="grid-layout-no-border",
-        children=[component_flex_container(f"{prefix}-grn-demo")],
+    # The GRN layout is circular, so use a square viewport (instead of a wide
+    # rectangle) -- a circle in a wide-but-short box gets its top/bottom clipped
+    # on zoom. Responsive square, capped at the viewport height and centered.
+    graph_container = html.Div(
+        component_flex_container(f"{prefix}-grn-demo"),
+        style={
+            "width": "min(100%, 80vh)",
+            "aspectRatio": "1 / 1",
+            "minHeight": "480px",
+            "margin": "0 auto",
+        },
     )
 
     return html.Div(
-        [controls, draggable_container],
+        [dcc.Store(id=f"{prefix}-grn-demo-rendered-key"), controls, graph_container],
         style={"padding": "20px", "marginBottom": "15px"},
     )

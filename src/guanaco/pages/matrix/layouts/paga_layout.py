@@ -1,4 +1,3 @@
-import dash_draggable
 from dash import dcc, html
 import pandas as pd
 
@@ -64,19 +63,28 @@ def generate_paga_layout(adata, prefix):
                 ],
                 style={"marginBottom": "10px"},
             ),
+            html.Button(
+                "⬇ Download SVG",
+                id=f"{prefix}-paga-download-svg",
+                n_clicks=0,
+                style={"border": "1px solid #ccc", "borderRadius": "5px",
+                       "padding": "5px 10px", "backgroundColor": "white", "cursor": "pointer"},
+            ),
         ]
     )
 
-    draggable_container = dash_draggable.GridLayout(
-        id=f"{prefix}-draggable-paga",
-        className="grid-layout-no-border",
-        children=[component_flex_container(f"{prefix}-paga")],
+    # Cytoscape handles its own zoom/pan, so the graph just fills a
+    # screen-adaptive box instead of a drag-to-resize container.
+    graph_container = html.Div(
+        component_flex_container(f"{prefix}-paga"),
+        style={"width": "100%", "height": "75vh", "minHeight": "480px"},
     )
 
     return html.Div(
         [
+            dcc.Store(id=f"{prefix}-paga-rendered-key"),
             controls,
-            draggable_container,
+            graph_container,
         ],
         style={"padding": "20px", "marginBottom": "15px"},
     )
