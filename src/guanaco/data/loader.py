@@ -35,7 +35,6 @@ def _register_anndata_null_reader_compat() -> None:
 _register_anndata_null_reader_compat()
 
 # Get paths from environment variables set by CLI, with fallbacks
-BASE_DIR = Path(os.environ.get('GUANACO_DATA_DIR', '.'))
 JSON_PATH = Path(os.environ.get("GUANACO_CONFIG", "guanaco.json"))
 
 DEFAULT_COLORS: list[str] = [
@@ -63,8 +62,9 @@ class DatasetBundle:
         color_config: list[str],
         adata_path: str | None = None,
         lazy_load: bool = False,
-        backed_mode: bool | str = True,
+        backed_mode: bool = True,
         optional_plot_components: list[str] | None = None,
+        scatter_defaults: dict[str, str | None] | None = None,
         max_cells: int | None = 10_000,
     ):
 
@@ -80,6 +80,8 @@ class DatasetBundle:
         self.lazy_load = lazy_load
         self.backed_mode = backed_mode
         self.optional_plot_components = optional_plot_components
+        # Optional per-dataset scatter defaults: keys 'embedding', 'annotation', 'gene'.
+        self.scatter_defaults = scatter_defaults or {}
         self.max_cells = max_cells
 
     @property
@@ -119,79 +121,284 @@ def load_config(json_path: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"Config file not found: {json_path}")
     return json.loads(json_path.read_text())
 
+def _random_row_indices(n_obs: int, max_cells: int, rng: np.random.Generator) -> np.ndarray:
+    """Sorted random subset of row indices (sorted for efficient backed reads)."""
+    return np.sort(rng.choice(n_obs, size=max_cells, replace=False))
+
+
+# Cloud/remote URI schemes we accept for ``sc_data``. These must never be turned
+# into ``pathlib.Path`` objects -- doing so mangles the ``scheme://`` part (e.g.
+# ``s3://bucket`` collapses to ``s3:/bucket``).
+_REMOTE_SCHEMES: tuple[str, ...] = (
+    "s3://",
+    "gs://",
+    "gcs://",
+    "az://",
+    "abfs://",
+    "abfss://",
+    "http://",
+    "https://",
+)
+
+
+def _is_remote_uri(file: str | Path) -> bool:
+    """True if ``file`` is a cloud/remote URI rather than a local filesystem path."""
+    return isinstance(file, str) and file.lower().startswith(_REMOTE_SCHEMES)
+
+
+def _source_suffix(file: str | Path) -> str:
+    """Lower-cased file extension of a local path or remote URI.
+
+    Handles trailing slashes (``.zarr`` stores are directories) and query
+    strings on remote URIs (``...dataset.zarr?versionId=...``).
+    """
+    text = str(file).split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return os.path.splitext(text)[1].lower()
+
+
+def _zarr_is_mudata(store: str | Path) -> bool:
+    """Best-effort detection of whether a ``.zarr`` store holds MuData vs AnnData.
+
+    Opens the store's root group and looks for the MuData ``mod`` group / encoding
+    marker. If the store can't be introspected (e.g. a remote store with no
+    ``fsspec`` backend installed), assume AnnData and let the reader surface any
+    real error.
+    """
+    try:
+        import zarr
+
+        grp = zarr.open_group(str(store), mode="r")
+        if "mod" in grp:
+            return True
+        return str(dict(grp.attrs).get("encoding-type", "")) == "MuData"
+    except Exception as exc:
+        print(f"[guanaco] could not introspect zarr store {store} ({exc}); assuming AnnData.")
+        return False
+
+
+def _downsample(data, max_cells: int | None, rng: np.random.Generator):
+    """Randomly down-sample an in-memory AnnData/MuData to ``max_cells`` rows."""
+    if max_cells is None:
+        return data
+
+    if hasattr(data, "mod"):  # MuData
+        primary = next(iter(data.mod))
+        n_obs = data.mod[primary].n_obs
+        if n_obs > max_cells:
+            idx = _random_row_indices(n_obs, max_cells, rng)
+            return data[idx].copy()
+        return data
+
+    if data.n_obs > max_cells:
+        idx = _random_row_indices(data.n_obs, max_cells, rng)
+        return data[idx, :].copy()
+    return data
+
+
+def _load_zarr(store: str | Path, *, max_cells: int | None, seed: int | None, backed: bool):
+    """Load an AnnData/MuData ``.zarr`` store (local directory or remote URI).
+
+    For AnnData stores the matrix is opened with
+    :func:`anndata.experimental.read_lazy`, so the full expression matrix is never
+    pulled into RAM up front. Only the cells we keep (a random subset when
+    ``max_cells`` applies) are then materialized via ``.to_memory()`` -- bounding
+    peak memory by the subset, exactly like the backed-first ``.h5ad`` path and
+    crucial for large local or cloud stores.
+
+    ``read_lazy`` requires ``dask`` (and ``fsspec``/cloud backends for remote
+    URIs); if it is unavailable we fall back to an in-memory ``read_zarr``.
+
+    Backed/disk-resident mode is not available for ``.zarr`` -- the lazy object's
+    xarray ``obs``/dask ``X`` are not compatible with the app's pandas/scipy hot
+    paths -- so ``backed=True`` materializes all cells (with a clear warning)
+    rather than silently pretending the matrix stays on disk. MuData has no lazy
+    reader, so it is always read in memory then down-sampled.
+    """
+    rng = np.random.default_rng(seed)
+    is_mudata = _zarr_is_mudata(store)
+
+    if is_mudata:
+        if backed:
+            print(f"[guanaco] backed/lazy mode is not available for MuData .zarr ({store}); loaded in memory.")
+        return _to_gene_major(_downsample(mu.read_zarr(store), max_cells, rng))
+
+    try:
+        from anndata.experimental import read_lazy
+
+        lazy = read_lazy(store)
+    except Exception as exc:
+        # dask/fsspec missing, or the store can't be opened lazily: degrade to a
+        # full in-memory read so loading never hard-fails.
+        print(f"[guanaco] lazy zarr read unavailable for {store} ({exc}); using in-memory read_zarr.")
+        return _to_gene_major(_downsample(ad.read_zarr(store), max_cells, rng))
+
+    n_obs = lazy.n_obs
+    if backed:
+        print(
+            f"[guanaco] backed mode is not supported for .zarr stores ({store}); "
+            f"materializing all {n_obs} cells into memory."
+        )
+        return _to_gene_major(lazy.to_memory())
+
+    if max_cells is not None and n_obs > max_cells:
+        idx = _random_row_indices(n_obs, max_cells, rng)
+        adata = lazy[idx, :].to_memory()
+        print(f"Loaded {store}: sampled {max_cells} of {n_obs} cells into memory (lazy zarr)")
+    else:
+        adata = lazy.to_memory()
+        print(f"Loaded {store} into memory ({n_obs} cells, lazy zarr)")
+    return _to_gene_major(adata)
+
+
+def _to_gene_major(data):
+    """Convert CSR expression matrices to CSC (gene-major) for fast per-gene reads.
+
+    The app's hot path is single-gene extraction (``X[:, j]``). On CSR that is
+    O(nnz); on CSC it is O(nnz in that gene), typically 100-1000x faster on large
+    datasets, which is what makes adding/removing genes responsive. Conversion is
+    memory-neutral (CSR is replaced by CSC, not duplicated) and only matters for
+    in-memory mode -- backed datasets stay on disk and should be re-encoded as CSC
+    offline instead. Row-subsetting (cell selection) is the cheap direction for
+    CSR, but the extraction path reads whole columns and subsets the dense result,
+    so CSC does not penalize the common path.
+    """
+    from scipy.sparse import issparse
+
+    def _conv(m):
+        return m.tocsc() if (issparse(m) and getattr(m, "format", None) == "csr") else m
+
+    def _convert(a):
+        try:
+            a.X = _conv(a.X)
+            for key in list(a.layers.keys()):
+                a.layers[key] = _conv(a.layers[key])
+        except Exception as exc:  # never let an optimization break loading
+            print(f"[guanaco] CSC conversion skipped: {exc}")
+
+    if hasattr(data, "mod"):  # MuData: convert each modality
+        for mod in data.mod:
+            _convert(data.mod[mod])
+    else:
+        _convert(data)
+    return data
+
+
 def load_adata(
     file: str | Path,
     *,
     max_cells: int | None = 10_000,
     seed: int | None = None,
-    base_dir: Path = BASE_DIR,
-    backed: bool | str = False,
+    backed: bool = False,
 ) -> ad.AnnData | mu.MuData:
     """
-    Load a single .h5ad or .h5mu file and optionally down-sample cells.
-    
+    Load a single .h5ad or .h5mu file, optionally down-sampling cells.
+
+    Memory behaviour:
+        - ``backed=True``  -> keep the expression matrix on disk and serve all
+          cells (lowest steady-state RAM, slower per-gene reads).
+        - ``backed=False`` -> the file is still opened *backed first* so the full
+          matrix is never held in RAM; only the kept cells (a random subset when
+          ``max_cells`` applies) are materialized into memory. This bounds peak
+          memory by the subset and works for files larger than RAM. Selecting a
+          subset of rows (cells) is the cheap direction for on-disk CSR data.
+
+    Sources:
+        - Local ``.h5ad`` / ``.h5mu`` files (absolute paths).
+        - Local ``.zarr`` AnnData/MuData stores (absolute directory paths).
+        - Cloud ``.zarr`` stores via remote URIs (``s3://``, ``gs://``,
+          ``https://``, ...). Remote URIs are passed through untouched -- never
+          converted to ``pathlib.Path`` -- and require the matching ``fsspec``
+          backend to be installed at read time.
+
     Args:
-        file: Path to the data file
-        max_cells: Maximum number of cells to load (downsampling if needed)
-        seed: Random seed for downsampling
-        base_dir: Base directory for relative paths
-        backed: If True, use backed mode (disk-based). If 'r+', use read-write backed mode.
+        file: Absolute local path or remote URI of the data source.
+        max_cells: Maximum number of cells to keep (random down-sample if larger)
+        seed: Random seed for down-sampling
+        backed: If True, keep the matrix on disk (backed mode) and serve all cells.
+            Ignored (with a warning) for ``.zarr`` stores, which have no backed mode.
 
     Returns:
         AnnData (for .h5ad) or MuData (for .h5mu)
     """
+    suffix = _source_suffix(file)
+
+    if _is_remote_uri(file):
+        # Keep the original URI string; do not Path()-mangle the scheme.
+        if suffix != ".zarr":
+            raise ValueError(
+                f"Remote sc_data must be a .zarr store, got '{suffix or '<none>'}' for {file}. "
+                "Cloud .h5ad/.h5mu reading is not supported; convert to .zarr."
+            )
+        return _load_zarr(str(file), max_cells=max_cells, seed=seed, backed=backed)
 
     path = Path(file)
     if not path.is_absolute():
-        path = base_dir / path
+        raise ValueError(f"sc_data path must be absolute: {path}")
     if not path.exists():
         raise FileNotFoundError(f"Data file not found: {path}")
+    if suffix not in (".h5ad", ".h5mu", ".zarr"):
+        raise ValueError(f"Unsupported file extension: {suffix}")
 
-    if path.suffix == ".h5mu":
-        if backed:
-            mode = 'r+' if backed == 'r+' else True
-            adata = mu.read_h5mu(path, backed=mode)
-            print(f"Loaded {path} in backed mode (disk-based)")
-        else:
-            adata = mu.read_h5mu(path)
-    elif path.suffix == ".h5ad":
-        if backed:
-            # Use backed mode for disk-based access
-            mode = 'r+' if backed == 'r+' else 'r'
-            adata = ad.read_h5ad(path, backed=mode)
-            print(f"Loaded {path} in backed mode (disk-based)")
-        else:
-            adata = ad.read_h5ad(path)
-    else:
-        raise ValueError(f"Unsupported file extension: {path.suffix}")
+    if suffix == ".zarr":
+        return _load_zarr(path, max_cells=max_cells, seed=seed, backed=backed)
 
-    if max_cells is not None and not backed:
-        # Handle both AnnData and MuData separately
-        # Note: Downsampling is not supported in backed mode
-        if isinstance(adata, ad.AnnData):
-            if adata.n_obs > max_cells:
-                rng = np.random.default_rng(seed)
-                idx = rng.choice(adata.n_obs, size=max_cells, replace=False)
-                idx.sort()
-                # Copy to release references to the full matrix.
-                adata = adata[idx, :].copy()
-                print(f"Down-sampled {path} to {max_cells} cells")
-        elif isinstance(adata, mu.MuData):
-            # For MuData, down-sample the primary modality
-            primary_mod = list(adata.mod.keys())[0]
-            n_obs = adata.mod[primary_mod].n_obs
-            if n_obs > max_cells:
-                rng = np.random.default_rng(seed)
-                idx = rng.choice(n_obs, size=max_cells, replace=False)
-                idx.sort()
+    is_mudata = suffix == ".h5mu"
+
+    # Backed mode requested: keep everything on disk and serve all cells.
+    if backed:
+        adata = mu.read_h5mu(path, backed=True) if is_mudata else ad.read_h5ad(path, backed="r")
+        print(f"Loaded {path} in backed mode (disk-based)")
+        return adata
+
+    rng = np.random.default_rng(seed)
+
+    # In-memory mode: read backed first (metadata only; matrix stays on disk),
+    # then materialize just the cells we keep -- no full-matrix RAM spike.
+    try:
+        if is_mudata:
+            view = mu.read_h5mu(path, backed=True)
+            n_obs = view.n_obs
+            if max_cells is not None and n_obs > max_cells:
+                idx = _random_row_indices(n_obs, max_cells, rng)
+                adata = view[idx].copy()
+                print(f"Loaded {path}: sampled {max_cells} of {n_obs} cells (MuData) into memory")
+            else:
+                adata = view.copy()
+                print(f"Loaded {path} (MuData) into memory ({n_obs} cells)")
+            return _to_gene_major(adata)
+
+        view = ad.read_h5ad(path, backed="r")
+        n_obs = view.n_obs
+        if max_cells is not None and n_obs > max_cells:
+            idx = _random_row_indices(n_obs, max_cells, rng)
+            adata = view[idx, :].to_memory()
+            print(f"Loaded {path}: sampled {max_cells} of {n_obs} cells into memory")
+        else:
+            adata = view.to_memory()
+            print(f"Loaded {path} into memory ({n_obs} cells)")
+        try:
+            view.file.close()  # release the on-disk handle; data is now in RAM
+        except Exception:
+            pass
+        return _to_gene_major(adata)
+
+    except Exception as exc:
+        # Backed reading isn't supported for every file (notably some MuData);
+        # fall back to a full in-memory read + down-sample so loading never fails.
+        print(f"Backed read unavailable for {path} ({exc}); using full in-memory read.")
+        adata = mu.read_h5mu(path) if is_mudata else ad.read_h5ad(path)
+        if max_cells is None:
+            return _to_gene_major(adata)
+        if is_mudata:
+            primary = next(iter(adata.mod))
+            if adata.mod[primary].n_obs > max_cells:
+                idx = _random_row_indices(adata.mod[primary].n_obs, max_cells, rng)
                 for mod in adata.mod:
-                    # Copy per modality to avoid retaining the full object via views.
                     adata.mod[mod] = adata.mod[mod][idx, :].copy()
-                print(f"Down-sampled MuData {path} to {max_cells} cells")
-    elif max_cells is not None and backed:
-        print(f"Warning: Downsampling not supported in backed mode for {path}")
-
-    return adata
+        elif adata.n_obs > max_cells:
+            idx = _random_row_indices(adata.n_obs, max_cells, rng)
+            adata = adata[idx, :].copy()
+        return _to_gene_major(adata)
 
 # ----------------------------------------------------------------------------
 # Discrete label helpers
@@ -487,19 +694,16 @@ def get_ref_track(genome: str) -> dict[str, str]:
 
 def initialize_data(
     json_path: Path | None = None,
-    base_dir: Path | None = None,
     *,
     max_cells: int | None = None,
     lazy_load: bool = True,
-    backed_mode: bool | str = False,
+    backed_mode: bool = False,
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, DatasetBundle]:
     # Use provided paths or get from environment/defaults
     if json_path is None:
         json_path = JSON_PATH
-    if base_dir is None:
-        base_dir = json_path.parent if json_path is not None else BASE_DIR
-    
+
     if cfg is None:
         cfg = load_config(json_path)
     global_colors = cfg.get("color", DEFAULT_COLORS)
@@ -519,28 +723,39 @@ def initialize_data(
         gene_markers = None
         label_list = None
                 
+        sc_data_source = None
         if "sc_data" in dataset_cfg and dataset_cfg["sc_data"]:
             adata_file = dataset_cfg["sc_data"]
-            adata_path = Path(adata_file)
-            if not adata_path.is_absolute():
-                adata_path = base_dir / adata_path
-            
+            if _is_remote_uri(adata_file):
+                # Cloud URI: keep the original string, skip local path validation.
+                sc_data_source = str(adata_file)
+            else:
+                adata_path = Path(adata_file)
+                if not adata_path.is_absolute():
+                    raise ValueError(
+                        f"Dataset '{dataset_key}': sc_data path must be absolute, got: {adata_file}"
+                    )
+                sc_data_source = str(adata_path)
+
             if lazy_load:
                 # Don't load data yet, just store the path
                 adata = None
                 gene_markers = dataset_cfg.get("markers", None)
                 label_list = None
             else:
-                adata = load_adata(adata_file, max_cells=max_cells, base_dir=base_dir, backed=backed_mode)
+                adata = load_adata(sc_data_source, max_cells=max_cells, backed=backed_mode)
                 # Use provided markers or default to first 6 genes for RNA only
                 gene_markers = dataset_cfg.get("markers", None)
                 label_list = get_discrete_labels(adata) if adata else None
 
 
+        # Per-dataset color palette; fall back to the global/default palette.
+        dataset_colors = dataset_cfg.get("color", global_colors)
+
         # Handle genome browser section (optional)
         genome_tracks = None
         ref_track = None
-        
+
         if "bucket_urls" in dataset_cfg and dataset_cfg["bucket_urls"]:
             # Use dataset-specific genome or global genome
             dataset_genome = dataset_cfg.get("genome", genome)
@@ -552,7 +767,7 @@ def initialize_data(
                 dataset_cfg["bucket_urls"],
                 max_heights,
                 atac_names,
-                global_colors,
+                dataset_colors,
             )
             ref_track = get_ref_track(dataset_genome)
 
@@ -567,11 +782,17 @@ def initialize_data(
                 label_list=label_list,
                 genome_tracks=genome_tracks,
                 ref_track=ref_track,
-                color_config=global_colors,
-                adata_path=str(adata_path) if dataset_cfg.get("sc_data") else None,
+                color_config=dataset_colors,
+                adata_path=sc_data_source,
                 lazy_load=lazy_load,
                 backed_mode=backed_mode,
                 optional_plot_components=dataset_cfg.get("optional_plot_components"),
+                scatter_defaults={
+                    "embedding_left": dataset_cfg.get("default_embedding_left"),
+                    "embedding_right": dataset_cfg.get("default_embedding_right"),
+                    "color_left": dataset_cfg.get("default_color_left"),
+                    "color_right": dataset_cfg.get("default_color_right"),
+                },
                 max_cells=max_cells,
             )
             datasets[dataset_key] = dataset_bundle

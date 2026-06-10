@@ -16,14 +16,8 @@ def _bool_setting(settings: dict, key: str, default: bool) -> bool:
     return default
 
 
-def _backed_mode_from_settings(settings: dict) -> bool | str:
-    backed_mode = settings.get('backed_mode', False)
-    if isinstance(backed_mode, str):
-        normalized = backed_mode.strip().lower()
-        if normalized == 'r+':
-            return 'r+'
-        return _bool_setting({'backed_mode': normalized}, 'backed_mode', False)
-    return backed_mode if isinstance(backed_mode, bool) else False
+def _backed_mode_from_settings(settings: dict) -> bool:
+    return _bool_setting(settings, 'backed_mode', False)
 
 
 def _embedding_render_backend_from_settings(settings: dict) -> str:
