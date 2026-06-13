@@ -4,7 +4,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
 from guanaco.utils.gene_extraction_utils import (
-    extract_gene_expression, extract_multiple_genes, apply_transformation
+    extract_gene_expression, apply_transformation
 )
 import hashlib
 import time
@@ -12,11 +12,16 @@ import time
 # Global cache for violin plot data
 _violin_data_cache = {}
 
-# Cap the points sent per violin. A violin is a KDE of the distribution, so a
-# uniform random sample of this many points reproduces the same shape while
-# keeping the figure payload and client-side KDE cost bounded. Only groups larger
-# than this are subsampled (small/rare groups are left intact).
-MAX_VIOLIN_POINTS = 5_000
+# A violin is a KDE of a distribution, so a uniform random subsample reproduces the
+# same shape while keeping the figure payload and client-side KDE cost bounded.
+# Points are never drawn individually here (points=False); the sample only feeds the
+# KDE. We bound the points emitted *per gene* (summed across that gene's group
+# violins), distributed across groups in proportion to size with a per-group floor.
+# This caps the payload regardless of cell count -- the dominant cost of switching to
+# the violin tab -- so a 10k- and a 1M-cell dataset ship the same small figure.
+MAX_POINTS_PER_GENE = 3_000   # total KDE sample per subplot (one row per gene)
+MIN_POINTS_PER_GROUP = 50     # floor so small groups still form a visible violin
+MAX_VIOLIN_POINTS = 5_000     # hard per-group ceiling
 
 default_color = [
     "#E69F00",
@@ -47,6 +52,28 @@ def _to_rgba(color, alpha):
             if len(parts) == 3:
                 return f"rgba({parts[0]},{parts[1]},{parts[2]},{alpha})"
     return color
+
+
+def _build_group_sample(label_masks, labels, rng):
+    """Row positions to sample for each group's violin, shared across all genes.
+
+    Bounds the total points per gene to ``MAX_POINTS_PER_GENE``, allocated across
+    groups in proportion to size (with a per-group floor, capped at the group size
+    and the hard per-group ceiling). One plan is reused for every gene so all
+    subplots sample a consistent set of cells. Returns ``label -> row positions``.
+    """
+    positions = {lab: np.flatnonzero(label_masks[lab]) for lab in labels if lab in label_masks}
+    total = sum(pos.size for pos in positions.values())
+    if total <= MAX_POINTS_PER_GENE:
+        return positions
+    plan = {}
+    for lab, pos in positions.items():
+        n = pos.size
+        alloc = int(round(MAX_POINTS_PER_GENE * n / total))
+        alloc = min(max(alloc, MIN_POINTS_PER_GROUP), n, MAX_VIOLIN_POINTS)
+        plan[lab] = np.sort(rng.choice(pos, alloc, replace=False)) if alloc < n else pos
+    return plan
+
 
 def _create_cache_key(genes, labels, groupby, transformation, adata_id):
     """Create a unique cache key for violin data."""
@@ -85,80 +112,27 @@ def _extract_and_cache_violin_data(adata, genes, labels, groupby, transformation
     # Extract data
     start_time = time.time()
     
-    # Filter cells based on selected labels, unless caller already passed filtered data.
-    if labels and not data_already_filtered:
-        cell_indices = adata.obs[groupby].isin(labels)
-        if hasattr(adata, 'isbacked') and adata.isbacked:
-            cell_indices_array = np.where(cell_indices)[0]
-        else:
-            cell_indices_array = None
-    else:
-        cell_indices = None
-        cell_indices_array = None
-    
-    # Extract multiple genes at once for efficiency
     valid_genes = [g for g in genes if g in adata.var_names]
     if not valid_genes:
         return None
-    
-    # Use batch extraction for better performance
-    if len(valid_genes) > 1:
-        try:
-            if labels and not (hasattr(adata, 'isbacked') and adata.isbacked) and not data_already_filtered:
-                filtered_adata = adata[cell_indices]
-                gene_df = extract_multiple_genes(filtered_adata, valid_genes, layer=layer)
-                obs_values = filtered_adata.obs[groupby]
-            elif hasattr(adata, 'isbacked') and adata.isbacked and cell_indices_array is not None:
-                # Backed mode + filtered labels: avoid extracting all cells.
-                gene_data = {}
-                for gene in valid_genes:
-                    gene_expr = extract_gene_expression(adata, gene, layer=layer)
-                    gene_data[gene] = gene_expr[cell_indices_array]
-                gene_df = pd.DataFrame(gene_data)
-                obs_values = adata.obs.iloc[cell_indices_array][groupby]
-            else:
-                gene_df = extract_multiple_genes(adata, valid_genes, layer=layer)
-                if cell_indices_array is not None:
-                    gene_df = gene_df.iloc[cell_indices_array]
-                    obs_values = adata.obs.iloc[cell_indices_array][groupby]
-                else:
-                    obs_values = adata.obs[groupby]
-        except Exception:
-            # Fallback to individual extraction
-            gene_data = {}
-            for gene in valid_genes:
-                gene_expr = extract_gene_expression(adata, gene, layer=layer)
-                if cell_indices_array is not None:
-                    gene_expr = gene_expr[cell_indices_array]
-                elif cell_indices is not None:
-                    gene_expr = gene_expr[cell_indices]
-                gene_data[gene] = gene_expr
-            
-            gene_df = pd.DataFrame(gene_data)
-            if cell_indices is not None:
-                if hasattr(adata, 'isbacked') and adata.isbacked:
-                    obs_values = adata.obs.iloc[cell_indices_array][groupby]
-                else:
-                    obs_values = adata.obs[cell_indices][groupby]
-            else:
-                obs_values = adata.obs[groupby]
+
+    # Restrict to the selected labels' cells (integer row positions), unless the
+    # caller already passed filtered data -- then keep every row.
+    if labels and not data_already_filtered:
+        row_pos = np.where(adata.obs[groupby].isin(labels).to_numpy())[0]
     else:
-        # Single gene extraction
-        gene = valid_genes[0]
-        gene_expr = extract_gene_expression(adata, gene, layer=layer)
-        if cell_indices_array is not None:
-            gene_expr = gene_expr[cell_indices_array]
-        elif cell_indices is not None:
-            gene_expr = gene_expr[cell_indices]
-        
-        gene_df = pd.DataFrame({gene: gene_expr})
-        if cell_indices is not None:
-            if hasattr(adata, 'isbacked') and adata.isbacked:
-                obs_values = adata.obs.iloc[cell_indices_array][groupby]
-            else:
-                obs_values = adata.obs[cell_indices][groupby]
-        else:
-            obs_values = adata.obs[groupby]
+        row_pos = None
+
+    # Per-gene extraction through the shared cache-backed single-column path: each
+    # gene's full column is read once, cached, and reused across plots; we then keep
+    # the selected rows. Consumers index gene_df / obs_values positionally, so it is
+    # row order -- not the index -- that must line up, and both come from row_pos.
+    gene_data = {}
+    for gene in valid_genes:
+        col = extract_gene_expression(adata, gene, layer=layer)
+        gene_data[gene] = col[row_pos] if row_pos is not None else col
+    gene_df = pd.DataFrame(gene_data)
+    obs_values = adata.obs.iloc[row_pos][groupby] if row_pos is not None else adata.obs[groupby]
     
     # Apply transformations
     if transformation:
@@ -242,25 +216,20 @@ def plot_violin1(
             label_masks[label] = mask
 
     # Fixed seed so each violin's subsample (and thus its shape) is stable across
-    # re-renders.
+    # re-renders. The plan is built once and reused for every gene.
     rng = np.random.default_rng(0)
+    group_sample = _build_group_sample(label_masks, labels, rng)
 
     # Create violin plots
     for i, gene in enumerate(valid_genes):
-        # Access gene values directly as numpy array
+        # Access gene values directly as numpy array (full data drives the y-range).
         gene_values = gene_df[gene].values
         expr_max = gene_values.max()
 
         for label in labels:
-            if label in label_masks:
-                mask = label_masks[label]
-                group_expr = gene_values[mask]
-
-                # Subsample large groups: a KDE over this many points matches the
-                # full distribution but keeps payload/compute bounded. scalemode is
-                # 'width', so the reduced count doesn't change the violin's width.
-                if group_expr.shape[0] > MAX_VIOLIN_POINTS:
-                    group_expr = rng.choice(group_expr, MAX_VIOLIN_POINTS, replace=False)
+            if label in group_sample:
+                # Payload-bounded KDE sample for this group (see _build_group_sample).
+                group_expr = gene_values[group_sample[label]]
 
                 # Calculate variance to determine bandwidth (seaborn-like behavior)
                 variance = np.var(group_expr)

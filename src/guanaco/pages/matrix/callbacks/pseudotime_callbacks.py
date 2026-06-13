@@ -30,17 +30,17 @@ def register_pseudotime_callbacks(
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-pseudotime-min-expr-slider", "value"),
-            Input(f"{prefix}-pseudotime-transformation", "value"),
             Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-pseudotime-key-dropdown", "value"),
             Input(f"{prefix}-marker-size-slider", "value"),
             Input(f"{prefix}-opacity-slider", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
-            Input(f"{prefix}-selected-cells-store", "data"),
+            Input(f"{prefix}-selected-cells-hash", "data"),
         ],
         [
             State(f"{prefix}-pseudotime-plot", "figure"),
             State(f"{prefix}-pseudotime-rendered-key", "data"),
+            State(f"{prefix}-selected-cells-store", "data"),
         ],
     )
     def update_pseudotime_plot(
@@ -49,15 +49,15 @@ def register_pseudotime_callbacks(
         selected_annotation,
         selected_labels,
         min_expr,
-        transformation,
         data_layer,
         pseudotime_key,
         marker_size,
         opacity,
         discrete_color_map,
-        selected_cells,
+        cells_hash,
         current_figure,
         rendered_key,
+        selected_cells,
     ):
         if selected_tab != "pseudotime-tab":
             # Not the active tab: leave whatever is there untouched.
@@ -90,13 +90,12 @@ def register_pseudotime_callbacks(
             selected_annotation=selected_annotation,
             selected_labels=hash_list_signature(selected_labels),
             min_expr=min_expr,
-            transformation=transformation,
             data_layer=data_layer,
             pseudotime_key=pseudotime_key,
             marker_size=marker_size,
             opacity=opacity,
             discrete_color_map=discrete_color_map,
-            selected_cells=hash_list_signature(selected_cells),
+            selected_cells=cells_hash,
         )
         # Already showing the figure for these exact parameters: do nothing,
         # so a plain tab switch neither recomputes nor redraws.
@@ -155,7 +154,7 @@ def register_pseudotime_callbacks(
             pseudotime_key=pseudotime_key,
             groupby=selected_annotation,
             min_expr=min_expr,
-            transformation=transformation,
+            transformation="none",
             layer=data_layer if data_layer and data_layer != "X" else None,
             color_map=color_map,
             marker_size=marker_size,

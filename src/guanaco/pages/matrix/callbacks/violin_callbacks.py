@@ -1,5 +1,4 @@
 import dash
-import plotly.graph_objects as go
 from dash import Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
@@ -18,6 +17,7 @@ def register_violin_callbacks(
     palette_json,
     var_names,
     var_names_lower,
+    color_config=None,
 ):
     @app.callback(
         Output(f"{prefix}-violin2-group-selection", "options"),
@@ -43,9 +43,12 @@ def register_violin_callbacks(
             Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-show-box1", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
-            Input(f"{prefix}-selected-cells-store", "data"),
+            Input(f"{prefix}-selected-cells-hash", "data"),
         ],
-        [State(f"{prefix}-violin-plot-cache-store", "data")],
+        [
+            State(f"{prefix}-violin-plot-cache-store", "data"),
+            State(f"{prefix}-selected-cells-store", "data"),
+        ],
     )
     def update_violin_cache(
         selected_genes,
@@ -54,11 +57,12 @@ def register_violin_callbacks(
         data_layer,
         show_box_plot,
         discrete_color_map,
-        selected_cells,
+        cells_hash,
         current_cache,
+        selected_cells,
     ):
         layer = data_layer if data_layer and data_layer != "X" else None
-        cache_key = f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_{show_box_plot}_{discrete_color_map}_{selected_cells}"
+        cache_key = f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_{show_box_plot}_{discrete_color_map}_{cells_hash}"
 
         if current_cache is None:
             current_cache = {}
@@ -127,16 +131,19 @@ def register_violin_callbacks(
         if current_key and current_key == rendered_key and current_figure:
             return no_update, no_update
         if current_key and current_key in cache_data:
-            return go.Figure(cache_data[current_key]), current_key
+            # Return the cached figure dict as-is: Dash accepts a plain dict for a
+            # Graph 'figure', which skips the expensive go.Figure(...) re-validation of
+            # the violin figure on every switch to the tab.
+            return cache_data[current_key], current_key
         return no_update, no_update
 
     @app.callback(Output(f"{prefix}-mode-explanation", "children"), Input(f"{prefix}-mode-selection", "value"))
     def update_mode_explanation(mode):
         explanations = {
             "mode1": "Compare expression across groups in obs1 only. Obs2 will be ignored.",
-            "mode2": "Create facets by obs1, compare obs2 groups within each facet.",
+            "mode2": "Within each obs1 group on the x-axis, split/group the violin by obs2 and compare.",
             "mode3": "Linear model treating obs2 as a confounder: expression ~ obs1 + obs2",
-            "mode4": "Mixed model treating obs2 as random effect: expression ~ meta1 + (1|obs2)",
+            "mode4": "Mixed model treating obs2 as a random effect (e.g. donor, batch, replicate) to account for non-independent samples.",
         }
         return explanations.get(mode, "")
 
@@ -146,7 +153,11 @@ def register_violin_callbacks(
         [Input(f"{prefix}-mode-selection", "value"), Input(f"{prefix}-meta1-selection", "value"), Input(f"{prefix}-meta2-selection", "value")],
     )
     def update_test_methods(mode, meta1, meta2):
-        base_options = [{"label": "None", "value": "none"}]
+        # Auto is always available and is the default; None disables the test.
+        base_options = [
+            {"label": "Auto", "value": "auto"},
+            {"label": "None", "value": "none"},
+        ]
 
         if mode == "mode1":
             n_levels = len(adata.obs[meta1].unique()) if meta1 else 0
@@ -196,6 +207,18 @@ def register_violin_callbacks(
         return False, dash.no_update
 
     @app.callback(
+        Output(f"{prefix}-split-violin-options-collapse", "is_open"),
+        Output(f"{prefix}-split-violin-options-toggle", "children"),
+        Input(f"{prefix}-split-violin-options-toggle", "n_clicks"),
+        State(f"{prefix}-split-violin-options-collapse", "is_open"),
+        prevent_initial_call=True,
+    )
+    def toggle_split_violin_options(n_clicks, is_open):
+        now_open = not is_open
+        label = "▾ More options" if now_open else "▸ More options"
+        return now_open, label
+
+    @app.callback(
         Output(f"{prefix}-violin-plot2", "figure"),
         [
             Input(f"{prefix}-violin2-gene-selection", "value"),
@@ -204,13 +227,12 @@ def register_violin_callbacks(
             Input(f"{prefix}-mode-selection", "value"),
             Input(f"{prefix}-test-method-selection", "value"),
             Input(f"{prefix}-show-box2", "value"),
-            Input(f"{prefix}-show-scatter2", "value"),
             Input(f"{prefix}-data-layer", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-selected-cells-store", "data"),
         ],
     )
-    def update_violin2(gene_selection, meta1, meta2, mode, test_method, show_box2, show_points, data_layer, selected_palette_name, selected_cells):
+    def update_violin2(gene_selection, meta1, meta2, mode, test_method, show_box2, data_layer, selected_palette_name, selected_cells):
         layer = data_layer if data_layer and data_layer != "X" else None
         if selected_cells:
             filtered_adata = filter_data(adata, None, None, selected_cells)
@@ -225,14 +247,15 @@ def register_violin_callbacks(
         if mode in ["mode2", "mode3", "mode4"] and meta2 is None:
             raise PreventUpdate
 
-        palette = None
-        if selected_palette_name:
-            n_colors = 0
-            if meta1:
-                n_colors = max(n_colors, filtered_adata.obs[meta1].nunique())
-            if meta2:
-                n_colors = max(n_colors, filtered_adata.obs[meta2].nunique())
-            palette = resolve_discrete_palette(selected_palette_name, n_colors)
+        # Resolve the categorical palette the same way every other plot does -- the
+        # selected discrete colormap, falling back to the dataset color_config -- so
+        # the violins share the app's default colors instead of a private palette.
+        n_colors = 0
+        if meta1:
+            n_colors = max(n_colors, filtered_adata.obs[meta1].nunique())
+        if meta2:
+            n_colors = max(n_colors, filtered_adata.obs[meta2].nunique())
+        palette = resolve_discrete_palette(selected_palette_name, n_colors, default=color_config)
 
         fig = plot_violin2_new(
             filtered_adata,
@@ -242,7 +265,6 @@ def register_violin_callbacks(
             mode=mode,
             layer=layer,
             show_box="show" in show_box2 if show_box2 else False,
-            show_points="show" in show_points if show_points else False,
             test_method=test_method,
             labels=None,
             color_map=None,

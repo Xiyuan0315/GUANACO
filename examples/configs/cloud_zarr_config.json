@@ -1,29 +1,21 @@
 {
-  "PBMC_S3": {
-    "sc_data": "s3://my-bucket/path/pbmc.zarr",
-    "description": "PBMC AnnData read directly from an S3 .zarr store",
-    "markers": ["MS4A1", "IL7R", "CD8A", "FCER1A", "CD14", "MS4A7", "NKG7"],
-    "optional_plot_components": ["dotplot", "heatmap", "violin"]
+  "_comment": "Remote backed Zarr demo. Run: `guanaco -c examples/configs/cloud_zarr_config.json`. With backed_mode=true the dataset is opened with anndata.experimental.read_lazy from its consolidated metadata: obs/var/obsm load into memory while the expression matrix stays on the remote store and is fetched one gene-column at a time as you view genes (the cloud-native form of 'backed' access). This store's X is CSR (slow per-gene reads), but it ships a gene-major CSC copy as layers['X_csc']; expression_layer points GUANACO at it so per-gene reads are far faster. Omit expression_layer to auto-use a CSC layer when X is CSR. Works on local and remote s3://, gs://, https:// .zarr stores.",
+  "BALF_COVID": {
+    "sc_data": "https://vitessce-demo-data.storage.googleapis.com/anndata-demos/BALF_VIB-UGent_processed_cleaned.zarr",
+    "expression_layer": "X_csc",
+    "description": "Public COVID-19 bronchoalveolar lavage (BALF) atlas, 275,056 cells x 24,740 genes, served remote-backed from Google Cloud Storage via read_lazy. X (CSR) stays on the cloud; gene columns are read from the gene-major layers['X_csc'] on demand.",
+    "markers": [
+      "CD3D", "CD8A"
+    ],
+    "optional_plot_components": ["dotplot", "heatmap", "violin", "split-violin"]
   },
-  "PBMC_GCS": {
-    "sc_data": "gs://my-bucket/path/pbmc.zarr",
-    "description": "Same dataset served from Google Cloud Storage"
-  },
-  "PBMC_HTTPS": {
-    "sc_data": "https://example.com/datasets/pbmc.zarr",
-    "description": "Public .zarr store over HTTPS"
-  },
-  "PBMC_LOCAL_ZARR": {
-    "sc_data": "/absolute/path/to/pbmc.zarr",
-    "description": "Local .zarr directory (absolute path)"
-  },
-  "title": "GUANACO cloud demo",
+  "title": "GUANACO cloud-backed demo",
   "settings": {
     "host": "0.0.0.0",
     "port": 4399,
-    "max_cells": 10000,
+    "max_cells": null,
     "lazy_load": true,
-    "backed_mode": false,
+    "backed_mode": true,
     "embedding_render_backend": "scattergl"
   }
 }

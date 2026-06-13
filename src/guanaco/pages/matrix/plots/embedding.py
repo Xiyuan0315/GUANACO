@@ -86,7 +86,7 @@ def _resolve_spatial_context(
     return spatial_image, spatial_scale
 
 
-def _prepare_embedding_dataframe(
+def _resolve_embedding_coords(
     adata,
     embedding_key,
     x_axis=None,
@@ -96,6 +96,7 @@ def _prepare_embedding_dataframe(
     library_id=None,
     auto_select_spatial=False,
 ):
+    """Return (x_values, y_values, x_axis, y_axis, embedding_columns, spatial_image)."""
     embedding_data = adata.obsm[embedding_key]
     embedding_prefix = EMBEDDING_PREFIXES.get(embedding_key, embedding_key.removeprefix("X_"))
     embedding_columns = [f"{embedding_prefix}{i + 1}" for i in range(embedding_data.shape[1])]
@@ -126,8 +127,7 @@ def _prepare_embedding_dataframe(
         if y_axis == embedding_columns[0] or y_axis == embedding_columns[1]:
             y_values = y_values * spatial_scale
 
-    embedding_df = pd.DataFrame({x_axis: x_values, y_axis: y_values})
-    return embedding_df, x_axis, y_axis, embedding_columns, spatial_image
+    return x_values, y_values, x_axis, y_axis, embedding_columns, spatial_image
 
 
 def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=None, layer=None):
@@ -351,7 +351,7 @@ def _build_datashader_categorical_figure(
 
     x_vals = np.asarray(x_values[valid_mask], dtype=np.float32)
     y_vals = np.asarray(y_values[valid_mask], dtype=np.float32)
-    cat_strs = np.asarray([str(c) for c in np.asarray(cat_values)[valid_mask]], dtype=object)
+    cat_strs = np.asarray([str(c) for c in cat_values[valid_mask]], dtype=object)
 
     result = _datashader_canvas(ds, x_vals, y_vals)
     if result is None:
@@ -480,11 +480,17 @@ def _build_continuous_embedding_figure(
     cmax = float(np.nanmax(color_values))
     colorscale = resolve_continuous_colorscale(color_map)
 
+    # WebGL (Scattergl) renders in a separate canvas that sits below the SVG
+    # layer. When a spatial background image is present (SVG layout image), it
+    # would appear on top of the WebGL dots even with layer="below". Switching to
+    # plain Scatter (SVG) keeps both in the same rendering layer so z-order works.
+    ScatterTrace = go.Scatter if spatial_image is not None else go.Scattergl
+
     fig = go.Figure()
     if has_highlight:
         highlighted_mask = np.asarray(highlighted_mask, dtype=bool)
         fig.add_trace(
-            go.Scattergl(
+            ScatterTrace(
                 x=x_values,
                 y=y_values,
                 mode="markers",
@@ -499,7 +505,7 @@ def _build_continuous_embedding_figure(
         plot_mask = np.ones(color_values.size, dtype=bool)
 
     fig.add_trace(
-        go.Scattergl(
+        ScatterTrace(
             x=x_values[plot_mask],
             y=y_values[plot_mask],
             mode="markers",
@@ -592,9 +598,16 @@ def plot_embedding(
     source_adata=None,
     cell_indices=None,
     highlighted_cell_ids=None,
+    show_background_layer=False,
 ):
     """
     Unified embedding plotter for both continuous and categorical coloring.
+
+    ``show_background_layer`` (categorical only) always draws a grey "Background"
+    layer of every cell beneath the colored groups. When the user hides a group via
+    the legend, its cells show through as grey instead of vanishing, and because the
+    background spans all cells the axis range stays put -- all handled client-side by
+    the native legend toggle, with no server round-trip.
     """
     if mode == "auto":
         mode = "continuous" if _color_is_continuous(adata, color) else "categorical"
@@ -602,7 +615,7 @@ def plot_embedding(
         raise ValueError(f"Unsupported mode '{mode}'. Expected 'continuous' or 'categorical'.")
 
     auto_select_spatial = True
-    embedding_df, x_axis, y_axis, _, spatial_image = _prepare_embedding_dataframe(
+    x_values, y_values, x_axis, y_axis, _, spatial_image = _resolve_embedding_coords(
         adata,
         embedding_key,
         x_axis=x_axis,
@@ -614,8 +627,7 @@ def plot_embedding(
     obs_names = np.asarray(adata.obs_names, dtype=object)
     highlighted_mask = None
     if highlighted_cell_ids is not None:
-        highlighted_set = set(highlighted_cell_ids)
-        highlighted_mask = np.asarray([cell_id in highlighted_set for cell_id in obs_names], dtype=bool)
+        highlighted_mask = np.isin(obs_names, highlighted_cell_ids)
 
     if mode == "continuous":
         values = _resolve_continuous_values(
@@ -626,8 +638,6 @@ def plot_embedding(
             layer=layer,
         )
         values = _transform_continuous_values(values, transformation)
-        x_values = embedding_df[x_axis].to_numpy(dtype=np.float32, copy=False)
-        y_values = embedding_df[y_axis].to_numpy(dtype=np.float32, copy=False)
         color_values = np.asarray(values, dtype=np.float32)
         cell_idx = np.arange(color_values.size, dtype=np.int32)
         if order == "max":
@@ -681,8 +691,6 @@ def plot_embedding(
     }
     on_data = legend_show == "on data"
 
-    x_values = embedding_df[x_axis].to_numpy(dtype=np.float32, copy=False)
-    y_values = embedding_df[y_axis].to_numpy(dtype=np.float32, copy=False)
     color_values = adata.obs[color].to_numpy()
 
     # Server-side rasterization for large datasets: only when nothing is
@@ -705,11 +713,21 @@ def plot_embedding(
             return ds_fig
 
     unique_labels_filtered = sorted(pd.unique(color_values))
-    plot_mask = np.ones(color_values.size, dtype=bool) if highlighted_mask is None else highlighted_mask
+    if highlighted_mask is None:
+        active_indices = np.arange(color_values.size, dtype=np.int64)
+        active_labels = color_values
+    else:
+        active_indices = np.flatnonzero(highlighted_mask)
+        active_labels = color_values[active_indices]
     label_to_indices = {}
-    for i, label in enumerate(color_values):
-        if plot_mask[i]:
-            label_to_indices.setdefault(label, []).append(i)
+    for label in unique_labels_filtered:
+        idx = active_indices[active_labels == label]
+        if idx.size:
+            label_to_indices[label] = idx.tolist()
+
+    # Same WebGL/SVG layer issue as the continuous path: use plain Scatter when a
+    # spatial background image is present so layer="below" ordering is respected.
+    ScatterTrace = go.Scatter if spatial_image is not None else go.Scattergl
 
     fig = go.Figure()
 
@@ -721,8 +739,8 @@ def plot_embedding(
     # memory peak in backed mode (all cells served). When highlighting, the
     # background is needed to grey out non-highlighted cells; it carries no
     # customdata since hover is skipped and selection targets the colored traces.
-    if highlighted_mask is not None:
-        fig.add_trace(go.Scattergl(
+    if highlighted_mask is not None or show_background_layer:
+        fig.add_trace(ScatterTrace(
             x=x_values,
             y=y_values,
             mode="markers",
@@ -737,7 +755,7 @@ def plot_embedding(
         indices = np.asarray(label_to_indices.get(label, []), dtype=np.int32)
         if indices.size == 0:
             continue
-        fig.add_trace(go.Scattergl(
+        fig.add_trace(ScatterTrace(
             x=x_values[indices],
             y=y_values[indices],
             mode="markers",
@@ -813,7 +831,7 @@ def plot_coexpression_embedding(
     # auto_select_spatial=True so a "spatial" basis resolves its tissue image (and
     # scales the coords into the image's pixel space); without it the image is
     # dropped and the points float on a white background.
-    embedding_df, x_axis, y_axis, _, spatial_image = _prepare_embedding_dataframe(
+    x_values, y_values, x_axis, y_axis, _, spatial_image = _resolve_embedding_coords(
         adata, embedding_key, x_axis=x_axis, y_axis=y_axis,
         img_key=img_key, library_id=library_id, auto_select_spatial=True,
     )
@@ -850,14 +868,11 @@ def plot_coexpression_embedding(
     categories[~gene1_expressed & gene2_expressed] = f'{gene2} only'
     categories[gene1_expressed & gene2_expressed] = 'Co-expressed'
     
-    x_values = embedding_df[x_axis].to_numpy(dtype=np.float32, copy=False)
-    y_values = embedding_df[y_axis].to_numpy(dtype=np.float32, copy=False)
     all_cell_idx = np.arange(len(adata), dtype=np.int32)
     obs_names = np.asarray(adata.obs_names, dtype=object)
     highlighted_mask = None
     if highlighted_cell_ids is not None:
-        highlighted_set = set(highlighted_cell_ids)
-        highlighted_mask = np.asarray([cell_id in highlighted_set for cell_id in obs_names], dtype=bool)
+        highlighted_mask = np.isin(obs_names, highlighted_cell_ids)
 
     # Define color mapping for 4 categories
     if color_map is None:
@@ -871,9 +886,13 @@ def plot_coexpression_embedding(
     # Ensure all 4 categories appear in order
     category_order = ['Neither', f'{gene1} only', f'{gene2} only', 'Co-expressed']
     
+    # Same WebGL/SVG layer issue: use plain Scatter when a spatial background
+    # image is present so the tissue image doesn't cover the scatter dots.
+    ScatterTrace = go.Scatter if spatial_image is not None else go.Scattergl
+
     fig = go.Figure()
     if highlighted_mask is not None:
-        fig.add_trace(go.Scattergl(
+        fig.add_trace(ScatterTrace(
             x=x_values,
             y=y_values,
             mode='markers',
@@ -893,7 +912,7 @@ def plot_coexpression_embedding(
         if highlighted_mask is not None:
             mask &= highlighted_mask
         if mask.any():
-            fig.add_trace(go.Scattergl(
+            fig.add_trace(ScatterTrace(
                 x=x_values[mask],
                 y=y_values[mask],
                 mode='markers',
@@ -903,12 +922,12 @@ def plot_coexpression_embedding(
                     opacity=opacity,
                 ),
                 name=category,
-                customdata=all_cell_idx[mask],  # Add cell indices for selection
+                customdata=all_cell_idx[mask],
                 showlegend=(legend_show == 'right'),
                 hoverinfo='skip',
-                selectedpoints=None,  # Enable selection
-                selected=dict(marker=dict(opacity=1)),  # Keep selected points fully visible
-                unselected=dict(marker=dict(opacity=0.2))  # Dim unselected points
+                selectedpoints=None,
+                selected=dict(marker=dict(opacity=1)),
+                unselected=dict(marker=dict(opacity=0.2))
             ))
 
     if legend_show == 'on data':

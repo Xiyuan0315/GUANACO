@@ -23,7 +23,7 @@ from guanaco.pages.matrix.plots.pseudotime import plot_genes_in_pseudotime
 from guanaco.pages.matrix.plots.paga import build_paga_cytoscape
 from guanaco.pages.matrix.plots.volcano import has_volcano_data
 from guanaco.pages.matrix.layouts.heatmap_layout import generate_heatmap_layout
-from guanaco.pages.matrix.layouts.violin_layout import generate_violin_layout
+from guanaco.pages.matrix.layouts.violin_layout import generate_violin_layout, generate_split_violin_layout
 from guanaco.pages.matrix.layouts.dotplot_layout import generate_dotplot_layout
 from guanaco.pages.matrix.layouts.stacked_bar_layout import generate_stacked_bar_layout
 from guanaco.pages.matrix.layouts.pseudotime_layout import generate_pseudotime_layout
@@ -83,10 +83,61 @@ class FigureMemoCache:
 
 
 # Each cached figure dict can embed per-cell arrays (scatter x/y/color/obs_names),
-# so a handful of large figures dominates RAM. Keep the item count small; scatter
-# callbacks additionally skip caching above a cell-count threshold (see
-# SCATTER_FIGURE_CACHE_MAX_CELLS in scatter_callbacks.py).
-_figure_cache = FigureMemoCache(max_items=6, ttl_seconds=300)
+# so a handful of large figures dominates RAM.  24 slots covers all plot types
+# across typical multi-tab usage without evicting on every tab switch.
+_figure_cache = FigureMemoCache(max_items=24, ttl_seconds=300)
+
+
+class _FilteredDataCache:
+    """Cache AnnData views by their filter parameters.
+
+    AnnData slice creation (adata[mask]) is cheap, but it involves rebuilding obs/var
+    DataFrame subsets and rerunning pandas isin() on every call.  For label-based
+    filtering of 200 k-cell datasets that adds ~10 ms per trigger; for backed/lazy
+    stores the same view object also benefits from OS-level read caching.
+
+    Note: for in-memory sparse .X, each downstream view.X access still materialises
+    a row-slice copy -- this cache eliminates only the view-creation and isin()
+    overhead, not per-gene extraction cost.  The largest win is for backed/lazy data
+    and for label-based filtering paths.
+    """
+
+    def __init__(self, max_items=16):
+        self.max_items = max_items
+        self._store = OrderedDict()
+
+    @staticmethod
+    def _make_key(adata, annotation, selected_labels, selected_cells):
+        adata_id = id(adata)
+        if selected_cells is not None and len(selected_cells) > 0:
+            n = len(selected_cells)
+            payload = json.dumps(list(selected_cells), separators=(",", ":"), default=str)
+            digest = hashlib.md5(payload.encode()).hexdigest()
+            return (adata_id, "cells", n, digest)
+        if selected_labels and annotation:
+            return (adata_id, "labels", annotation, tuple(sorted(str(l) for l in selected_labels)))
+        return None
+
+    def get_or_create(self, adata, annotation, selected_labels, selected_cells):
+        key = self._make_key(adata, annotation, selected_labels, selected_cells)
+        if key is None:
+            return adata
+        item = self._store.get(key)
+        if item is not None:
+            self._store.move_to_end(key)
+            return item
+        if selected_cells is not None and len(selected_cells) > 0:
+            filtered = adata[selected_cells]
+        else:
+            filtered = adata[adata.obs[annotation].isin(selected_labels)]
+        self._store[key] = filtered
+        self._store.move_to_end(key)
+        while len(self._store) > self.max_items:
+            self._store.popitem(last=False)
+        return filtered
+
+
+_filter_data_cache = _FilteredDataCache(max_items=16)
 
 
 def _hash_list_signature(values):
@@ -102,15 +153,6 @@ def _hash_list_signature(values):
     payload = json.dumps(list(values), sort_keys=False, default=str, separators=(",", ":"))
     digest = hashlib.md5(payload.encode("utf-8")).hexdigest()
     return {"len": n, "hash": digest}
-
-
-def _filtered_data_signature(filtered_data):
-    if not filtered_data:
-        return None
-    return {
-        "n_cells": filtered_data.get("n_cells"),
-        "cell_indices": _hash_list_signature(filtered_data.get("cell_indices")),
-    }
 
 
 def _make_cache_key(kind, adata, **kwargs):
@@ -166,17 +208,7 @@ def generate_embedding_plots(adata, prefix):
 
 
 def filter_data(adata, annotation, selected_labels, selected_cells=None):
-    if selected_cells is not None and len(selected_cells) > 0:
-        adata_filtered = adata[selected_cells]
-    elif selected_labels and annotation:
-        # Apply label filtering
-        cell_indices = adata.obs[annotation].isin(selected_labels)
-        adata_filtered = adata[cell_indices]
-    else:
-        # No filtering
-        adata_filtered = adata
-    
-    return adata_filtered
+    return _filter_data_cache.get_or_create(adata, annotation, selected_labels, selected_cells)
 
 
 def generate_left_control(default_gene_markers, label_list, prefix):
@@ -256,10 +288,16 @@ def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefi
         'grn-demo': 'grn',
         'expression-trend': 'pseudotime',
         'expression_trend': 'pseudotime',
+        'stacked-violin': 'violin',
+        'violin2': 'split-violin',
+        'split_violin': 'split-violin',
+        'splitviolin': 'split-violin',
+        'grouped-violin': 'split-violin',
+        'group-violin': 'split-violin',
     }
-    valid_optional_components = {'heatmap', 'violin', 'dotplot', 'stacked-bar', 'pseudotime', 'paga', 'volcano', 'grn'}
+    valid_optional_components = {'heatmap', 'violin', 'split-violin', 'dotplot', 'stacked-bar', 'pseudotime', 'paga', 'volcano', 'grn'}
     if optional_plot_components is None:
-        selected_optional_components = ['heatmap', 'violin', 'dotplot', 'stacked-bar']
+        selected_optional_components = ['heatmap', 'violin', 'split-violin', 'dotplot', 'stacked-bar']
     else:
         selected_optional_components = [
             component_aliases.get(comp, comp)
@@ -276,6 +314,7 @@ def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefi
         ('dotplot', 'dotplot-tab'),
         ('heatmap', 'heatmap-tab'),
         ('violin', 'violin-tab'),
+        ('split-violin', 'split-violin-tab'),
         ('stacked-bar', 'stacked-bar-tab'),
         ('pseudotime', 'pseudotime-tab'),
         ('paga', 'paga-tab'),
@@ -298,6 +337,14 @@ def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefi
                 label='Violin Plot',
                 value='violin-tab',
                 children=[html.Div(generate_violin_layout(default_gene_markers, discrete_label_list, prefix))]
+            )
+        )
+    if 'split-violin' in selected_optional_components:
+        tabs_children.append(
+            dcc.Tab(
+                label='Comparative Violin',
+                value='split-violin-tab',
+                children=[html.Div(generate_split_violin_layout(default_gene_markers, discrete_label_list, prefix))]
             )
         )
     if 'dotplot' in selected_optional_components:
@@ -400,8 +447,23 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", c
         secondary_hits = [item for item, item_l in zip(secondary, secondary_lower) if q in item_l]
         return (primary_hits + secondary_hits)[:limit]
 
+    # ===== Cell Selection Hash =====
+    # Pre-compute a compact hash of selected_cells once, so downstream plot
+    # callbacks can use it from State instead of serialising 50k+ IDs themselves.
+    @app.callback(
+        Output(f'{prefix}-selected-cells-hash', 'data'),
+        Input(f'{prefix}-selected-cells-store', 'data'),
+    )
+    def update_cells_hash(selected_cells):
+        if not selected_cells:
+            return None
+        n = len(selected_cells)
+        payload = json.dumps(selected_cells, separators=(",", ":"), default=str)
+        digest = hashlib.md5(payload.encode()).hexdigest()
+        return {"len": n, "hash": digest}
+
     # ===== Global Filter Callbacks =====
-    
+
     @app.callback(
         [Output(f'{prefix}-global-filter-collapse', 'is_open'),
          Output(f'{prefix}-toggle-global-filter', 'children')],
@@ -509,14 +571,20 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", c
     
     @app.callback(
         [Output(f'{prefix}-single-cell-genes-selection', 'style'),
-         Output(f'{prefix}-single-cell-genes-textarea', 'style')],
-        Input(f'{prefix}-gene-input-mode', 'value')
+         Output(f'{prefix}-single-cell-genes-textarea', 'style'),
+         Output(f'{prefix}-single-cell-genes-selection', 'options', allow_duplicate=True)],
+        [Input(f'{prefix}-gene-input-mode', 'value'),
+         Input(f'{prefix}-single-cell-genes-selection', 'value')],
+        prevent_initial_call=True
     )
-    def toggle_gene_input_display(input_mode):
+    def toggle_gene_input_display(input_mode, selected_genes):
         if input_mode == 'dropdown':
-            return {'marginBottom': '15px', 'font-size': '12px'}, {'display': 'none'}
+            # When switching to dropdown, make sure the currently selected
+            # genes appear as options so the dropdown displays them.
+            options = [{'label': g, 'value': g} for g in (selected_genes or [])]
+            return {'marginBottom': '15px', 'font-size': '12px'}, {'display': 'none'}, options
         else:
-            return {'display': 'none'}, {'width': '100%', 'height': '80px', 'marginBottom': '10px'}
+            return {'display': 'none'}, {'width': '100%', 'height': '80px', 'marginBottom': '10px'}, no_update
     
     @app.callback(
         [Output(f'{prefix}-single-cell-genes-selection', 'value', allow_duplicate=True),
@@ -613,9 +681,10 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", c
     # ===== Other Plots Callbacks =====
 
     @app.callback(
-        Output(f'{prefix}-single-cell-genes-selection', 'options'),
+        Output(f'{prefix}-single-cell-genes-selection', 'options', allow_duplicate=True),
         Input(f'{prefix}-single-cell-genes-selection', 'search_value'),
-        State(f'{prefix}-single-cell-genes-selection', 'value')
+        State(f'{prefix}-single-cell-genes-selection', 'value'),
+        prevent_initial_call=True
     )
     def update_genes_dropdown(search_value, value):
         if not search_value:
@@ -694,6 +763,7 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", c
         palette_json=palette_json,
         var_names=var_names,
         var_names_lower=var_names_lower,
+        color_config=color_config,
     )
 
     register_stacked_bar_callbacks(

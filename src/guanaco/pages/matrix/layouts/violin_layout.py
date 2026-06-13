@@ -1,3 +1,4 @@
+import dash_bootstrap_components as dbc
 import dash_draggable
 from dash import dcc, html
 
@@ -6,75 +7,16 @@ from guanaco.utils.ui_helpers import labeled_dropdown, switch_checklist
 
 
 def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
-    # Data source is governed by the global "Data layer:" dropdown in the scatter
-    # panel; violin no longer has its own Log transform.
+    """Stacked violin tab: one violin per selected gene, stacked as subplot rows.
+
+    Driven by the shared left-panel controls (genes / annotation / labels) plus the
+    global "Data layer:" dropdown; the only local option is "Show Box Plot".
+    """
     violin_show_box1 = switch_checklist(f"{prefix}-show-box1", "Show Box Plot")
 
     violin1_more_options = html.Div(
         [violin_show_box1],
         style={"marginBottom": "15px"},
-    )
-
-    violin_show_box2 = switch_checklist(f"{prefix}-show-box2", "Show Box Plot")
-    violin_show_scatter2 = switch_checklist(f"{prefix}-show-scatter2", "Show Scatter Points")
-
-    meta1_selection = labeled_dropdown(
-        "Obs1 (Primary):",
-        f"{prefix}-meta1-selection",
-        [{"label": meta, "value": meta} for meta in discrete_label_list],
-        value=discrete_label_list[0],
-        clearable=False,
-        placeholder="Select primary metadata",
-        wrapper_style={"flex": "1"},
-    )
-
-    meta2_selection = labeled_dropdown(
-        "Obs2 (Secondary):",
-        f"{prefix}-meta2-selection",
-        [{"label": "None", "value": "none"}] + [{"label": meta, "value": meta} for meta in discrete_label_list],
-        value="none",
-        clearable=False,
-        placeholder="Select secondary metadata (optional)",
-        wrapper_style={"flex": "1"},
-    )
-
-    mode_selection = labeled_dropdown(
-        "Analysis Mode:",
-        f"{prefix}-mode-selection",
-        [
-            {"label": "Mode 1: One metadata only", "value": "mode1"},
-            {"label": "Mode 2: Facet by meta1, compare meta2", "value": "mode2"},
-            {"label": "Mode 3: Linear model (meta1 + meta2)", "value": "mode3"},
-            {"label": "Mode 4: Mixed model (meta1 + (1|meta2))", "value": "mode4"},
-        ],
-        value="mode1",
-        clearable=False,
-        wrapper_style={"flex": "1"},
-    )
-
-    test_method_selection = labeled_dropdown(
-        "Statistical Test:",
-        f"{prefix}-test-method-selection",
-        [
-            {"label": "None", "value": "none"},
-            {"label": "Mann-Whitney U", "value": "mwu-test"},
-            {"label": "T-test", "value": "ttest"},
-            {"label": "Kruskal-Wallis", "value": "kw-test"},
-            {"label": "ANOVA", "value": "anova"},
-            {"label": "Linear Model", "value": "linear-model"},
-            {"label": "Linear Model with Interaction", "value": "linear-model-interaction"},
-            {"label": "Mixed Model", "value": "mixed-model"},
-        ],
-        value="none",
-        clearable=False,
-        wrapper_style={"flex": "1"},
-    )
-
-    violin2_gene_selection = labeled_dropdown(
-        "Select Gene",
-        f"{prefix}-violin2-gene-selection",
-        [{"label": gene, "value": gene} for gene in default_gene_markers],
-        value=default_gene_markers[0] if default_gene_markers else None,
     )
 
     return html.Div(
@@ -98,27 +40,124 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
                 ],
                 style={"marginBottom": "30px", "padding": "20px"},
             ),
+        ],
+        style={"width": "100%"},
+    )
+
+
+def generate_split_violin_layout(default_gene_markers, discrete_label_list, prefix):
+    """Comparative violin tab: one gene compared across obs1 (and optional obs2).
+
+    Only the essentials -- gene + primary grouping -- are shown up front. The optional
+    secondary grouping, analysis mode, statistical test and box-plot toggle live in a
+    collapsible "Grouping & statistics" panel so the default view stays uncluttered.
+    """
+    violin_show_box2 = switch_checklist(f"{prefix}-show-box2", "Show Box Plot")
+
+    meta1_selection = labeled_dropdown(
+        "Group by (Obs1):",
+        f"{prefix}-meta1-selection",
+        [{"label": meta, "value": meta} for meta in discrete_label_list],
+        value=discrete_label_list[0],
+        clearable=False,
+        placeholder="Select primary grouping",
+        wrapper_style={"flex": "1"},
+    )
+
+    meta2_selection = labeled_dropdown(
+        "Compare by (Obs2):",
+        f"{prefix}-meta2-selection",
+        [{"label": "None", "value": "none"}] + [{"label": meta, "value": meta} for meta in discrete_label_list],
+        value="none",
+        clearable=False,
+        placeholder="Optional secondary grouping",
+        wrapper_style={"flex": "1"},
+    )
+
+    mode_selection = labeled_dropdown(
+        "Analysis mode:",
+        f"{prefix}-mode-selection",
+        [
+            {"label": "Mode 1: One variable", "value": "mode1"},
+            {"label": "Mode 2: Split/grouped by Obs2", "value": "mode2"},
+            {"label": "Mode 3: Linear model (obs1 + obs2)", "value": "mode3"},
+            {"label": "Mode 4: Mixed model (obs2 as random effect)", "value": "mode4"},
+        ],
+        value="mode1",
+        clearable=False,
+        wrapper_style={"flex": "1"},
+    )
+
+    test_method_selection = labeled_dropdown(
+        "Statistical test:",
+        f"{prefix}-test-method-selection",
+        [
+            {"label": "Auto", "value": "auto"},
+            {"label": "None", "value": "none"},
+            {"label": "Mann-Whitney U", "value": "mwu-test"},
+            {"label": "T-test", "value": "ttest"},
+            {"label": "Kruskal-Wallis", "value": "kw-test"},
+            {"label": "ANOVA", "value": "anova"},
+            {"label": "Linear Model", "value": "linear-model"},
+            {"label": "Linear Model with Interaction", "value": "linear-model-interaction"},
+            {"label": "Mixed Model", "value": "mixed-model"},
+        ],
+        value="auto",
+        clearable=False,
+        wrapper_style={"flex": "1"},
+    )
+
+    violin2_gene_selection = labeled_dropdown(
+        "Select Gene",
+        f"{prefix}-violin2-gene-selection",
+        [{"label": gene, "value": gene} for gene in default_gene_markers],
+        value=default_gene_markers[0] if default_gene_markers else None,
+        wrapper_style={"flex": "1"},
+    )
+
+    advanced_toggle = dbc.Button(
+        "▸ More options",
+        id=f"{prefix}-split-violin-options-toggle",
+        color="link",
+        size="sm",
+        style={"padding": "2px 0", "textDecoration": "none", "fontWeight": "bold"},
+    )
+
+    advanced_panel = dbc.Collapse(
+        html.Div(
+            [
+                html.Div(
+                    [mode_selection, meta2_selection, test_method_selection],
+                    style={"display": "flex", "marginBottom": "10px", "gap": "10px"},
+                ),
+                html.Div(
+                    id=f"{prefix}-mode-explanation",
+                    style={"fontSize": "12px", "color": "gray", "marginBottom": "10px", "fontStyle": "italic"},
+                ),
+            ],
+            style={
+                "padding": "12px",
+                "border": "1px solid #e9ecef",
+                "borderRadius": "6px",
+                "background": "#fbfbfc",
+                "marginBottom": "12px",
+            },
+        ),
+        id=f"{prefix}-split-violin-options-collapse",
+        is_open=False,
+    )
+
+    return html.Div(
+        [
             html.Div(
                 [
-                    html.H4(
-                        "Split Violin/Grouped Violin",
-                        style={"textAlign": "center", "margin": "10px 0", "fontWeight": "bold"},
-                    ),
-                    violin2_gene_selection,
-                    html.Div([meta1_selection, meta2_selection], style={"display": "flex", "marginBottom": "10px", "gap": "10px"}),
-                    html.Div([mode_selection, test_method_selection], style={"display": "flex", "marginBottom": "10px", "gap": "10px"}),
                     html.Div(
-                        id=f"{prefix}-mode-explanation",
-                        style={"fontSize": "12px", "color": "gray", "marginBottom": "10px", "fontStyle": "italic"},
+                        [violin2_gene_selection, meta1_selection],
+                        style={"display": "flex", "gap": "10px", "marginBottom": "10px"},
                     ),
-                    html.Div(
-                        [
-                            html.Label("More Options:", style={"fontWeight": "bold"}),
-                            violin_show_box2,
-                            violin_show_scatter2,
-                        ],
-                        style={"marginBottom": "10px"},
-                    ),
+                    html.Div(violin_show_box2, style={"marginBottom": "10px"}),
+                    advanced_toggle,
+                    advanced_panel,
                     dcc.Loading(
                         id="loading-violin2",
                         type="circle",

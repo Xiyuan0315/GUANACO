@@ -14,6 +14,99 @@ DEFAULT_COLORS = [
     "#D55E00",
     "#CC79A7"]
 
+# Reuse the stacked violin's (violin1) styling so both violin tabs look identical.
+from guanaco.pages.matrix.plots.violin1 import (
+    VIOLIN_FILL_ALPHA,
+    OVERLAY_FILL_COLOR,
+    OVERLAY_LINE_COLOR,
+    _to_rgba,
+)
+
+
+def _violin_style(fillcolor, show_box):
+    """Per-trace styling shared with the stacked violin (violin1).
+
+    Gives both violin tabs the same look: a translucent category fill, a
+    DarkSlateGrey outline, a mean line, and -- when requested -- a neutral, narrow
+    box overlay (median + IQR). Individual points are never drawn; a violin is a KDE
+    of the distribution.
+    """
+    return dict(
+        fillcolor=_to_rgba(fillcolor, VIOLIN_FILL_ALPHA),
+        line_color='DarkSlateGrey',
+        meanline_visible=True,
+        points=False,
+        box=dict(
+            visible=show_box,
+            width=0.12,
+            fillcolor=OVERLAY_FILL_COLOR,
+            line=dict(color=OVERLAY_LINE_COLOR, width=1),
+        ),
+    )
+
+
+# Human-readable names for a manually chosen test (auto-selection already returns a
+# description from determine_test_method). Used to label the plot with the test run.
+_TEST_LABELS = {
+    'mwu-test': 'Mann-Whitney U test',
+    'ttest': "Welch's t-test",
+    'kw-test': 'Kruskal-Wallis test',
+    'anova': 'One-way ANOVA',
+    'linear-model': 'Linear model (expression ~ obs1 + obs2)',
+    'linear-model-interaction': 'Linear model with interaction',
+    'mixed-model': 'Mixed model (expression ~ obs1 + (1|obs2))',
+}
+
+
+def _p_to_stars(p):
+    """Significance stars for a p/q-value (publication convention)."""
+    if p is None or (isinstance(p, float) and np.isnan(p)):
+        return ''
+    if p <= 0.001:
+        return '***'
+    if p <= 0.01:
+        return '**'
+    if p <= 0.05:
+        return '*'
+    return 'ns'
+
+
+def _sig_inline(p, label='p'):
+    """One-line significance text, e.g. ``p = 0.003 **`` (single top annotation)."""
+    if p is None or (isinstance(p, float) and np.isnan(p)):
+        return ''
+    return f"{label} = {p:.3g} {_p_to_stars(p)}".strip()
+
+
+def _sig_stacked(p, label='p'):
+    """Stars over the numeric value, for per-facet annotations above each group."""
+    if p is None or (isinstance(p, float) and np.isnan(p)):
+        return ''
+    return f"<b>{_p_to_stars(p)}</b><br><span style='font-size:9px;color:gray'>{label}={p:.2g}</span>"
+
+
+def _fdr_adjust(p_values):
+    """Benjamini-Hochberg FDR correction across mode2's per-facet comparisons.
+
+    Returns ``(p_values, adjusted)``. Only numeric facet entries are corrected;
+    bookkeeping keys (``error`` / ``model_summary`` / ...) are left untouched. With
+    fewer than two valid comparisons there is nothing to correct.
+    """
+    skip = {'error', 'model_summary', 'method', 'overall'}
+    keys = [
+        k for k, v in p_values.items()
+        if k not in skip and isinstance(v, (int, float)) and not (isinstance(v, float) and np.isnan(v))
+    ]
+    if len(keys) < 2:
+        return p_values, False
+    from statsmodels.stats.multitest import multipletests
+    adj = multipletests([float(p_values[k]) for k in keys], method='fdr_bh')[1]
+    out = dict(p_values)
+    for k, q in zip(keys, adj):
+        out[k] = float(q)
+    return out, True
+
+
 def determine_test_method(meta1_levels, meta2_levels, mode, test_override=None):
 
     if test_override and test_override != 'auto':
@@ -245,16 +338,19 @@ def assign_colors(levels, color_map=None, palette=None):
     return color_map
 
 
-def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None, split_violin=False, design_type='crossed'):
+def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None, split_violin=False, design_type='crossed', adjusted=False):
     if not p_values:
         return
-    
+
+    # Per-facet values shown above each group are q-values when FDR-adjusted.
+    p_label = 'q' if adjusted else 'p'
+
     # Safe y_max calculation
     if len(df['Expression']) > 0:
         y_max = df['Expression'].max() * 1.1
     else:
         y_max = 1
-    
+
     if mode == 'mode1':
         # Single p-value annotation
         if 'overall' in p_values and not np.isnan(p_values['overall']):
@@ -264,7 +360,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
                 y=1.02,
                 xref='paper',
                 yref='paper',
-                text=f"<b>p = {p_val:.3g}</b>" if p_val < 0.05 else f"p = {p_val:.3g}",
+                text=_sig_inline(p_val, 'p'),
                 showarrow=False,
                 font=dict(size=12, color='DarkSlateGrey')
             )
@@ -305,7 +401,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
                 fig.add_annotation(
                     x=center_m2,
                     y=y_max,
-                    text=f"<b>{p_val:.3f}</b>" if p_val < 0.05 else f"{p_val:.3f}",
+                    text=_sig_stacked(p_val, p_label),
                     showarrow=False,
                     font=dict(size=10, color='DarkSlateGrey')
                 )
@@ -317,7 +413,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
                     fig.add_annotation(
                         x=facet,
                         y=y_max,
-                        text=f"<b>{p_val:.3f}</b>" if p_val < 0.05 else f"{p_val:.3f}",
+                        text=_sig_stacked(p_val, p_label),
                         showarrow=False,
                         font=dict(size=10, color='DarkSlateGrey')
                     )
@@ -338,7 +434,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
                     fig.add_annotation(
                         x=center_x_label,
                         y=y_max,
-                        text=f"<b>{p_val:.3f}</b>" if p_val < 0.05 else f"{p_val:.3f}",
+                        text=_sig_stacked(p_val, p_label),
                         showarrow=False,
                         font=dict(size=10, color='DarkSlateGrey')
                     )
@@ -357,7 +453,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
                     fig.add_annotation(
                         x=center_pos,
                         y=y_max,
-                        text=f"<b>{p_val:.3f}</b>" if p_val < 0.05 else f"{p_val:.3f}",
+                        text=_sig_stacked(p_val, p_label),
                         showarrow=False,
                         font=dict(size=10, color='DarkSlateGrey'),
                         xref='x'
@@ -372,20 +468,17 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
             # Add meta1 p-value
             if 'meta1_p' in summary:
                 p1 = summary['meta1_p']
-                p1_text = f"{meta1}: <b>{p1:.3g}</b>" if p1 < 0.05 else f"{meta1}: {p1:.3g}"
-                p_text_parts.append(p1_text)
-            
+                p_text_parts.append(f"{meta1}: {p1:.3g} {_p_to_stars(p1)}".strip())
+
             # Add meta2 p-value for linear model
             if mode == 'mode3' and 'meta2_p' in summary and not np.isnan(summary['meta2_p']):
                 p2 = summary['meta2_p']
-                p2_text = f"{meta2}: <b>{p2:.3g}</b>" if p2 < 0.05 else f"{meta2}: {p2:.3g}"
-                p_text_parts.append(p2_text)
-            
+                p_text_parts.append(f"{meta2}: {p2:.3g} {_p_to_stars(p2)}".strip())
+
             # Add interaction p-value if present
             if 'interaction_p' in summary and not np.isnan(summary['interaction_p']):
                 p_int = summary['interaction_p']
-                p_int_text = f"interaction: <b>{p_int:.3g}</b>" if p_int < 0.05 else f"interaction: {p_int:.3g}"
-                p_text_parts.append(p_int_text)
+                p_text_parts.append(f"interaction: {p_int:.3g} {_p_to_stars(p_int)}".strip())
             
             # Join with comma
             p_text = ", ".join(p_text_parts)
@@ -402,8 +495,8 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
         elif 'overall' in p_values:
             # Fallback for simple p-value (e.g., pseudobulk)
             p_val = p_values['overall']
-            text = f"<b>{p_val:.3g}</b>" if p_val < 0.05 else f"{p_val:.3g}"
-            
+            text = _sig_inline(p_val, 'p')
+
             fig.add_annotation(
                 x=0.5,
                 y=1.02,
@@ -416,7 +509,7 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
 
 
 def plot_violin2_new(adata, key, meta1, meta2, mode, transformation=None, layer=None,
-                     show_box=False, show_points=False, test_method='auto',
+                     show_box=False, test_method='auto',
                      labels=None, color_map=None, palette=None):
     """
     Create violin plots for gene expression data with support for multiple metadata designs.
@@ -490,13 +583,16 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation=None, layer=
     # Detect design pattern to determine plotting strategy
     design_type = _detect_design_pattern(df, meta1, meta2) if meta2 and mode != 'mode1' else 'single'
     
-    # Assign colors based on design type
-    # For nested designs, color by meta1 (the parent category)
-    # For crossed/sparse designs, color by meta2
+    # Assign colors based on design type, always from the shared palette so the
+    # violins match the other plots' default colors.
+    # For nested designs (and single/mode1), color by meta1 (the parent category);
+    # for crossed/sparse designs, color by meta2.
     if design_type == 'nested':
         color_map = assign_colors(meta1_cats, color_map, palette=palette)
     elif meta2_cats:
         color_map = assign_colors(meta2_cats, color_map, palette=palette)
+    else:
+        color_map = assign_colors(meta1_cats, color_map, palette=palette)
     
     # Determine test method
     meta1_levels = len(meta1_cats)
@@ -505,17 +601,16 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation=None, layer=
     if test_method == 'auto':
         test_method, test_description = determine_test_method(meta1_levels, meta2_levels, mode)
     else:
-        test_description = ""
+        test_description = _TEST_LABELS.get(test_method, "")
     
     # Create figure based on mode
     fig = go.Figure()
-    points_mode = 'all' if show_points else False
-    
+
     if mode == 'mode1':
         # Single metadata violin plot
         fig, title, xaxis_title = _create_single_meta_violin(
-            fig, df, key, meta1, meta1_cats, 
-            show_box, points_mode
+            fig, df, key, meta1, meta1_cats,
+            show_box, color_map
         )
     
     elif mode == 'mode2':
@@ -524,54 +619,60 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation=None, layer=
             # Nested design: use meta2 as x-axis, color by meta1
             fig, title, xaxis_title = _create_nested_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
+                color_map, show_box
             )
         elif len(meta2_cats) == 2:
             # Split violin for binary comparison
             fig, title, xaxis_title = _create_split_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
+                color_map, show_box
             )
         elif design_type in ['crossed', 'sparse']:
             # Crossed/Sparse design: each combination gets its own x position
             fig, title, xaxis_title = _create_crossed_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
+                color_map, show_box
             )
         else:
             # Fallback to crossed violin
             fig, title, xaxis_title = _create_crossed_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
+                color_map, show_box
             )
     
     elif mode in ['mode3', 'mode4']:
         if design_type == 'nested':
             fig, title, xaxis_title = _create_nested_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
+                color_map, show_box
             )
         elif len(meta2_cats) == 2:
             # Split violin for binary comparison
             fig, title, xaxis_title = _create_split_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
+                color_map, show_box
             )
         else:
             # Use crossed violin for crossed/sparse designs with more than 2 meta2 categories
             fig, title, xaxis_title = _create_crossed_violin(
                 fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                color_map, show_box, points_mode
+                color_map, show_box
             )
     
     # Calculate and add p-values
     if test_method and test_method != 'none':
         p_values = calculate_p_values_by_mode(df, meta1, meta2, mode, test_method, labels, design_type)
+        adjusted = False
+        if mode == 'mode2':
+            # mode2 runs one comparison per meta1 facet -> correct for multiple testing.
+            p_values, adjusted = _fdr_adjust(p_values)
+            if adjusted and test_description:
+                test_description += " · FDR-adjusted (BH)"
         split_violin = (mode in ['mode2', 'mode3', 'mode4'] and meta2 and len(meta2_cats) == 2 and design_type in ['crossed', 'sparse'])
-        add_p_value_annotations_new(fig, p_values, df, mode, meta1, meta2, split_violin, design_type)
-    
-    _apply_common_layout(fig, df, key, title, xaxis_title, meta2, mode, show_points)
-    
+        add_p_value_annotations_new(fig, p_values, df, mode, meta1, meta2, split_violin, design_type, adjusted=adjusted)
+
+    _apply_common_layout(fig, df, key, title, xaxis_title, meta2, mode, test_description)
+
     return fig
 
 
@@ -623,31 +724,31 @@ def _get_violin_spanmode(data):
     return 'hard'
 
 
-def _create_single_meta_violin(fig, df, key, meta1, meta1_cats, show_box, points_mode):
+def _create_single_meta_violin(fig, df, key, meta1, meta1_cats, show_box, color_map=None):
     """Create violin plot with single metadata (mode1)."""
-    
+    color_map = color_map or {}
+
     for i, group in enumerate(meta1_cats):
         group_data = df[df[meta1] == group]['Expression']
-        
+
         if len(group_data) == 0:
             continue
-        
+
         spanmode = _get_violin_spanmode(group_data)
-        
+
+        fillcolor = color_map.get(group, DEFAULT_COLORS[i % len(DEFAULT_COLORS)])
         fig.add_trace(go.Violin(
             x=[group] * len(group_data),
             y=group_data,
             name=str(group),
-            box_visible=show_box,
-            points=points_mode,
-            meanline_visible=True,
             width=0.8,
             spanmode=spanmode,
-            fillcolor=DEFAULT_COLORS[i % len(DEFAULT_COLORS)],
-            line_color='DarkSlateGrey',
+            scalemode='width',
             hoveron='violins',
+            hoverinfo='y',
             jitter=0.05,
-            showlegend=False
+            showlegend=False,
+            **_violin_style(fillcolor, show_box),
         ))
     
     title = f"Expression of {key} by {meta1}"
@@ -657,7 +758,7 @@ def _create_single_meta_violin(fig, df, key, meta1, meta1_cats, show_box, points
 
 
 def _create_split_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                         color_map, show_box, points_mode):
+                         color_map, show_box):
     """
     Create split violin plot for binary meta2 comparison.
     
@@ -697,15 +798,12 @@ def _create_split_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 scalemode='width',
                 side=side,
                 width=0.8,
-                box_visible=show_box,
-                points=points_mode,
-                meanline_visible=True,
                 spanmode=spanmode,
-                fillcolor=color_map.get(m2_group, DEFAULT_COLORS[j % len(DEFAULT_COLORS)]),
-                line_color='DarkSlateGrey',
                 hoveron='violins',
+                hoverinfo='y',
                 jitter=0.05,
-                showlegend=show_legend
+                showlegend=show_legend,
+                **_violin_style(color_map.get(m2_group, DEFAULT_COLORS[j % len(DEFAULT_COLORS)]), show_box),
             ))
     
     fig.update_layout(violinmode='overlay')
@@ -717,7 +815,7 @@ def _create_split_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
 
 
 def _create_nested_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                          color_map, show_box, points_mode):
+                          color_map, show_box):
     """
     Create violin plot for nested designs (e.g., Condition x Patient).
     
@@ -767,16 +865,13 @@ def _create_nested_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
             name=str(m1_group),  # Legend shows meta1 (Condition)
             legendgroup=str(m1_group),  # Group by meta1 for toggle
             width=0.8,
-            box_visible=show_box,
-            points=points_mode,
-            meanline_visible=True,
+            scalemode='width',
             spanmode=spanmode,
-            fillcolor=color_map.get(m1_group, DEFAULT_COLORS[m1_idx % len(DEFAULT_COLORS)]),
-            line_color='DarkSlateGrey',
             hoveron='violins',
             hoverinfo='y+name',
             jitter=0.05,
-            showlegend=show_legend
+            showlegend=show_legend,
+            **_violin_style(color_map.get(m1_group, DEFAULT_COLORS[m1_idx % len(DEFAULT_COLORS)]), show_box),
         ))
     
     # No grouping needed - each meta2 has its own x position
@@ -791,7 +886,7 @@ def _create_nested_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
 
 
 def _create_crossed_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
-                           color_map, show_box, points_mode):
+                           color_map, show_box):
     """
     Create violin plot for crossed designs (e.g., Days × Patients).
     
@@ -841,16 +936,13 @@ def _create_crossed_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
                 name=str(m2_group),
                 legendgroup=str(m2_group),  # Group legend items for toggle
                 width=0.8,
-                box_visible=show_box,
-                points=points_mode,
-                meanline_visible=True,
+                scalemode='width',
                 spanmode=spanmode,
-                fillcolor=color_map.get(m2_group, DEFAULT_COLORS[j % len(DEFAULT_COLORS)]),
-                line_color='DarkSlateGrey',
                 hoveron='violins',
                 hoverinfo='y+name',
                 jitter=0.05,
-                showlegend=show_legend
+                showlegend=show_legend,
+                **_violin_style(color_map.get(m2_group, DEFAULT_COLORS[j % len(DEFAULT_COLORS)]), show_box),
             ))
     
     # Set x-axis category order to maintain grouping
@@ -866,22 +958,27 @@ def _create_crossed_violin(fig, df, key, meta1, meta2, meta1_cats, meta2_cats,
     return fig, title, xaxis_title
 
 
-def _apply_common_layout(fig, df, key, title, xaxis_title, meta2, mode, show_points):
+def _apply_common_layout(fig, df, key, title, xaxis_title, meta2, mode, test_description=""):
     """Apply common layout settings to the figure."""
-    
+
     # Calculate y-axis range safely
     if len(df['Expression']) > 0:
         y_max = df['Expression'].max() * 1.15
         y_range = [0, y_max]
     else:
         y_range = [0, 1]
-    
+
+    # Surface which statistical test was run (esp. for "Auto") as a title subtitle.
+    title_text = title
+    if test_description:
+        title_text = f"{title}<br><span style='font-size:11px;color:gray'>Test: {test_description}</span>"
+
     fig.update_layout(
         plot_bgcolor='white',
         paper_bgcolor='white',
         font=dict(size=12, color='DarkSlateGrey'),
         title=dict(
-            text=title,
+            text=title_text,
             x=0.5,
             xanchor='center',
             y=0.95,
@@ -897,10 +994,7 @@ def _apply_common_layout(fig, df, key, title, xaxis_title, meta2, mode, show_poi
         ),
         margin=dict(b=80, t=100, l=60, r=40)
     )
-    
-    if show_points:
-        fig.update_traces(marker=dict(size=1.5), selector=dict(type='violin'))
-    
+
     fig.update_yaxes(
         showgrid=False,
         showline=True, linewidth=2, linecolor='black',

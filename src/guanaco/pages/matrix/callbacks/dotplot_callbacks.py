@@ -31,12 +31,13 @@ def register_dotplot_callbacks(
             Input(f"{prefix}-dotplot-cluster-method", "value"),
             Input(f"{prefix}-dotplot-cluster-metric", "value"),
             Input(f"{prefix}-dotplot-transpose", "value"),
-            Input(f"{prefix}-selected-cells-store", "data"),
+            Input(f"{prefix}-selected-cells-hash", "data"),
             Input(f"{prefix}-single-cell-tabs", "value"),
         ],
         [
             State(f"{prefix}-dotplot", "figure"),
             State(f"{prefix}-dotplot-rendered-key", "data"),
+            State(f"{prefix}-selected-cells-store", "data"),
         ],
     )
     def update_dotplot(
@@ -51,10 +52,11 @@ def register_dotplot_callbacks(
         cluster_method,
         cluster_metric,
         transpose_selection,
-        selected_cells,
+        cells_hash,
         active_tab,
         current_figure,
         rendered_key,
+        selected_cells,
     ):
         if active_tab != "dotplot-tab":
             return no_update, no_update
@@ -76,7 +78,7 @@ def register_dotplot_callbacks(
             cluster_method=cluster_method or "average",
             cluster_metric=cluster_metric or "correlation",
             transpose=transpose,
-            selected_cells=hash_list_signature(selected_cells),
+            selected_cells=cells_hash,
             is_backed=bool(hasattr(adata, "isbacked") and adata.isbacked),
             n_obs=adata.n_obs,
         )
@@ -104,3 +106,15 @@ def register_dotplot_callbacks(
         )
         cached_figure_set(cache_key, fig)
         return fig, cache_key
+
+    @app.callback(
+        Output(f"{prefix}-dotplot-options-collapse", "is_open"),
+        Output(f"{prefix}-dotplot-options-toggle", "children"),
+        Input(f"{prefix}-dotplot-options-toggle", "n_clicks"),
+        State(f"{prefix}-dotplot-options-collapse", "is_open"),
+        prevent_initial_call=True,
+    )
+    def toggle_dotplot_options(n_clicks, is_open):
+        now_open = not is_open
+        label = "▾ More options" if now_open else "▸ More options"
+        return now_open, label

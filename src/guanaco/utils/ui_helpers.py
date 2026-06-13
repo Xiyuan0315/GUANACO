@@ -77,12 +77,12 @@ def switch_checklist(check_id, label):
     )
 
 
-def graph_flex_container(graph_id, *, graph_style=None):
+def graph_flex_container(graph_id, *, graph_style=None, config=None):
     return html.Div(
         children=[
             dcc.Graph(
                 id=graph_id,
-                config=common_config,
+                config=config or common_config,
                 responsive=True,
                 style=graph_style or {"min-height": "0", "flex-grow": "1"},
             )

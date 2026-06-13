@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 from scipy.interpolate import UnivariateSpline
 
-from guanaco.utils.gene_extraction_utils import apply_transformation, extract_multiple_genes
+from guanaco.utils.gene_extraction_utils import apply_transformation, extract_gene_expression
 
 try:
     from sklearn.linear_model import Ridge
@@ -66,13 +66,12 @@ def plot_genes_in_pseudotime(
         )
         return fig
     
-    expr_df = extract_multiple_genes(
-        adata,
-        valid_genes,
-        layer=layer,
-        allow_missing=False,
-        to_dense=True,
-        dtype=np.float32,
+    # Per-gene cache-backed extraction (replaces extract_multiple_genes). valid_genes
+    # were already confirmed present in var_names above, so no missing-gene handling
+    # is needed. Each column is read once and shared with the global gene cache.
+    expr_df = pd.DataFrame(
+        {gene: extract_gene_expression(adata, gene, layer=layer, dtype=np.float32) for gene in valid_genes},
+        index=adata.obs_names,
     )
 
     # Apply transformation
@@ -84,18 +83,16 @@ def plot_genes_in_pseudotime(
     expr_df[valid_genes] = expr_df[valid_genes].replace([np.inf, -np.inf], np.nan)
     expr_df['pseudotime'] = pd.to_numeric(adata.obs[pseudotime_key].values, errors='coerce')
     expr_df['pseudotime'] = expr_df['pseudotime'].replace([np.inf, -np.inf], np.nan)
-    expr_df['cell_id'] = adata.obs_names
-    
+
     if groupby and groupby in adata.obs.columns:
         expr_df[groupby] = adata.obs[groupby].values
-    
-    # Filter cells based on minimum expression
+
+    # Filter cells based on minimum expression (per-cell: keep if any gene passes)
     if min_expr > 0:
-        # Keep cells where at least one gene passes the threshold
         gene_expression_matrix = expr_df[valid_genes].to_numpy(dtype=np.float32, copy=False)
         mask = (gene_expression_matrix >= min_expr).any(axis=1)
         expr_df = expr_df[mask]
-    
+
     # Remove cells with NaN pseudotime
     expr_df = expr_df.dropna(subset=['pseudotime'])
     
@@ -146,13 +143,17 @@ def plot_genes_in_pseudotime(
     for gene_idx, gene in enumerate(valid_genes):
         row = gene_idx + 1
         
-        # Add scatter points for each group
+        # Add scatter points for each group (skip zero-expression dots for
+        # performance — single-cell data is sparse, and plotting thousands of
+        # zeros adds no visual information while slowing down rendering.)
         for group in unique_groups:
             group_data = expr_df[expr_df[groupby] == group]
-            
+            # Per-gene zero filter: keep only cells expressing this gene
+            group_data = group_data[group_data[gene] > 0]
+
             if not group_data.empty:
                 fig.add_trace(
-                    go.Scatter(
+                    go.Scattergl(
                         x=group_data['pseudotime'],
                         y=group_data[gene],
                         mode='markers',

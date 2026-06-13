@@ -338,6 +338,7 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
     return html.Div(
         [
             dcc.Store(id=f"{prefix}-selected-cells-store"),
+            dcc.Store(id=f"{prefix}-selected-cells-hash"),
             dcc.Store(id=f"{prefix}-left-highlighted-cells-store"),
             # Dummy output for the clientside axis reset-link callback (side-effect only).
             dcc.Store(id=f"{prefix}-axis-reset-link"),

@@ -8,6 +8,16 @@ common_config = {
     'modeBarButtonsToRemove': ['select', 'lasso2d', 'pan2d', 'zoom2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d', 'pan', 'zoom', 'resetScale2d']
 }
 
+# Heatmap: same as common, but double-click does a plain 'reset' (back to the
+# configured ranges) rather than the default 'reset+autosize'. The autosize step
+# misbehaves on the heatmap's constrain='domain' axes, leaving the view partly
+# zoomed; a clientside handler additionally forces the full ranges back (see
+# heatmap_callbacks). doubleClick:'reset' keeps Plotly's own pass from fighting it.
+heatmap_config = {
+    **common_config,
+    'doubleClick': 'reset',
+}
+
 # Annotation scatter config (left side) - with selection tools
 scatter_config = {
     'responsive': True,

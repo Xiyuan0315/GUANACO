@@ -9,6 +9,7 @@ from typing import Any, Sequence
 import anndata as ad
 import boto3
 import numpy as np
+import pandas as pd
 from botocore import UNSIGNED
 from botocore.config import Config
 
@@ -66,6 +67,7 @@ class DatasetBundle:
         optional_plot_components: list[str] | None = None,
         scatter_defaults: dict[str, str | None] | None = None,
         max_cells: int | None = 10_000,
+        expression_layer: str | None = None,
     ):
 
         self.title = title
@@ -83,6 +85,7 @@ class DatasetBundle:
         # Optional per-dataset scatter defaults: keys 'embedding', 'annotation', 'gene'.
         self.scatter_defaults = scatter_defaults or {}
         self.max_cells = max_cells
+        self.expression_layer = expression_layer
 
     @property
     def adata(self):
@@ -94,6 +97,7 @@ class DatasetBundle:
                 self.adata_path,
                 max_cells=self.max_cells,
                 backed=backed,
+                expression_layer=self.expression_layer,
             )
             # Update gene markers and labels after loading
             # if self.gene_markers is None:
@@ -156,18 +160,58 @@ def _source_suffix(file: str | Path) -> str:
     return os.path.splitext(text)[1].lower()
 
 
+def _open_zarr_group(store: str | Path):
+    """Open a zarr store's root group, preferring consolidated metadata.
+
+    Follows the anndata remote-access tutorial: a remote URI is wrapped in an
+    ``fsspec`` store and opened from its *consolidated* metadata, so opening costs a
+    single small metadata fetch rather than a full listing of the store -- the key
+    to fast remote "backed" access. Falls back to a plain group open when the store
+    isn't consolidated, and to a direct URL open if the fsspec store can't be built.
+    """
+    import zarr
+
+    if _is_remote_uri(store):
+        try:
+            fsstore = zarr.storage.FsspecStore.from_url(str(store), read_only=True)
+            try:
+                return zarr.open_consolidated(fsstore, mode="r")
+            except Exception:
+                return zarr.open_group(fsstore, mode="r")
+        except Exception:
+            return zarr.open_group(str(store), mode="r")
+
+    try:
+        return zarr.open_consolidated(str(store), mode="r")
+    except Exception:
+        return zarr.open_group(str(store), mode="r")
+
+
+def _zarr_elem(group, path_parts):
+    """Navigate to a sub-element of an opened zarr group (e.g. ('layers', 'X_csc'))."""
+    elem = group
+    for part in path_parts:
+        elem = elem[part]
+    return elem
+
+
+def _zarr_encoding(group, path_parts) -> str | None:
+    """Encoding-type attr of a zarr element (e.g. 'csc_matrix'), or None if unreadable."""
+    try:
+        return str(dict(_zarr_elem(group, path_parts).attrs).get("encoding-type", "")) or None
+    except Exception:
+        return None
+
+
 def _zarr_is_mudata(store: str | Path) -> bool:
     """Best-effort detection of whether a ``.zarr`` store holds MuData vs AnnData.
 
-    Opens the store's root group and looks for the MuData ``mod`` group / encoding
-    marker. If the store can't be introspected (e.g. a remote store with no
-    ``fsspec`` backend installed), assume AnnData and let the reader surface any
-    real error.
+    Opens the store's root group (consolidated when available) and looks for the
+    MuData ``mod`` group / encoding marker. If the store can't be introspected,
+    assume AnnData and let the reader surface any real error.
     """
     try:
-        import zarr
-
-        grp = zarr.open_group(str(store), mode="r")
+        grp = _open_zarr_group(store)
         if "mod" in grp:
             return True
         return str(dict(grp.attrs).get("encoding-type", "")) == "MuData"
@@ -195,37 +239,191 @@ def _downsample(data, max_cells: int | None, rng: np.random.Generator):
     return data
 
 
-def _load_zarr(store: str | Path, *, max_cells: int | None, seed: int | None, backed: bool):
+def _eager_read_elem(group, *path):
+    """Eagerly read a zarr sub-element into native pandas/numpy, or None on failure.
+
+    ``anndata.io.read_elem`` reads an ``obs``/``var``/``obsm`` group into memory in a
+    single batched pass, rather than the per-column, per-chunk fetches that the
+    ``read_lazy`` -> xarray -> ``to_dataframe`` path issues. Over a high-latency
+    remote store those round-trips dominate startup, so this is the fast path; any
+    failure returns ``None`` so the caller can fall back to the lazy conversion.
+    """
+    if group is None:
+        return None
+    try:
+        from anndata.io import read_elem
+
+        return read_elem(_zarr_elem(group, path))
+    except Exception:
+        return None
+
+
+def _eager_load_annotations(adata: ad.AnnData, group=None) -> None:
+    """Materialize a lazy AnnData's small annotations in place, keeping X/layers lazy.
+
+    ``read_lazy`` returns ``obs``/``var`` as xarray ``Dataset2D`` and ``obsm`` as
+    dask arrays, which the app's pandas/numpy code paths don't accept. These are
+    small (per-cell/per-gene metadata, embeddings), so we pull them into memory
+    while leaving the large ``X``/``layers`` matrices on cloud storage for on-demand
+    per-gene reads.
+
+    When the open zarr ``group`` is supplied we read each annotation with
+    :func:`_eager_read_elem` (one batched native read), which is dramatically faster
+    over a remote store than materializing the lazy ``Dataset2D`` column by column.
+    We fall back to the lazy ``.to_dataframe()`` / ``.compute()`` conversion whenever
+    the eager read is unavailable.
+    """
+    if not isinstance(adata.obs, pd.DataFrame):
+        df = _eager_read_elem(group, "obs")
+        adata.obs = df if isinstance(df, pd.DataFrame) else adata.obs.ds.to_dataframe()
+    if not isinstance(adata.var, pd.DataFrame):
+        df = _eager_read_elem(group, "var")
+        adata.var = df if isinstance(df, pd.DataFrame) else adata.var.ds.to_dataframe()
+    for key in list(adata.obsm.keys()):
+        arr = adata.obsm[key]
+        if isinstance(arr, np.ndarray):
+            continue
+        eager = _eager_read_elem(group, "obsm", key)
+        if eager is not None:
+            adata.obsm[key] = eager if isinstance(eager, np.ndarray) else np.asarray(eager)
+        elif hasattr(arr, "compute"):
+            adata.obsm[key] = arr.compute()
+        else:
+            adata.obsm[key] = np.asarray(arr)
+
+
+def _backed_expression_layer(group, adata, preferred: str | None = None) -> str | None:
+    """Pick a gene-major layer to serve expression from for fast per-gene reads.
+
+    Per-gene reads slice a single column (``X[:, j]``). On a cell-major
+    (``csr_matrix``) matrix that scans much of the data; on a gene-major
+    (``csc_matrix``) matrix it reads just that column -- far cheaper, especially
+    over the network. Many stores ship a CSC copy alongside a CSR ``X`` (e.g. a
+    ``layers['X_csc']``). This returns the layer to use:
+
+    - ``preferred``: an explicit ``expression_layer`` from the config (if present).
+    - otherwise auto-detect: when ``X`` is CSR and a CSC layer exists, use it.
+
+    Returns ``None`` to keep reading from ``X``.
+    """
+    layer_names = list(adata.layers.keys())
+    if preferred:
+        if preferred in layer_names:
+            return preferred
+        print(f"[guanaco] expression_layer '{preferred}' not found in {layer_names}; using X.")
+        return None
+    try:
+        if str(dict(group["X"].attrs).get("encoding-type", "")) != "csr_matrix":
+            return None
+        for name in layer_names:
+            if str(dict(group["layers"][name].attrs).get("encoding-type", "")) == "csc_matrix":
+                return name
+    except Exception:
+        return None
+    return None
+
+
+def _load_zarr_backed(store: str | Path, *, expression_layer: str | None = None) -> ad.AnnData:
+    """Open an AnnData ``.zarr`` store backed: ``X`` stays remote/on-disk, metadata in memory.
+
+    This is the cloud-native form of "backed" access described in the anndata
+    ``read_lazy`` tutorial. The store is opened from its consolidated metadata and
+    the expression matrix is **never downloaded up front** -- ``X``/``layers`` stay
+    as lazy dask arrays on the (possibly remote ``s3://``/``gs://``/``https://``)
+    store. Only the small ``obs``/``var``/``obsm`` annotations are pulled into
+    memory so the app's pandas/numpy code paths work; the gene columns the user
+    views are fetched on demand by the extraction layer
+    (``guanaco.utils.gene_extraction_utils``), which slices ``X[:, j]`` and computes
+    just that column. Adding genes fetches only the new columns; previously read
+    genes come from the gene cache.
+
+    If the store provides a gene-major (CSC) layer -- either named via the config's
+    ``expression_layer`` or auto-detected when ``X`` is CSR -- that layer is swapped
+    into ``X`` so the existing per-gene read path transparently hits the fast,
+    column-friendly encoding.
+
+    Crucially, the expression matrix is re-opened with one **gene per chunk**
+    (``chunks=(n_obs, 1)``). ``read_lazy``'s default chunking batches ~1000 genes
+    per chunk, so a single-gene ``X[:, j]`` read would otherwise pull ~1000 genes'
+    worth of data off the remote store. Per-gene chunking makes a single-gene read
+    fetch only that one column -- the difference between seconds and sub-second on a
+    remote CSC matrix (see the anndata ``read_lazy`` tutorial).
+    """
+    from anndata.experimental import read_elem_lazy, read_lazy
+
+    group = _open_zarr_group(store)
+    adata = read_lazy(group)
+
+    layer = _backed_expression_layer(group, adata, expression_layer)
+    expr_path = ("layers", layer) if layer is not None else ("X",)
+
+    # Serve expression one gene per chunk so a single-gene read fetches one column.
+    if _zarr_encoding(group, expr_path) == "csc_matrix":
+        try:
+            adata.X = read_elem_lazy(_zarr_elem(group, expr_path), chunks=(adata.n_obs, 1))
+            if layer is not None:
+                del adata.layers[layer]
+            print(
+                f"[guanaco] backed expression served from gene-major '{'/'.join(expr_path)}' "
+                "rechunked to one gene per column (fast per-gene reads)"
+            )
+        except Exception as exc:
+            print(f"[guanaco] per-gene rechunk unavailable ({exc}); using default chunking.")
+            if layer is not None:
+                adata.X = adata.layers[layer]
+                del adata.layers[layer]
+    elif layer is not None:
+        # Layer isn't CSC (e.g. an explicit non-CSC choice); use it as-is.
+        adata.X = adata.layers[layer]
+        del adata.layers[layer]
+        print(f"[guanaco] backed expression served from layer '{layer}'")
+
+    _eager_load_annotations(adata, group)
+    print(
+        f"Opened {store} backed: X stays remote/lazy, "
+        f"{adata.n_obs} cells x {adata.n_vars} genes, metadata in memory"
+    )
+    return adata
+
+
+def _load_zarr(
+    store: str | Path,
+    *,
+    max_cells: int | None,
+    seed: int | None,
+    backed: bool,
+    expression_layer: str | None = None,
+):
     """Load an AnnData/MuData ``.zarr`` store (local directory or remote URI).
 
-    For AnnData stores the matrix is opened with
-    :func:`anndata.experimental.read_lazy`, so the full expression matrix is never
-    pulled into RAM up front. Only the cells we keep (a random subset when
-    ``max_cells`` applies) are then materialized via ``.to_memory()`` -- bounding
-    peak memory by the subset, exactly like the backed-first ``.h5ad`` path and
-    crucial for large local or cloud stores.
+    Two modes:
 
-    ``read_lazy`` requires ``dask`` (and ``fsspec``/cloud backends for remote
-    URIs); if it is unavailable we fall back to an in-memory ``read_zarr``.
-
-    Backed/disk-resident mode is not available for ``.zarr`` -- the lazy object's
-    xarray ``obs``/dask ``X`` are not compatible with the app's pandas/scipy hot
-    paths -- so ``backed=True`` materializes all cells (with a clear warning)
-    rather than silently pretending the matrix stays on disk. MuData has no lazy
-    reader, so it is always read in memory then down-sampled.
+    - ``backed=True`` -> *backed / cloud-native*: opened with
+      :func:`anndata.experimental.read_lazy`; ``X``/``layers`` stay on disk/cloud
+      and only the requested gene columns are read on demand (see
+      :func:`_load_zarr_backed`). MuData has no lazy reader, so it falls back to an
+      in-memory read with a clear warning.
+    - ``backed=False`` -> the store is opened lazily only to bound peak memory:
+      the kept cells (a random ``max_cells`` subset) are materialized via
+      ``.to_memory()`` and the rest never touches RAM, mirroring the ``.h5ad``
+      backed-first path. Falls back to an in-memory ``read_zarr`` if ``dask`` is
+      unavailable.
     """
     rng = np.random.default_rng(seed)
     is_mudata = _zarr_is_mudata(store)
 
     if is_mudata:
         if backed:
-            print(f"[guanaco] backed/lazy mode is not available for MuData .zarr ({store}); loaded in memory.")
+            print(f"[guanaco] cloud-backed lazy mode is not available for MuData .zarr ({store}); loaded in memory.")
         return _to_gene_major(_downsample(mu.read_zarr(store), max_cells, rng))
+
+    if backed:
+        return _load_zarr_backed(store, expression_layer=expression_layer)
 
     try:
         from anndata.experimental import read_lazy
 
-        lazy = read_lazy(store)
+        lazy = read_lazy(_open_zarr_group(store))
     except Exception as exc:
         # dask/fsspec missing, or the store can't be opened lazily: degrade to a
         # full in-memory read so loading never hard-fails.
@@ -233,13 +431,6 @@ def _load_zarr(store: str | Path, *, max_cells: int | None, seed: int | None, ba
         return _to_gene_major(_downsample(ad.read_zarr(store), max_cells, rng))
 
     n_obs = lazy.n_obs
-    if backed:
-        print(
-            f"[guanaco] backed mode is not supported for .zarr stores ({store}); "
-            f"materializing all {n_obs} cells into memory."
-        )
-        return _to_gene_major(lazy.to_memory())
-
     if max_cells is not None and n_obs > max_cells:
         idx = _random_row_indices(n_obs, max_cells, rng)
         adata = lazy[idx, :].to_memory()
@@ -289,6 +480,7 @@ def load_adata(
     max_cells: int | None = 10_000,
     seed: int | None = None,
     backed: bool = False,
+    expression_layer: str | None = None,
 ) -> ad.AnnData | mu.MuData:
     """
     Load a single .h5ad or .h5mu file, optionally down-sampling cells.
@@ -314,8 +506,11 @@ def load_adata(
         file: Absolute local path or remote URI of the data source.
         max_cells: Maximum number of cells to keep (random down-sample if larger)
         seed: Random seed for down-sampling
-        backed: If True, keep the matrix on disk (backed mode) and serve all cells.
-            Ignored (with a warning) for ``.zarr`` stores, which have no backed mode.
+        backed: If True, keep the matrix on disk/cloud (backed mode) and serve all
+            cells, reading gene columns on demand.
+        expression_layer: For backed ``.zarr``, name of a gene-major (CSC) layer to
+            serve expression from instead of ``X`` (faster per-gene reads). If None,
+            a CSC layer is auto-used when ``X`` is CSR.
 
     Returns:
         AnnData (for .h5ad) or MuData (for .h5mu)
@@ -329,7 +524,9 @@ def load_adata(
                 f"Remote sc_data must be a .zarr store, got '{suffix or '<none>'}' for {file}. "
                 "Cloud .h5ad/.h5mu reading is not supported; convert to .zarr."
             )
-        return _load_zarr(str(file), max_cells=max_cells, seed=seed, backed=backed)
+        return _load_zarr(
+            str(file), max_cells=max_cells, seed=seed, backed=backed, expression_layer=expression_layer
+        )
 
     path = Path(file)
     if not path.is_absolute():
@@ -340,7 +537,9 @@ def load_adata(
         raise ValueError(f"Unsupported file extension: {suffix}")
 
     if suffix == ".zarr":
-        return _load_zarr(path, max_cells=max_cells, seed=seed, backed=backed)
+        return _load_zarr(
+            path, max_cells=max_cells, seed=seed, backed=backed, expression_layer=expression_layer
+        )
 
     is_mudata = suffix == ".h5mu"
 
@@ -409,52 +608,28 @@ def get_discrete_labels(adata: ad.AnnData, *, max_unique: int = 50) -> list[str]
     if obs is None or obs.empty:
         return []
 
-    # For smaller datasets, pandas vectorized nunique is usually faster.
-    if adata.n_obs <= 20_000:
-        nunique = obs.nunique(dropna=True)
-        return nunique[nunique < max_unique].sort_values().index.tolist()
-
-    # For large datasets, cap counting per column and stop early once threshold is reached.
-    def _count_unique_with_cap(values, cap):
-        seen = set()
-        for v in values:
-            # Skip missing values without importing pandas.
-            if v is None:
-                continue
-            if isinstance(v, (float, np.floating)) and np.isnan(v):
-                continue
-            try:
-                seen.add(v)
-            except TypeError:
-                # Handle unhashable values defensively.
-                seen.add(str(v))
-            if len(seen) >= cap:
-                return len(seen)
-        return len(seen)
-
-    counts: list[tuple[str, int]] = []
+    # Cardinality per column, vectorized. Categorical columns expose their
+    # cardinality as metadata (``len(cat.categories)``, O(1)); all other columns
+    # use pandas' C-level ``nunique`` in one batched call. Both avoid a Python-level
+    # scan of every value, which on large (100k+ cell) backed datasets cost ~10s at
+    # startup -- the bottleneck this replaces.
+    counts: dict[str, int] = {}
+    plain_cols: list[str] = []
     for col in obs.columns:
-        series = obs[col]
-        if str(series.dtype) == "category":
-            # Integer codes for categorical columns are compact and fast to scan.
-            codes = series.cat.codes.to_numpy(copy=False)
-            seen_codes = set()
-            for code in codes:
-                if code < 0:  # missing category
-                    continue
-                seen_codes.add(int(code))
-                if len(seen_codes) >= max_unique:
-                    break
-            n_unique = len(seen_codes)
+        dtype = obs[col].dtype
+        if isinstance(dtype, pd.CategoricalDtype):
+            counts[col] = len(dtype.categories)
         else:
-            values = series.to_numpy(copy=False)
-            n_unique = _count_unique_with_cap(values, max_unique)
+            plain_cols.append(col)
 
-        if n_unique < max_unique:
-            counts.append((col, n_unique))
+    if plain_cols:
+        plain_nunique = obs[plain_cols].nunique(dropna=True)
+        for col in plain_cols:
+            counts[col] = int(plain_nunique[col])
 
-    counts.sort(key=lambda item: item[1])
-    return [col for col, _ in counts]
+    selected = [(col, n) for col, n in counts.items() if n < max_unique]
+    selected.sort(key=lambda item: item[1])
+    return [col for col, _ in selected]
 
 def get_modality_variables(adata: ad.AnnData | None, modality: str = 'RNA', n_vars: int = 10) -> list[str]:
     """
@@ -743,7 +918,12 @@ def initialize_data(
                 gene_markers = dataset_cfg.get("markers", None)
                 label_list = None
             else:
-                adata = load_adata(sc_data_source, max_cells=max_cells, backed=backed_mode)
+                adata = load_adata(
+                    sc_data_source,
+                    max_cells=max_cells,
+                    backed=backed_mode,
+                    expression_layer=dataset_cfg.get("expression_layer"),
+                )
                 # Use provided markers or default to first 6 genes for RNA only
                 gene_markers = dataset_cfg.get("markers", None)
                 label_list = get_discrete_labels(adata) if adata else None
@@ -794,6 +974,7 @@ def initialize_data(
                     "color_right": dataset_cfg.get("default_color_right"),
                 },
                 max_cells=max_cells,
+                expression_layer=dataset_cfg.get("expression_layer"),
             )
             datasets[dataset_key] = dataset_bundle
         else:

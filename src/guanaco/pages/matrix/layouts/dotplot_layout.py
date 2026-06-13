@@ -16,10 +16,10 @@ def generate_dotplot_layout(prefix):
                         id=f"{prefix}-dotplot-standardization",
                         options=[
                             {"label": "None", "value": "None"},
-                            {"label": "Across cells", "value": "across_cells"},
-                            {"label": "Across groups", "value": "across_groups"},
+                            {"label": "Min–max", "value": "minmax"},
+                            {"label": "Z-score", "value": "zscore"},
                         ],
-                        value="None",
+                        value="minmax",
                         inline=True,
                     ),
                 ]
@@ -115,6 +115,20 @@ def generate_dotplot_layout(prefix):
         style={"marginBottom": "10px", "padding": "10px"},
     )
 
+    dotplot_advanced_toggle = dbc.Button(
+        "▸ More options",
+        id=f"{prefix}-dotplot-options-toggle",
+        color="link",
+        size="sm",
+        style={"padding": "2px 0", "textDecoration": "none", "fontWeight": "bold", "marginBottom": "10px"},
+    )
+
+    dotplot_advanced_panel = dbc.Collapse(
+        row2,
+        id=f"{prefix}-dotplot-options-collapse",
+        is_open=False,
+    )
+
     draggable_container = dash_draggable.GridLayout(
         id=f"{prefix}-draggable-dotplot",
         className="grid-layout-no-border",
@@ -148,6 +162,6 @@ def generate_dotplot_layout(prefix):
     )
 
     return html.Div(
-        [rendered_key_store(prefix, "dotplot"), row1, row2, draggable_container],
+        [rendered_key_store(prefix, "dotplot"), row1, dotplot_advanced_toggle, dotplot_advanced_panel, draggable_container],
         style={"padding": "20px", "marginBottom": "15px"},
     )

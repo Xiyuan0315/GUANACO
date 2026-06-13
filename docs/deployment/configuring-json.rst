@@ -47,10 +47,15 @@ The GUANACO configuration file is written in JSON format and has **two main sect
 
      A short text description of the study. Displayed in the interface to help distinguish between datasets.
 
-   - **Matrix-based data**  
+   - **Matrix-based data**
 
-     - ``sc_data`` (required): Absolute path to a ``.h5ad`` or ``.h5mu`` file. Relative paths are still supported and are resolved against the config file directory.  
-     - ``markers`` (optional): List of marker genes for plots (heatmaps, dot plots, violin plots, stacked bar plots, pseudotime plots).  
+     - ``sc_data`` (required): Path to the expression data. Supported sources:
+
+       - A local ``.h5ad`` or ``.h5mu`` file (absolute path; relative paths are resolved against the config file directory).
+       - A local ``.zarr`` AnnData/MuData store (a directory).
+       - A **remote** ``.zarr`` store on cloud storage, given as a URL such as ``s3://…``, ``gs://…`` or ``https://…``. The matrix stays on the cloud and is read on demand — see :ref:`Additional Information 3 <additional-info-remote>`. Remote ``.h5ad``/``.h5mu`` is *not* supported; convert to ``.zarr`` first.
+     - ``markers`` (optional): List of marker genes for plots (heatmaps, dot plots, violin plots, stacked bar plots, pseudotime plots). For remote stores these genes are pre-fetched at startup so the first plots render immediately.
+     - ``expression_layer`` (optional): Name of a gene-major (CSC) layer to read expression from instead of ``X`` (e.g. ``"X_csc"``). This makes single-gene reads cheap over the network — see :ref:`Additional Information 3 <additional-info-remote>`.
 
    - **Track-based data**  
 
@@ -71,7 +76,7 @@ The GUANACO configuration file is written in JSON format and has **two main sect
      - ``port``: Port to run the Dash server on. Default: ``4399``.
      - ``max_cells``: Maximum number of cells to load per dataset. Use ``null`` to disable downsampling. Default: ``10000``.
      - ``lazy_load``: Load AnnData only when first opened. Default: ``true``.
-     - ``backed_mode``: Use disk-backed loading for large datasets. Values: ``false``, ``true``, or ``"r+"``. Default: ``false``.
+     - ``backed_mode``: Keep the expression matrix on disk/cloud instead of loading it into memory, for large datasets. Values: ``false``, ``true``, or ``"r+"``. Default: ``false``. Set to ``true`` for remote ``.zarr`` stores — see :ref:`Additional Information 3 <additional-info-remote>`.
      - ``embedding_render_backend``: Embedding scatter rendering backend. Values: ``"scattergl"`` or ``"datashader"``. Default: ``"scattergl"``.
 
 
@@ -220,8 +225,109 @@ in ``AllowedOrigins`` with a specific domain (e.g. ``"http://example.com"``) to 
    - Pig: ``susScr11``  
    - Macaque: ``rheMac10``  
 
-   Each build corresponds to a UCSC-hosted 2bit file, e.g.:  
+   Each build corresponds to a UCSC-hosted 2bit file, e.g.:
    ``https://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.2bit``
+
+
+.. _additional-info-remote:
+
+3. **Cloud-backed (remote) matrix data**
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+GUANACO can read a single-cell matrix **directly from cloud storage without
+downloading it**. This is meant for datasets that are too large to fit in memory
+(or to copy onto every machine): the expression matrix stays on the remote store
+and only the parts you actually look at are fetched, on demand.
+
+**How it works**
+
+When ``sc_data`` is a remote ``.zarr`` URL and ``backed_mode`` is ``true``, GUANACO:
+
+1. **Opens the store from its consolidated metadata.** The remote URL is wrapped in
+   an ``fsspec`` store and opened with ``anndata.experimental.read_lazy``. Opening
+   costs a single small metadata fetch — GUANACO does *not* list or download the
+   whole store.
+2. **Keeps the expression matrix on the cloud.** ``X`` (and any ``layers``) stay as
+   lazy arrays on the remote store; they are never pulled into memory up front.
+3. **Loads only the small annotations into memory.** Per-cell metadata (``obs``),
+   per-gene metadata (``var``) and embeddings (``obsm``, e.g. UMAP/t-SNE) are read
+   once, in a single batched pass, so the app's tables, colour-by menus and scatter
+   plots work normally. Startup time is therefore proportional to the size of this
+   metadata, not to the size of the matrix.
+4. **Fetches gene columns on demand and caches them.** When you add a gene to a
+   plot, only that gene's column is read from the cloud and then cached. Adding more
+   genes fetches only the new columns; genes you have already viewed are served from
+   the cache. Genes listed in ``markers`` are pre-fetched at startup.
+
+**Make per-gene reads fast: provide a gene-major (CSC) layer**
+
+A plot reads one gene at a time, i.e. a single *column* of the matrix. On a
+cell-major (CSR) matrix that touches the whole dataset; on a **gene-major (CSC)**
+matrix it reads just that one column — far cheaper over the network. For responsive
+remote browsing, store a CSC copy of the matrix as a layer (commonly ``X_csc``) and
+point ``expression_layer`` at it:
+
+- If ``expression_layer`` is set, GUANACO serves expression from that layer.
+- Otherwise, if ``X`` is CSR and a CSC layer exists, it is detected and used
+  automatically.
+
+The chosen matrix is opened with **one gene per chunk**, so a single-gene read
+fetches exactly that one column rather than a block of ~1000 genes.
+
+**Requirements**
+
+- The store must be a **consolidated** ``.zarr`` (written with consolidated
+  metadata). A gene-major CSC layer is strongly recommended for speed.
+- The matching ``fsspec`` backend must be installed for the URL scheme:
+  ``s3fs`` for ``s3://``, ``gcsfs`` for ``gs://``, ``aiohttp`` for ``http(s)://``.
+  These ship with GUANACO's dependencies.
+- For ``https://`` access the bucket must allow public read and have **CORS**
+  configured (see the policy and CORS examples under *Additional Information 1*
+  above).
+
+**Preparing a remote store**
+
+Write your AnnData to ``.zarr`` with a CSC layer and consolidated metadata, then
+upload the resulting ``.zarr`` directory to your bucket:
+
+.. code-block:: python
+
+   import zarr
+   from scipy.sparse import csc_matrix
+
+   adata.layers["X_csc"] = csc_matrix(adata.X)   # gene-major copy for fast column reads
+   adata.write_zarr("dataset.zarr")
+   zarr.consolidate_metadata("dataset.zarr")      # single-fetch opening
+
+**Example config**
+
+.. code-block:: json
+
+   {
+     "BALF_COVID": {
+       "description": "BALF COVID atlas streamed from cloud storage",
+       "sc_data": "https://vitessce-demo-data.storage.googleapis.com/anndata-demos/BALF_VIB-UGent_processed_cleaned.zarr",
+       "expression_layer": "X_csc",
+       "markers": ["CD3D", "CD8A"]
+     },
+     "title": "GUANACO cloud-backed demo",
+     "settings": {
+       "host": "0.0.0.0",
+       "port": 4399,
+       "max_cells": null,
+       "lazy_load": true,
+       "backed_mode": true,
+       "embedding_render_backend": "scattergl"
+     }
+   }
+
+.. note::
+
+   Set ``max_cells`` to ``null`` so all cells stay available (the matrix is not held
+   in memory, so there is no need to down-sample), ``lazy_load`` to ``true``, and
+   ``backed_mode`` to ``true``. The first startup spends its time downloading
+   ``obs``/``var``/``obsm`` and pre-fetching the ``markers``; after that, viewing a
+   new gene reads just that gene's column from the cloud.
 
 
 .. raw:: html

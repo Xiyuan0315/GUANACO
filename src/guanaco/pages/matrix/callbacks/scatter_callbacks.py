@@ -63,7 +63,7 @@ function(leftRelayout, rightRelayout, leftClu, rightClu, leftX, rightX, leftY, r
             const im = imgs[0];
             window.Plotly.relayout(gd, {
                 'xaxis.range': [im.x, im.x + im.sizex],
-                'yaxis.range': [im.y - im.sizey, im.y],
+                'yaxis.range': [im.y + im.sizey, im.y],
                 'xaxis.autorange': false,
                 'yaxis.autorange': false
             });
@@ -369,6 +369,9 @@ def register_scatter_callbacks(
             img_key=spatial_img_key,
             source_adata=adata,
             cell_indices=filtered_cell_idx,
+            # Always-on grey background so a legend deselect greys cells (instead of
+            # removing them + rescaling) entirely client-side -- no re-render flash.
+            show_background_layer=not is_continuous,
         )
         return apply_relayout(fig, effective_relayout)
 
@@ -553,6 +556,7 @@ def register_scatter_callbacks(
                 source_adata=adata,
                 cell_indices=filtered_cell_idx,
                 highlighted_cell_ids=highlighted_cell_ids,
+                show_background_layer=True,
             )
         return apply_relayout(fig, effective_relayout)
 
@@ -609,12 +613,16 @@ def register_scatter_callbacks(
                 _extract_cell_ids_from_customdata(point.get("customdata"), plot_adata)
                 for point in selected_data.get("points", [])
             )
-            return {"cell_ids": cell_ids, "source": "lasso", "hidden_traces": (current_store or {}).get("hidden_traces", [])}
+            return {"cell_ids": cell_ids, "source": "lasso", "hidden_labels": (current_store or {}).get("hidden_labels", [])}
 
         if triggered_prop != f"{prefix}-annotation-scatter.restyleData" or not restyle_data or not current_figure:
             return current_store
 
-        hidden_traces = set((current_store or {}).get("hidden_traces", []))
+        traces = current_figure.get("data", [])
+        # Track deselected groups by *name*, not trace index: re-rendering the left
+        # plot adds/removes the grey "Background" layer, which shifts every index.
+        # Names are stable, so the legendonly state survives the re-render.
+        hidden_labels = set((current_store or {}).get("hidden_labels", []))
         update = restyle_data[0] if len(restyle_data) > 0 else {}
         trace_indices = restyle_data[1] if len(restyle_data) > 1 else []
         visible_values = update.get("visible")
@@ -623,26 +631,25 @@ def register_scatter_callbacks(
 
         for trace_index, visible in zip(trace_indices, visible_values):
             trace_index = int(trace_index)
+            if not (0 <= trace_index < len(traces)):
+                continue
+            name = traces[trace_index].get("name")
+            if name is None or name == "Background":
+                continue
             if visible in ("legendonly", False):
-                hidden_traces.add(trace_index)
+                hidden_labels.add(name)
             else:
-                hidden_traces.discard(trace_index)
+                hidden_labels.discard(name)
 
-        traces = current_figure.get("data", [])
-        selectable_trace_indices = [
-            idx for idx, trace in enumerate(traces)
-            if trace.get("name") != "Background" and trace.get("showlegend", False)
-        ]
-        if not hidden_traces:
+        if not hidden_labels:
             return None
 
-        visible_trace_indices = [idx for idx in selectable_trace_indices if idx not in hidden_traces]
-        cell_ids = []
-        for idx in visible_trace_indices:
-            for customdata in traces[idx].get("customdata", []) or []:
-                cell_ids.append(_extract_cell_ids_from_customdata(customdata, plot_adata))
-        cell_ids = _unique_cell_ids(cell_ids)
-        return {"cell_ids": cell_ids, "source": "legend", "hidden_traces": sorted(hidden_traces)}
+        # Visible cells = obs rows whose annotation value is NOT in hidden_labels.
+        # Single C-level pandas pass: O(n_cells + n_labels).
+        src = plot_adata if plot_adata is not None else adata
+        visible_mask = ~src.obs[current_annotation].astype(str).isin(hidden_labels)
+        cell_ids = _unique_cell_ids(src.obs_names[visible_mask])
+        return {"cell_ids": cell_ids, "source": "legend", "hidden_labels": sorted(hidden_labels)}
 
     @app.callback(
         [

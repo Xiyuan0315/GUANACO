@@ -1,8 +1,9 @@
 import dash_draggable
-from dash import html
+from dash import dcc, html
 
 from guanaco.utils.render_guard import rendered_key_store
 from guanaco.utils.colors import discrete_palette_options
+from guanaco.utils.plot_config import heatmap_config
 from guanaco.utils.ui_helpers import (
     labeled_dropdown,
     labeled_radioitems,
@@ -19,10 +20,10 @@ def generate_heatmap_layout(adata, prefix):
         f"{prefix}-heatmap-standardization",
         [
             {"label": "None", "value": "None"},
-            {"label": "Across cells", "value": "across_cells"},
-            {"label": "Across groups", "value": "across_groups"},
+            {"label": "Min–max", "value": "minmax"},
+            {"label": "Z-score", "value": "zscore"},
         ],
-        value="None",
+        value="minmax",
         inline=True,
         radio_style={"marginBottom": "10px"},
     )
@@ -55,12 +56,13 @@ def generate_heatmap_layout(adata, prefix):
     draggable_container = dash_draggable.GridLayout(
         id=f"{prefix}-draggable-heatmap",
         className="grid-layout-no-border",
-        children=[graph_flex_container(f"{prefix}-heatmap")],
+        children=[graph_flex_container(f"{prefix}-heatmap", config=heatmap_config)],
     )
 
     return html.Div(
         [
             rendered_key_store(prefix, "heatmap"),
+            dcc.Store(id=f"{prefix}-heatmap-reset-link"),
             heatmap_transformation_selection,
             heatmap_secondary_dropdown,
             secondary_annotation_colormap_dropdown,

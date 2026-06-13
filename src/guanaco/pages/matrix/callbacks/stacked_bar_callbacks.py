@@ -68,7 +68,7 @@ def register_stacked_bar_callbacks(
         [
             Input(f"{prefix}-norm-box", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
-            Input(f"{prefix}-selected-cells-store", "data"),
+            Input(f"{prefix}-selected-cells-hash", "data"),
             Input(f"{prefix}-single-cell-tabs", "value"),
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
@@ -78,9 +78,10 @@ def register_stacked_bar_callbacks(
         [
             State(f"{prefix}-stacked-bar-plot", "figure"),
             State(f"{prefix}-stacked-bar-rendered-key", "data"),
+            State(f"{prefix}-selected-cells-store", "data"),
         ],
     )
-    def update_stacked_bar(norm, discrete_color_map, selected_cells, active_tab, annotation, selected_labels, stack_by, x_axis_order, current_figure, rendered_key):
+    def update_stacked_bar(norm, discrete_color_map, cells_hash, active_tab, annotation, selected_labels, stack_by, x_axis_order, current_figure, rendered_key, selected_cells):
         if active_tab != "stacked-bar-tab":
             return no_update, no_update
 
@@ -96,7 +97,7 @@ def register_stacked_bar_callbacks(
             return fig, None
 
         cache_key = signature(
-            "stacked-bar", norm, discrete_color_map, selected_cells,
+            "stacked-bar", norm, discrete_color_map, cells_hash,
             annotation, selected_labels, stack_by, x_axis_order,
         )
         if cache_key == rendered_key and current_figure:

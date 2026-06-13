@@ -87,11 +87,6 @@ class GeneExpressionCache:
 
         val = compute_fn()
         self._store_data(key, val, now)
-
-        # periodic garbage collection
-        if len(self._data) % 20 == 0:
-            gc.collect()
-
         return val
 
     def pin(self, adata, gene, layer, use_raw, compute_fn):
@@ -139,6 +134,21 @@ class GeneExpressionCache:
 # Internal helper functions
 # --------------------------
 
+def _densify(block):
+    """Return a dense ``numpy`` array from a numpy / scipy-sparse / dask block.
+
+    Cloud-backed (lazy) ``X``/``layers`` are dask arrays whose chunks may be
+    scipy-sparse. ``.compute()`` reads only the requested slice off cloud/disk but
+    yields a sparse matrix, which still has to be densified. Already-dense or
+    in-memory blocks pass straight through.
+    """
+    if hasattr(block, "compute"):  # dask array -> pull just this slice into memory
+        block = block.compute()
+    if issparse(block):
+        block = block.toarray()
+    return np.asarray(block)
+
+
 def _get_data_source(adata, use_raw: bool):
     """Return adata.raw (if requested & present) else adata."""
     return adata.raw if use_raw and getattr(adata, "raw", None) is not None else adata
@@ -161,12 +171,13 @@ def _gene_indexer(var_names: pd.Index, genes):
     if isinstance(genes, str):
         genes = [genes]
     idx = var_names.get_indexer(genes)
-    return np.asarray(idx, dtype=np.int64), list(genes)
+    return np.asarray(idx, dtype=np.int64)
 
 
 def _raise_if_missing(idx, genes):
     if np.any(idx == -1):
-        missing = np.asarray(genes, dtype=object)[idx == -1]
+        gene_list = [genes] if isinstance(genes, str) else list(genes)
+        missing = np.asarray(gene_list, dtype=object)[idx == -1]
         raise KeyError(f"Genes not found: {missing.tolist()}")
 
 
@@ -175,40 +186,16 @@ def _compute_gene_vector(adata, gene, layer=None, use_raw=False, dtype=None):
     data_source = _get_data_source(adata, use_raw)
     X = _get_matrix(data_source, layer)
 
-    idx, genes = _gene_indexer(data_source.var_names, gene)
-    _raise_if_missing(idx, genes)
+    idx = _gene_indexer(data_source.var_names, gene)
+    _raise_if_missing(idx, gene)
     j = int(idx[0])
 
-    col = X[:, j]
-    if issparse(col):
-        out = col.toarray().ravel()
-    else:
-        out = np.asarray(col).ravel()
+    # X may be a lazy/cloud-backed dask array: this slice reads only column j.
+    out = _densify(X[:, j]).ravel()
 
     if dtype is not None:
         out = out.astype(dtype, copy=False)
     return out
-
-
-def _take_columns_backed_aware(X, col_idx):
-    """
-    Read X[:, col_idx] efficiently.
-
-    For many backed / on-disk arrays, reading columns in increasing order
-    can be faster. We read sorted columns then restore original order.
-    """
-    col_idx = np.asarray(col_idx, dtype=np.int64)
-    if col_idx.size == 0:
-        return X[:, :0]
-
-    order = np.argsort(col_idx)
-    sorted_idx = col_idx[order]
-
-    sub = X[:, sorted_idx]
-
-    inv = np.empty_like(order)
-    inv[order] = np.arange(order.size)
-    return sub[:, inv]
 
 
 # --------------------------
@@ -294,81 +281,6 @@ def extract_gene_expression(
     return _compute()
 
 
-def extract_multiple_genes(
-    adata,
-    genes,
-    layer=None,
-    use_raw=False,
-    cell_indices=None,
-    allow_missing=False,
-    to_dense=True,
-    dtype=np.float32,
-):
-    """
-    Extract multiple genes efficiently.
-
-    Parameters
-    ----------
-    adata : AnnData
-    genes : list[str] | str
-    layer : str | None
-    use_raw : bool
-    cell_indices : array-like | None
-        Subset of cells to include (indices or boolean mask).
-    allow_missing : bool
-        If False, raise on any missing gene.
-        If True, drop missing genes.
-    to_dense : bool
-        If True, convert to dense (DataFrame requires dense).
-    dtype : numpy dtype | None
-        Cast dense arrays to dtype (default float32).
-
-    Returns
-    -------
-    pd.DataFrame
-        rows = cells, columns = genes
-    """
-    data_source = _get_data_source(adata, use_raw)
-    X = _get_matrix(data_source, layer)
-
-    idx, gene_list = _gene_indexer(data_source.var_names, genes)
-
-    if not allow_missing:
-        _raise_if_missing(idx, gene_list)
-        keep_mask = np.ones_like(idx, dtype=bool)
-    else:
-        keep_mask = idx != -1
-        idx = idx[keep_mask]
-        gene_list = list(np.asarray(gene_list, dtype=object)[keep_mask])
-        if idx.size == 0:
-            raise KeyError("No valid genes found.")
-
-    # Prefer row slicing first (helps backed mode)
-    if cell_indices is not None:
-        cell_indices = np.asarray(cell_indices)
-        X_sub = X[cell_indices, :]
-    else:
-        X_sub = X
-
-    # Backed-aware column slicing
-    gene_data = _take_columns_backed_aware(X_sub, idx)
-
-    # Convert to dense if requested
-    if to_dense:
-        if issparse(gene_data):
-            gene_data = gene_data.toarray()
-        elif hasattr(gene_data, "compute"):  # dask arrays
-            gene_data = gene_data.compute()
-        else:
-            gene_data = np.asarray(gene_data)
-
-        if dtype is not None:
-            gene_data = gene_data.astype(dtype, copy=False)
-
-    obs_index = adata.obs_names if cell_indices is None else adata.obs_names[cell_indices]
-    return pd.DataFrame(gene_data, columns=gene_list, index=obs_index)
-
-
 def apply_transformation(expr, method="log1p", copy=True, clip_percentile=99):
     """
     Apply common transformations for visualization.
@@ -445,9 +357,6 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
 
     n_bins = max(1, min(int(n_bins), len(df)))
 
-    # Use float32 view for gene matrix to reduce memory
-    gene_data = df[gene_columns].to_numpy(dtype=np.float32, copy=False)
-
     # --- Continuous ordering binning (single global sequence) ---
     if continuous_key is not None:
         df_sorted = df.sort_values(continuous_key)
@@ -485,6 +394,7 @@ def bin_cells_for_heatmap(df, gene_columns, groupby, n_bins, continuous_key=None
         return result_df
 
     # --- Group-wise binning ---
+    gene_data = df[gene_columns].to_numpy(dtype=np.float32, copy=False)
     group_codes, unique_groups = pd.factorize(df[groupby], sort=False)
 
     binned_blocks = []

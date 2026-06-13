@@ -107,13 +107,20 @@ def generate_stacked_bar_layout(discrete_label_list, prefix):
 
     column_order_store = dcc.Store(id=f"{prefix}-x-axis-column-order-store", data=[])
 
+    controls_row = dbc.Row(
+        [
+            dbc.Col(stack_by_dropdown, width=6),
+            dbc.Col(norm_box, width=6),
+        ],
+        style={"marginBottom": "15px"},
+    )
+
     return html.Div(
         [
             column_order_store,
             dcc.Store(id=f"{prefix}-stacked-bar-rendered-key"),
-            stack_by_dropdown,
+            controls_row,
             stack_by_tooltip,
-            norm_box,
             draggable_bar,
             x_axis_order_component,
         ],

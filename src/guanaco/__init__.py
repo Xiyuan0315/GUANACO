@@ -10,4 +10,8 @@ except PackageNotFoundError:
 # Scanpy-style plotting namespace for notebooks: ``import guanaco as gc; gc.pl.umap(...)``.
 from guanaco import widget as pl  # noqa: E402
 
-__all__ = ["pl", "__version__"]
+# Interactive control-bar panels for marimo: ``gc.marimo.dotplot(adata)``.
+# Imports cleanly even without marimo installed (it's pulled in lazily on use).
+from guanaco import marimo  # noqa: E402
+
+__all__ = ["pl", "marimo", "__version__"]

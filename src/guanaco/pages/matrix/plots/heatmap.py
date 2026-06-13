@@ -10,6 +10,27 @@ from guanaco.utils.gene_extraction_utils import (
     extract_gene_expression, apply_transformation, bin_cells_for_heatmap
 )
 
+# Standardization is one of: None (raw), "minmax", "zscore".
+#   "minmax" -> Scanpy standard_scale: per-gene (x-min)/(max-min) -> [0, 1].
+#   "zscore" -> per-gene (x-mean)/std, colour range clipped to ±ZSCORE_COLOR_CLIP.
+# z-scores are unbounded -- a single low-variance or very sparse gene can reach ±20
+# and wash out the whole map -- so the symmetric colour range is capped at ±2.5 (the
+# Seurat/Scanpy vmin/vmax convention). The SAME cap is used in the heatmap and dotplot
+# so a given z-score maps to the same colour in both.
+ZSCORE_COLOR_CLIP = 2.5
+
+
+def _canonical_standardization(standardization):
+    """Map UI / legacy values onto the canonical None | 'minmax' | 'zscore'."""
+    if standardization in (None, "None", "none"):
+        return None
+    if standardization in ("minmax", "var"):  # 'var' = legacy notebook min-max
+        return "minmax"
+    if standardization in ("zscore", "z_score", "across_cells", "across_groups"):
+        return "zscore"
+    return None
+
+
 # Cache of standardized + binned per-gene vectors (each ~n_bins long, ~16 KB).
 # Keyed by (bin-plan id, gene, layer, standardization). The bin plan depends only
 # on grouping/labels/cells/layer/standardization — NOT on which genes are shown —
@@ -103,38 +124,38 @@ def _extract_gene_df_after_filter(ctx, valid_genes, layer=None):
     return gene_df
 
 
-def _apply_transformations(gene_df, valid_genes, log, standardization, group_labels=None):
-    """Apply optional log1p then per-gene z-score standardization.
+def _apply_transformations(gene_df, valid_genes, log, standardization):
+    """Apply optional log1p then per-gene standardization over all cells.
 
     standardization:
-        "across_cells"  -> each gene z-scored over all individual cells
-        "across_groups" -> each gene z-scored over its per-group means
-                           (reference = between-group spread)
+        "minmax" -> each gene min-max scaled to [0, 1] (Scanpy standard_scale='var')
+        "zscore" -> each gene z-scored (x-mean)/std
     """
     if log:
         gene_df[valid_genes] = apply_transformation(gene_df[valid_genes], method='log1p', copy=True)
-    if standardization == "across_cells":
+    if standardization == "minmax":
+        block = gene_df[valid_genes]
+        lo = block.min(axis=0)
+        rng = (block.max(axis=0) - lo).replace(0, 1.0)
+        gene_df[valid_genes] = (block - lo) / rng
+    elif standardization == "zscore":
         block = gene_df[valid_genes]
         mu = block.mean(axis=0)
         sd = block.std(axis=0).replace(0, 1.0)
-        gene_df[valid_genes] = (block - mu) / sd
-    elif standardization == "across_groups" and group_labels is not None:
-        block = gene_df[valid_genes]
-        group_means = block.groupby(np.asarray(group_labels), observed=True).mean()
-        mu = group_means.mean(axis=0)
-        sd = group_means.std(axis=0).replace(0, 1.0)
         gene_df[valid_genes] = (block - mu) / sd
     return gene_df
 
 
 def _make_expression_heatmap(matrix, genes, color_map, standardization, colorbar_len, x=None):
     color_map = resolve_continuous_colorscale(color_map)
-    standardized = standardization in ("across_cells", "across_groups")
-    if standardized:
-        z_max = max(abs(matrix.min()), abs(matrix.max())) or 1.0
-        zmin, zmax, zmid = -z_max, z_max, 0
-        label = "cells" if standardization == "across_cells" else "groups"
-        title = f"z-score (across {label})"
+    if standardization == "minmax":
+        # Scanpy standard_scale: already in [0, 1], sequential scale.
+        zmin, zmax, zmid = 0.0, 1.0, None
+        title = "Scaled (0–1)"
+    elif standardization == "zscore":
+        # Cap the symmetric range so outlier z-scores don't wash out the map.
+        zmin, zmax, zmid = -ZSCORE_COLOR_CLIP, ZSCORE_COLOR_CLIP, 0
+        title = "Z-score"
     else:
         zmin, zmax, zmid = matrix.min(), matrix.max(), None
         title = "Expression"
@@ -300,13 +321,6 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
     bin_sizes = np.asarray(bin_sizes, dtype=np.float64)
     bin_group = np.asarray(bin_group, dtype=object)
 
-    # standardization group codes (per filtered cell), for across_groups
-    if standardization == "across_groups":
-        std_codes = pd.factorize(group_series, sort=False)[0]
-        std_counts = np.bincount(std_codes).astype(np.float64)
-    else:
-        std_codes = std_counts = None
-
     # Stable id for the bin plan: unchanged across gene add/remove (same adata,
     # grouping, labels, cell set), so per-gene binned vectors stay cacheable.
     # Prefer a caller-supplied content signature -- it stays stable for the same
@@ -329,18 +343,18 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
         if cached is None or cached.shape[0] != n_out:
             col = np.asarray(
                 extract_gene_expression(adata_src, gene, layer=layer, use_cache=True),
-                dtype=np.float64,
+                dtype=np.float32,
             )
             if row_indices is not None:
                 col = col[row_indices]
-            if standardization == "across_cells":
+            if standardization == "minmax":
+                lo = col.min()
+                rng = col.max() - lo
+                col = (col - lo) / (rng if rng else 1.0)
+            elif standardization == "zscore":
+                # Single-pass: compute mean and std together to avoid scanning twice.
                 mu = col.mean()
-                sd = col.std()
-                col = (col - mu) / (sd if sd else 1.0)
-            elif standardization == "across_groups":
-                gmeans = np.bincount(std_codes, weights=col) / std_counts
-                mu = gmeans.mean()
-                sd = gmeans.std()
+                sd = np.sqrt(((col - mu) ** 2).mean())
                 col = (col - mu) / (sd if sd else 1.0)
             sums = np.bincount(row_to_bin, weights=col, minlength=n_out)
             cached = (sums / bin_sizes).astype(np.float32)
@@ -360,9 +374,10 @@ def plot_unified_heatmap(
     adata_obs=None, data_already_filtered=False, color_config=None
 ):
     log, z_score = _map_transformation_args(transformation, log, z_score)
-    # Legacy z_score (notebook API) maps onto the new across-cells standardization.
+    # Legacy z_score (notebook API) maps onto z-score standardization.
     if standardization is None and z_score:
-        standardization = "across_cells"
+        standardization = "zscore"
+    standardization = _canonical_standardization(standardization)
     if groupby2 and _is_continuous_annotation(adata, groupby2):
         return plot_heatmap2_continuous(
             adata, genes, groupby1, groupby2, labels, log, standardization,
@@ -402,15 +417,12 @@ def plot_unified_heatmap(
         label_list2, label2_dict, value_list2 = [], {}, []
     else:
         gene_df = _extract_gene_df_after_filter(ctx, valid_genes, layer=layer)
-        gene_df = _apply_transformations(
-            gene_df, valid_genes, log, standardization,
-            group_labels=filtered_obs[groupby1].to_numpy(),
-        )
+        gene_df = _apply_transformations(gene_df, valid_genes, log, standardization)
 
         annotation_columns = [groupby1]
         if has_secondary:
             annotation_columns.append(groupby2)
-        heatmap_df = gene_df.copy()
+        heatmap_df = gene_df
         for annotation in annotation_columns:
             heatmap_df[annotation] = filtered_obs[annotation].to_numpy()
 
@@ -564,6 +576,7 @@ def plot_heatmap2_continuous(
     color_map='Viridis', groupby1_label_color_map=None, max_cells=10000, n_bins=4000,
     adata_obs=None, data_already_filtered=False, color_config=None, layer=None
 ):
+    standardization = _canonical_standardization(standardization)
     valid_genes = _validate_genes(adata, genes)
     if not valid_genes:
         fig = go.Figure()
@@ -575,10 +588,7 @@ def plot_heatmap2_continuous(
     filtered_obs = ctx['filtered_obs']
 
     gene_df = _extract_gene_df_after_filter(ctx, valid_genes, layer=layer)
-    gene_df = _apply_transformations(
-        gene_df, valid_genes, log, standardization,
-        group_labels=filtered_obs[groupby1].to_numpy(),
-    )
+    gene_df = _apply_transformations(gene_df, valid_genes, log, standardization)
     heatmap_df = gene_df.copy()
     heatmap_df[groupby1] = filtered_obs[groupby1].to_numpy()
     heatmap_df[continuous_key] = filtered_obs[continuous_key].to_numpy()

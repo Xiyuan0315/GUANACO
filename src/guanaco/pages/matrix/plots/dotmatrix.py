@@ -4,6 +4,7 @@ from dash.exceptions import PreventUpdate
 import pandas as pd
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
+from guanaco.pages.matrix.plots.heatmap import ZSCORE_COLOR_CLIP
 
 from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram as _scipy_dendro
 from scipy.spatial.distance import pdist
@@ -63,22 +64,24 @@ def plot_dot_matrix(
     aggregated_data.index.name = None
     fraction_expressing.index.name = None
 
-    # Standardization: per-gene (column) z-score. The toggle only changes the
-    # reference population for each gene's mean/std.
-    #   across_cells  -> mean/std over all individual cells
-    #   across_groups -> mean/std over the per-group means (scanpy standard_scale='var', signed)
-    # Legacy values ('var'/'group') kept for the notebook API (gc.pl.matrixplot).
-    standardized = standardization in ("across_cells", "across_groups")
-    if standardization == "across_cells":
+    # Standardization (per-gene / column):
+    #   "zscore" -> (x-mean)/std over cells, applied to the per-group means, so each
+    #               dot is the group's mean per-cell z-score -- matches the heatmap.
+    #   "minmax" -> Scanpy standard_scale='var': per-gene min-max over the group
+    #               means -> [0, 1].
+    # Old aliases ('across_cells'/'across_groups') collapse to z-score; the legacy
+    # notebook 'var' (min-max) and 'group' (row z-score) values are still honoured.
+    if standardization in ("across_cells", "across_groups", "z_score", "zscore"):
+        standardization = "zscore"
+    diverging = standardization in ("zscore", "group")  # zero-centred colour scale
+    if standardization == "zscore":
         mu = expr_df.mean(axis=0)
         sd = expr_df.std(axis=0).replace(0, 1.0)
         aggregated_data = (aggregated_data - mu) / sd
-    elif standardization == "across_groups":
-        mu = aggregated_data.mean(axis=0)
-        sd = aggregated_data.std(axis=0).replace(0, 1.0)
-        aggregated_data = (aggregated_data - mu) / sd
-    elif standardization == "var":  # legacy: min-max per gene
-        aggregated_data = (aggregated_data - aggregated_data.min()) / (aggregated_data.max() - aggregated_data.min())
+    elif standardization in ("minmax", "var"):
+        lo = aggregated_data.min(axis=0)
+        rng = (aggregated_data.max(axis=0) - lo).replace(0, 1.0)
+        aggregated_data = (aggregated_data - lo) / rng
     elif standardization == "group":  # legacy: z-score per group (row)
         aggregated_data = (aggregated_data.sub(aggregated_data.mean(axis=1), axis=0)
                                         .div(aggregated_data.std(axis=1), axis=0))
@@ -123,12 +126,19 @@ def plot_dot_matrix(
 
     vmin = float(aggregated_data[gene_order].min().min())
     vmax = float(aggregated_data[gene_order].max().max())
-    if standardized:
-        # Symmetric, zero-centred range so the diverging colours read correctly.
+    if standardization in ("minmax", "var"):
+        # Already in [0, 1] (Scanpy standard_scale), sequential scale.
+        vmin, vmax = 0.0, 1.0
+        colorbar_title = "Scaled (0–1)"
+    elif standardization == "zscore":
+        # Cap the symmetric range so outlier z-scores don't wash out the colours
+        # (same ±cap as the heatmap, so a z-score reads identically in both).
+        vmin, vmax = -ZSCORE_COLOR_CLIP, ZSCORE_COLOR_CLIP
+        colorbar_title = "Z-score"
+    elif standardization == "group":  # legacy row z-score: data-driven symmetric range
         m = max(abs(vmin), abs(vmax)) or 1.0
         vmin, vmax = -m, m
-        label = "cells" if standardization == "across_cells" else "groups"
-        colorbar_title = f"z-score (across {label})"
+        colorbar_title = "Z-score (group)"
     else:
         colorbar_title = "Mean Expression"
 
@@ -294,7 +304,7 @@ def plot_dot_matrix(
             x=x_items,
             y=y_items,
             colorscale=color_map,
-            zmid=0 if standardized else None,
+            zmid=0 if diverging else None,
             zmin=vmin,
             zmax=vmax,
             colorbar=dict(

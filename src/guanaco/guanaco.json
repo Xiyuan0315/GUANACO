@@ -1,9 +1,10 @@
 {
   "Dataset1": {
-    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/paul15_grn.h5ad",
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/volcano_test.h5ad",
     "optional_plot_components": [
       "heatmap",
       "violin",
+      "split-violin",
       "dotplot",
       "stacked-bar"
     ],

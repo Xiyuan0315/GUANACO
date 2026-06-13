@@ -41,13 +41,7 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
             labels={x_meta: f'{x_meta}', y_value: y_label},
             color_discrete_sequence=['#1f77b4']  # Single color for histogram
         )
-        
-        # Add value labels on bars
-        fig.update_traces(
-            texttemplate='%{y:.2f}' if norm == 'prop' else '%{y}',
-            textposition='outside'
-        )
-        
+
     else:
         # Original stacked bar logic
         # Create count dataframe

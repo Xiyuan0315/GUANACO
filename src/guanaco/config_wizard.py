@@ -10,7 +10,7 @@ from tkinter import ttk
 
 try:
     from PIL import Image, ImageTk
-except Exception:  # Pillow is optional; the logo is skipped if unavailable.
+except Exception: 
     Image = ImageTk = None
 
 LOGO_PATH = Path(__file__).parent / "assets" / "configguanaco.png"
@@ -19,6 +19,7 @@ LOGO_PATH = Path(__file__).parent / "assets" / "configguanaco.png"
 OPTIONAL_PLOTS = [
     ("Heatmap", "heatmap"),
     ("Violin", "violin"),
+    ("Comparative Violin", "split-violin"),
     ("Dotplot", "dotplot"),
     ("Stacked Bar", "stacked-bar"),
     ("Expression Trend", "expression-trend"),
@@ -27,7 +28,7 @@ OPTIONAL_PLOTS = [
     ("GRN", "grn"),
 ]
 
-DEFAULT_PLOTS = {"heatmap", "violin", "dotplot", "stacked-bar"}
+DEFAULT_PLOTS = {"heatmap", "violin", "split-violin", "dotplot", "stacked-bar"}
 
 DEFAULT_COLORS = [
     "#E69F00",
@@ -127,6 +128,21 @@ def _split_values(raw: str) -> list[str]:
     return values
 
 
+# Cloud/remote URI schemes accepted for sc_data (mirrors guanaco.data.loader).
+_REMOTE_SCHEMES = ("s3://", "gs://", "gcs://", "az://", "abfs://", "abfss://", "http://", "https://")
+
+
+def _is_remote_uri(value: str) -> bool:
+    """True if value is a cloud/remote URI rather than a local filesystem path."""
+    return value.lower().startswith(_REMOTE_SCHEMES)
+
+
+def _zarr_suffix(value: str) -> bool:
+    """True if the path/URL (ignoring trailing slash and query/fragment) ends in .zarr."""
+    base = value.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return base.lower().endswith(".zarr")
+
+
 class DatasetTab:
     """Widgets and variables describing a single dataset (one Notebook tab)."""
 
@@ -162,17 +178,17 @@ class DatasetTab:
         basics.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         basics.columnconfigure(1, weight=1)
         _entry_row(basics, 0, "Dataset name *", self.name)
-        _entry_row(basics, 1, "AnnData / MuData file *", self.sc_data, browse=self._browse_sc_data)
+        _entry_row(basics, 1, "Data file/URL *", self.sc_data, browse=self._browse_sc_data)
         _entry_row(basics, 2, "Description", self.description)
         ttk.Label(basics, text="Plot tabs to show").grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
         plot_box = ttk.Frame(basics)
         plot_box.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-        # Equal-weight columns so the options spread evenly across the card width.
-        for col in range(4):
+        # 3 columns so longer labels (Comparative Violin, Expression Trend) fit.
+        for col in range(3):
             plot_box.columnconfigure(col, weight=1, uniform="plots")
         for i, (label, value) in enumerate(OPTIONAL_PLOTS):
             ttk.Checkbutton(plot_box, text=label, variable=self.plot_vars[value]).grid(
-                row=i // 4, column=i % 4, sticky="w", padx=(0, 12), pady=4
+                row=i // 3, column=i % 3, sticky="w", padx=(0, 12), pady=4
             )
 
         # Advanced settings.
@@ -253,12 +269,20 @@ class DatasetTab:
         if not name:
             raise ValueError("Every dataset needs a name.")
         if not sc_data:
-            raise ValueError(f"Dataset '{name}': an AnnData / MuData file is required.")
-        sc_data_path = Path(sc_data).expanduser().resolve()
-        if not sc_data_path.exists():
-            raise ValueError(f"Dataset '{name}': file does not exist: {sc_data_path}")
+            raise ValueError(f"Dataset '{name}': a data file or URL is required.")
 
-        dataset: dict = {"sc_data": str(sc_data_path)}
+        if _is_remote_uri(sc_data):
+            # Remote store: keep the URL verbatim (never resolve to a local Path).
+            if not _zarr_suffix(sc_data):
+                raise ValueError(
+                    f"Dataset '{name}': remote data must be a .zarr store URL, got: {sc_data}"
+                )
+            dataset: dict = {"sc_data": sc_data}
+        else:
+            sc_data_path = Path(sc_data).expanduser().resolve()
+            if not sc_data_path.exists():
+                raise ValueError(f"Dataset '{name}': file does not exist: {sc_data_path}")
+            dataset = {"sc_data": str(sc_data_path)}
 
         description = self.description.get().strip()
         if description:
