@@ -68,12 +68,14 @@ class DatasetBundle:
         scatter_defaults: dict[str, str | None] | None = None,
         max_cells: int | None = 10_000,
         expression_layer: str | None = None,
+        gene_annotation_path: str | None = None,
+        modality_configs: dict[str, dict] | None = None,
     ):
 
         self.title = title
         self.description = description
         self._adata = adata
-        self.gene_markers = gene_markers  # Only for RNA, other modalities get first 10 dynamically
+        self.gene_markers = gene_markers  # Dataset-level default; per-modality overrides in modality_configs
         self.label_list = label_list
         self.genome_tracks = genome_tracks
         self.ref_track = ref_track
@@ -81,11 +83,16 @@ class DatasetBundle:
         self.adata_path = adata_path
         self.lazy_load = lazy_load
         self.backed_mode = backed_mode
-        self.optional_plot_components = optional_plot_components
+        self.optional_plot_components = optional_plot_components  # Dataset-level default
         # Optional per-dataset scatter defaults: keys 'embedding', 'annotation', 'gene'.
-        self.scatter_defaults = scatter_defaults or {}
+        self.scatter_defaults = scatter_defaults or {}  # Dataset-level default
         self.max_cells = max_cells
         self.expression_layer = expression_layer
+        self.gene_annotation_path = gene_annotation_path  # Dataset-level default
+        # Per-modality overrides keyed by modality name (e.g. "rna", "atac").
+        # Each value is a dict with optional keys: gene_markers, scatter_defaults,
+        # optional_plot_components, gene_annotation_path.
+        self.modality_configs = modality_configs or {}
 
     @property
     def adata(self):
@@ -124,6 +131,36 @@ def load_config(json_path: Path) -> dict[str, Any]:
     if not json_path.exists():
         raise FileNotFoundError(f"Config file not found: {json_path}")
     return json.loads(json_path.read_text())
+
+
+def _resolve_optional_local_path(value: str | None, base_dir: Path) -> str | None:
+    if not value:
+        return None
+    if _is_remote_uri(value):
+        return str(value)
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    return str(path)
+
+
+def _resolve_gene_annotation_config(value: str | None, base_dir: Path) -> str | None:
+    """Resolve the ``gene_annotation`` config value.
+
+    A genome id (``hg38``/``GRCh38``/``mm10`` ...) or an ``http(s)``/``ftp`` URL is
+    passed through untouched -- ``load_gene_annotation`` downloads those itself, and
+    keeping the id intact also lets the gene track badge show e.g. ``hg38`` rather
+    than a joined-up filesystem path. Only a genuine local path gets ``base_dir``
+    resolution.
+    """
+    if not value:
+        return None
+    text = str(value).strip()
+    from guanaco.pages.matrix.plots.gene_annotation import is_known_genome_id
+
+    if is_known_genome_id(text) or text.lower().startswith(("http://", "https://", "ftp://")):
+        return text
+    return _resolve_optional_local_path(text, base_dir)
 
 def _random_row_indices(n_obs: int, max_cells: int, rng: np.random.Generator) -> np.ndarray:
     """Sorted random subset of row indices (sorted for efficient backed reads)."""
@@ -203,18 +240,30 @@ def _zarr_encoding(group, path_parts) -> str | None:
         return None
 
 
-def _zarr_is_mudata(store: str | Path) -> bool:
-    """Best-effort detection of whether a ``.zarr`` store holds MuData vs AnnData.
+def _group_is_mudata(grp) -> bool:
+    """Detect MuData vs AnnData from an already-open zarr root group.
 
-    Opens the store's root group (consolidated when available) and looks for the
-    MuData ``mod`` group / encoding marker. If the store can't be introspected,
-    assume AnnData and let the reader surface any real error.
+    Looks for the MuData ``mod`` group / encoding marker. Returns False (assume
+    AnnData) if the group can't be introspected, letting the reader surface any
+    real error.
     """
     try:
-        grp = _open_zarr_group(store)
         if "mod" in grp:
             return True
         return str(dict(grp.attrs).get("encoding-type", "")) == "MuData"
+    except Exception as exc:
+        print(f"[guanaco] could not introspect zarr group ({exc}); assuming AnnData.")
+        return False
+
+
+def _zarr_is_mudata(store: str | Path) -> bool:
+    """Best-effort MuData-vs-AnnData detection for a ``.zarr`` store (opens it).
+
+    Prefer :func:`_group_is_mudata` when the root group is already open, so the
+    store isn't opened twice (a network round-trip for a remote URI).
+    """
+    try:
+        return _group_is_mudata(_open_zarr_group(store))
     except Exception as exc:
         print(f"[guanaco] could not introspect zarr store {store} ({exc}); assuming AnnData.")
         return False
@@ -323,7 +372,7 @@ def _backed_expression_layer(group, adata, preferred: str | None = None) -> str 
     return None
 
 
-def _load_zarr_backed(store: str | Path, *, expression_layer: str | None = None) -> ad.AnnData:
+def _load_zarr_backed(store: str | Path, *, group=None, expression_layer: str | None = None) -> ad.AnnData:
     """Open an AnnData ``.zarr`` store backed: ``X`` stays remote/on-disk, metadata in memory.
 
     This is the cloud-native form of "backed" access described in the anndata
@@ -351,7 +400,8 @@ def _load_zarr_backed(store: str | Path, *, expression_layer: str | None = None)
     """
     from anndata.experimental import read_elem_lazy, read_lazy
 
-    group = _open_zarr_group(store)
+    if group is None:
+        group = _open_zarr_group(store)
     adata = read_lazy(group)
 
     layer = _backed_expression_layer(group, adata, expression_layer)
@@ -410,20 +460,33 @@ def _load_zarr(
       unavailable.
     """
     rng = np.random.default_rng(seed)
-    is_mudata = _zarr_is_mudata(store)
+
+    # Open the store's root group once and reuse it for MuData detection, backed
+    # loading and the lazy read. Opening a remote consolidated store is a network
+    # round-trip, so repeating it per step doubles/triples startup latency.
+    try:
+        group = _open_zarr_group(store)
+    except Exception as exc:
+        print(f"[guanaco] could not open zarr store {store} ({exc}); deferring to in-memory read.")
+        group = None
+
+    is_mudata = _group_is_mudata(group) if group is not None else _zarr_is_mudata(store)
 
     if is_mudata:
+        # MuData has no lazy/group reader, so it always re-reads the store in memory.
         if backed:
             print(f"[guanaco] cloud-backed lazy mode is not available for MuData .zarr ({store}); loaded in memory.")
         return _to_gene_major(_downsample(mu.read_zarr(store), max_cells, rng))
 
     if backed:
-        return _load_zarr_backed(store, expression_layer=expression_layer)
+        return _load_zarr_backed(store, group=group, expression_layer=expression_layer)
 
     try:
         from anndata.experimental import read_lazy
 
-        lazy = read_lazy(_open_zarr_group(store))
+        if group is None:
+            raise RuntimeError("zarr store could not be opened")
+        lazy = read_lazy(group)
     except Exception as exc:
         # dask/fsspec missing, or the store can't be opened lazily: degrade to a
         # full in-memory read so loading never hard-fails.
@@ -472,6 +535,27 @@ def _to_gene_major(data):
     else:
         _convert(data)
     return data
+
+
+def _close_backed_view(view) -> None:
+    """Release a backed AnnData/MuData's on-disk file handle(s); ignore errors.
+
+    Once the cells we keep are copied into RAM, the backing file is no longer
+    needed. AnnData exposes a single ``.file`` handle; MuData holds one on the
+    container plus one per modality, so close them all to avoid leaking handles
+    (each backed load otherwise keeps the ``.h5mu`` open for the process lifetime).
+    """
+    def _close(obj):
+        try:
+            f = getattr(obj, "file", None)
+            if f is not None:
+                f.close()
+        except Exception:
+            pass
+
+    _close(view)
+    for mod in getattr(view, "mod", {}).values():
+        _close(mod)
 
 
 def load_adata(
@@ -564,6 +648,7 @@ def load_adata(
             else:
                 adata = view.copy()
                 print(f"Loaded {path} (MuData) into memory ({n_obs} cells)")
+            _close_backed_view(view)  # release the backed .h5mu handle(s); data is in RAM
             return _to_gene_major(adata)
 
         view = ad.read_h5ad(path, backed="r")
@@ -575,10 +660,7 @@ def load_adata(
         else:
             adata = view.to_memory()
             print(f"Loaded {path} into memory ({n_obs} cells)")
-        try:
-            view.file.close()  # release the on-disk handle; data is now in RAM
-        except Exception:
-            pass
+        _close_backed_view(view)  # release the on-disk handle; data is now in RAM
         return _to_gene_major(adata)
 
     except Exception as exc:
@@ -883,6 +965,7 @@ def initialize_data(
         cfg = load_config(json_path)
     global_colors = cfg.get("color", DEFAULT_COLORS)
     genome = cfg.get("genome", "hg38")
+    config_base_dir = Path(json_path).expanduser().resolve().parent
     datasets: dict[str, DatasetBundle] = {}
 
     for dataset_key, dataset_cfg in cfg.items():
@@ -931,6 +1014,71 @@ def initialize_data(
 
         # Per-dataset color palette; fall back to the global/default palette.
         dataset_colors = dataset_cfg.get("color", global_colors)
+        gene_annotation_path = _resolve_gene_annotation_config(
+            dataset_cfg.get("gene_annotation")
+            or dataset_cfg.get("gene_annotation_path")
+            or dataset_cfg.get("gtf_path")
+            or dataset_cfg.get("gtf"),
+            config_base_dir,
+        )
+        # Fallback: when no explicit gene_annotation is set, the genome field (which
+        # is almost always a known genome id) drives both IGV and the built-in ATAC
+        # browser's gene models.  Dataset-level genome trumps the global genome.
+        if gene_annotation_path is None:
+            dataset_genome = dataset_cfg.get("genome", genome)
+            gene_annotation_path = _resolve_gene_annotation_config(dataset_genome, config_base_dir)
+
+        # --- per-modality overrides (modalities block) -----------------------
+        modality_configs: dict[str, dict] = {}
+        modalities_cfg = dataset_cfg.get("modalities", {})
+        if isinstance(modalities_cfg, dict):
+            for mod_name, mod_cfg in modalities_cfg.items():
+                if not isinstance(mod_cfg, dict):
+                    continue
+                # Resolve per-modality gene_annotation:
+                #  1. explicit per-modality value
+                #  2. dataset-level gene_annotation_path (already resolved above)
+                #  3. dataset-level / global genome (already handled above via fallback)
+                mod_ga = _resolve_gene_annotation_config(
+                    mod_cfg.get("gene_annotation"),
+                    config_base_dir,
+                )
+                if mod_ga is None:
+                    mod_ga = gene_annotation_path  # dataset-level (may be genome fallback)
+
+                # Per-modality markers: override the dataset-level list.
+                mod_markers = mod_cfg.get("markers")
+                if mod_markers is None:
+                    mod_markers = gene_markers  # dataset-level fallback
+
+                # Per-modality scatter defaults.
+                mod_scatter = {
+                    "embedding_left": mod_cfg.get("default_embedding_left"),
+                    "embedding_right": mod_cfg.get("default_embedding_right"),
+                    "color_left": mod_cfg.get("default_color_left"),
+                    "color_right": mod_cfg.get("default_color_right"),
+                }
+                # Fallback: dataset-level value for any key not set per-modality.
+                ds_scatter = {
+                    "embedding_left": dataset_cfg.get("default_embedding_left"),
+                    "embedding_right": dataset_cfg.get("default_embedding_right"),
+                    "color_left": dataset_cfg.get("default_color_left"),
+                    "color_right": dataset_cfg.get("default_color_right"),
+                }
+                for k in mod_scatter:
+                    if mod_scatter[k] is None:
+                        mod_scatter[k] = ds_scatter[k]
+
+                mod_opts = mod_cfg.get("optional_plot_components")
+                if mod_opts is None:
+                    mod_opts = dataset_cfg.get("optional_plot_components")
+
+                modality_configs[mod_name] = {
+                    "gene_markers": mod_markers,
+                    "scatter_defaults": mod_scatter,
+                    "optional_plot_components": mod_opts,
+                    "gene_annotation_path": mod_ga,
+                }
 
         # Handle genome browser section (optional)
         genome_tracks = None
@@ -942,7 +1090,7 @@ def initialize_data(
             # Set defaults for optional genome browser parameters
             max_heights = dataset_cfg.get("max_height", [None] * len(dataset_cfg["bucket_urls"]))
             atac_names = dataset_cfg.get("ATAC_name", [f"Track_{i}" for i in range(len(dataset_cfg["bucket_urls"]))])
-            
+
             genome_tracks = load_tracks_from_s3(
                 dataset_cfg["bucket_urls"],
                 max_heights,
@@ -952,7 +1100,7 @@ def initialize_data(
             ref_track = get_ref_track(dataset_genome)
 
         # Create dataset bundle only if at least one data type is present
-        if (adata is not None or genome_tracks is not None or 
+        if (adata is not None or genome_tracks is not None or
             (lazy_load and "sc_data" in dataset_cfg and dataset_cfg["sc_data"])):
             dataset_bundle = DatasetBundle(
                 title=dataset_key,
@@ -975,6 +1123,8 @@ def initialize_data(
                 },
                 max_cells=max_cells,
                 expression_layer=dataset_cfg.get("expression_layer"),
+                gene_annotation_path=gene_annotation_path,
+                modality_configs=modality_configs or None,
             )
             datasets[dataset_key] = dataset_bundle
         else:

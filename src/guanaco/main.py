@@ -38,6 +38,17 @@ app.layout = html.Div([
     guanaco_footer,
 ])
 
+# Helper to look up a per-modality config value, falling back to dataset-level.
+def _modality_config(dataset, mod: str) -> dict:
+    """Return the effective per-modality config dict for *mod*."""
+    mc = (dataset.modality_configs or {}).get(mod, {})
+    return {
+        "gene_markers": mc.get("gene_markers", dataset.gene_markers),
+        "scatter_defaults": mc.get("scatter_defaults", dataset.scatter_defaults),
+        "optional_plot_components": mc.get("optional_plot_components", dataset.optional_plot_components),
+        "gene_annotation_path": mc.get("gene_annotation_path", dataset.gene_annotation_path),
+    }
+
 # Register callbacks for scatter and other plots for each dataset
 for name, dataset in datasets.items():
     dataset_adata = dataset.adata
@@ -48,27 +59,31 @@ for name, dataset in datasets.items():
             for mod in dataset_adata.mod.keys():
                 mod_adata = dataset_adata.mod[mod]
                 prefix = f"{name}-{mod}"
+                mod_cfg = _modality_config(dataset, mod)
                 # Pre-load config marker genes into memory for backed RNA data.
-                if dataset.backed_mode and mod == "rna" and dataset.gene_markers:
-                    pin_genes(mod_adata, dataset.gene_markers)
+                if dataset.backed_mode and mod == "rna" and mod_cfg["gene_markers"]:
+                    pin_genes(mod_adata, mod_cfg["gene_markers"])
                 matrix_callbacks(
                     app,
                     mod_adata,
                     prefix,
                     embedding_render_backend=embedding_render_backend,
                     color_config=dataset.color_config,
+                    gene_annotation_path=mod_cfg["gene_annotation_path"],
                 )
         else:
             prefix = name
+            mod_cfg = _modality_config(dataset, "rna")
             # Pre-load config marker genes into memory so the first access is instant.
-            if dataset.backed_mode and dataset.gene_markers:
-                pin_genes(dataset_adata, dataset.gene_markers)
+            if dataset.backed_mode and mod_cfg["gene_markers"]:
+                pin_genes(dataset_adata, mod_cfg["gene_markers"])
             matrix_callbacks(
                 app,
                 dataset_adata,
                 prefix,
                 embedding_render_backend=embedding_render_backend,
                 color_config=dataset.color_config,
+                gene_annotation_path=mod_cfg["gene_annotation_path"],
             )
 
     if dataset.genome_tracks is not None and dataset.ref_track is not None:
@@ -105,24 +120,28 @@ def update_anndata_layout(selected_modality, active_tab):
     dataset_adata = dataset.adata
     if dataset_adata is None:
         return html.Div("No AnnData available for this dataset", style={"padding": "20px"})
-    
+
     is_multimodal = isinstance(dataset_adata, mu.MuData)
     adata = dataset_adata.mod[selected_modality] if is_multimodal else dataset_adata
     label_list = _cached_discrete_labels(adata)
     prefix = f"{active_tab}-{selected_modality}" if is_multimodal else active_tab
-    
-    if selected_modality == 'rna' and dataset.gene_markers is not None:
-        modality_markers = dataset.gene_markers
+
+    # Per-modality config (falls back to dataset-level for single-modality / legacy configs).
+    mod_cfg = _modality_config(dataset, selected_modality)
+
+    if mod_cfg["gene_markers"] is not None:
+        modality_markers = mod_cfg["gene_markers"]
     else:
         modality_markers = adata.var_names[:6].tolist() if adata else []
-    
+
     return anndata_layout(
         adata,
         modality_markers,
         label_list,
         prefix,
-        optional_plot_components=dataset.optional_plot_components,
-        scatter_defaults=dataset.scatter_defaults,
+        optional_plot_components=mod_cfg["optional_plot_components"],
+        scatter_defaults=mod_cfg["scatter_defaults"],
+        gene_annotation_path=mod_cfg["gene_annotation_path"],
     )
 
 @app.callback(

@@ -3,6 +3,7 @@ from dash import Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
 from guanaco.utils.colors import resolve_discrete_palette
+from guanaco.utils.obs_utils import sorted_categories
 
 
 
@@ -25,11 +26,8 @@ def register_violin_callbacks(
         [Input(f"{prefix}-meta1-selection", "value"), Input(f"{prefix}-selected-cells-store", "data")],
     )
     def update_group_labels(selected_column, selected_cells):
-        if selected_cells:
-            filtered_adata = adata[selected_cells]
-            unique_labels = sorted(filtered_adata.obs[selected_column].dropna().unique(), key=str)
-        else:
-            unique_labels = sorted(adata.obs[selected_column].dropna().unique(), key=str)
+        src = adata[selected_cells] if selected_cells else adata
+        unique_labels = sorted_categories(src, selected_column)
         options = [{"label": str(label), "value": str(label)} for label in unique_labels]
         values = [str(label) for label in unique_labels]
         return options, values
@@ -44,6 +42,7 @@ def register_violin_callbacks(
             Input(f"{prefix}-show-box1", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-single-cell-tabs", "value"),
         ],
         [
             State(f"{prefix}-violin-plot-cache-store", "data"),
@@ -58,9 +57,15 @@ def register_violin_callbacks(
         show_box_plot,
         discrete_color_map,
         cells_hash,
+        active_tab,
         current_cache,
         selected_cells,
     ):
+        # Lazy: only build the violin figure when its tab is active, so the default
+        # (e.g. dot plot) view doesn't also pay to compute violins it shares inputs
+        # with. The tab itself is an Input, so switching to violin triggers the build.
+        if active_tab != "violin-tab":
+            return no_update
         layer = data_layer if data_layer and data_layer != "X" else None
         cache_key = f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_{show_box_plot}_{discrete_color_map}_{cells_hash}"
 
@@ -72,7 +77,7 @@ def register_violin_callbacks(
 
         color_map = None
         if discrete_color_map:
-            unique_labels = sorted(adata.obs[selected_annotation].unique())
+            unique_labels = sorted_categories(adata, selected_annotation)
             discrete_palette = resolve_discrete_palette(discrete_color_map, len(unique_labels))
             color_map = {label: discrete_palette[i % len(discrete_palette)] for i, label in enumerate(unique_labels)}
 
@@ -233,6 +238,9 @@ def register_violin_callbacks(
         ],
     )
     def update_violin2(gene_selection, meta1, meta2, mode, test_method, show_box2, data_layer, selected_palette_name, selected_cells):
+        # Not tab-gated: all of this plot's controls live on its own tab, so it only
+        # recomputes in response to its own inputs -- it was never part of the
+        # eager-load issue that the (left-panel-driven) violin1 cache had.
         layer = data_layer if data_layer and data_layer != "X" else None
         if selected_cells:
             filtered_adata = filter_data(adata, None, None, selected_cells)

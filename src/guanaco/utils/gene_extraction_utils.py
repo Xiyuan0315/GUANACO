@@ -89,6 +89,31 @@ class GeneExpressionCache:
         self._store_data(key, val, now)
         return val
 
+    def peek(self, adata, gene, layer=None, use_raw=False):
+        """Return a cached vector without computing it; None if absent or expired.
+
+        Lets a batched reader serve cache hits and collect only the misses, so it
+        can read those in a single column slice.
+        """
+        key = self._make_key(adata, gene, layer, use_raw)
+        pinned = self._pinned.get(key)
+        if pinned is not None:
+            return pinned
+        if key in self._data:
+            ts, val = self._data[key]
+            if time.time() - ts < self.max_age_seconds:
+                self._data.move_to_end(key)
+                return val
+            self._pop_data(key)
+        return None
+
+    def store(self, adata, gene, layer, use_raw, value):
+        """Insert a precomputed vector into the LRU cache (no-op if already pinned)."""
+        key = self._make_key(adata, gene, layer, use_raw)
+        if key in self._pinned:
+            return
+        self._store_data(key, value, time.time())
+
     def pin(self, adata, gene, layer, use_raw, compute_fn):
         """Compute (if needed) and keep a gene vector pinned in memory.
 
@@ -198,6 +223,30 @@ def _compute_gene_vector(adata, gene, layer=None, use_raw=False, dtype=None):
     return out
 
 
+def _compute_gene_block(adata, genes, layer=None, use_raw=False, dtype=None):
+    """Read several genes' columns in ONE slice: returns {gene: 1D vector}.
+
+    ``X[:, idxs]`` is a single column slice -- one ``indptr`` scan for a sparse
+    matrix, one read for a cloud-backed dask array -- instead of one slice per
+    gene. Genes must already be known to exist in ``var_names`` (callers filter).
+    """
+    data_source = _get_data_source(adata, use_raw)
+    X = _get_matrix(data_source, layer)
+
+    idxs = np.asarray(data_source.var_names.get_indexer(genes), dtype=np.int64)
+    block = _densify(X[:, idxs])
+    if block.ndim == 1:  # single gene -> keep 2D so the column split below works
+        block = block.reshape(-1, 1)
+
+    out = {}
+    for col, gene in enumerate(genes):
+        vec = np.ascontiguousarray(block[:, col]).ravel()
+        if dtype is not None:
+            vec = vec.astype(dtype, copy=False)
+        out[gene] = vec
+    return out
+
+
 # --------------------------
 # Public API
 # --------------------------
@@ -219,7 +268,9 @@ def pin_genes(adata, genes, layer=None, use_raw=False, max_genes=PIN_GENE_LIMIT,
     """Pre-load (pin) gene vectors into memory so the first access is instant.
 
     Intended for backed datasets, where the first read of a gene otherwise hits
-    disk. Pinned vectors are never evicted by the LRU cache and never expire.
+    disk. All genes are read in ONE batched column slice rather than one slice per
+    gene -- the difference between one and N ``indptr`` scans / cloud reads at
+    startup. Pinned vectors are never evicted by the LRU cache and never expire.
     Genes missing from ``adata.var_names`` are skipped. Returns the count pinned.
     """
     if isinstance(genes, str):
@@ -228,21 +279,58 @@ def pin_genes(adata, genes, layer=None, use_raw=False, max_genes=PIN_GENE_LIMIT,
         return 0
 
     var_names = adata.var_names
-    pinned = 0
+    to_pin = []
     for gene in genes:
-        if max_genes is not None and pinned >= max_genes:
+        if max_genes is not None and len(to_pin) >= max_genes:
             break
-        if gene not in var_names:
+        if gene in var_names and gene not in to_pin:
+            to_pin.append(gene)
+    if not to_pin:
+        return 0
+
+    # One slice for all genes; then pin each precomputed vector (the pin's compute_fn
+    # just returns it, so no further reads happen).
+    vectors = _compute_gene_block(adata, to_pin, layer, use_raw, dtype)
+    pinned = 0
+    for gene in to_pin:
+        vec = vectors.get(gene)
+        if vec is None:
             continue
-        _gene_cache.pin(
-            adata,
-            gene,
-            layer,
-            use_raw,
-            lambda g=gene: _compute_gene_vector(adata, g, layer, use_raw, dtype),
-        )
+        _gene_cache.pin(adata, gene, layer, use_raw, lambda v=vec: v)
         pinned += 1
     return pinned
+
+
+def prewarm_gene_cache(adata, genes, layer=None, use_raw=False, dtype=np.float32):
+    """Batch-read any not-yet-cached genes in one slice and populate the LRU cache.
+
+    Call this before a per-gene extraction loop: the genes already cached (or
+    pinned) are left untouched, the rest are read in a single ``X[:, idxs]`` slice
+    and stored, so the following ``extract_gene_expression`` calls all hit the
+    cache instead of issuing one column slice each. Missing genes are skipped.
+    """
+    if isinstance(genes, str):
+        genes = [genes]
+    if not genes:
+        return
+
+    data_source = _get_data_source(adata, use_raw)
+    var_names = data_source.var_names
+
+    misses = []
+    seen = set()
+    for gene in genes:
+        if gene in seen or gene not in var_names:
+            continue
+        seen.add(gene)
+        if _gene_cache.peek(adata, gene, layer, use_raw) is None:
+            misses.append(gene)
+    if not misses:
+        return
+
+    vectors = _compute_gene_block(adata, misses, layer, use_raw, dtype)
+    for gene, vec in vectors.items():
+        _gene_cache.store(adata, gene, layer, use_raw, vec)
 
 
 def extract_gene_expression(

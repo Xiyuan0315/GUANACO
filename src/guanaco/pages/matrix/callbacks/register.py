@@ -30,6 +30,7 @@ from guanaco.pages.matrix.layouts.pseudotime_layout import generate_pseudotime_l
 from guanaco.pages.matrix.layouts.paga_layout import generate_paga_layout
 from guanaco.pages.matrix.layouts.volcano_layout import generate_volcano_layout
 from guanaco.pages.matrix.layouts.grn_demo_layout import generate_grn_demo_layout
+from guanaco.pages.matrix.layouts.atac_browser_layout import generate_atac_browser_layout
 from guanaco.pages.matrix.layouts.embedding_layout import (
     generate_embedding_plots as build_embedding_plots,
     initialize_scatter_components as build_initialize_scatter_components,
@@ -43,7 +44,10 @@ from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import register_stacke
 from guanaco.pages.matrix.callbacks.paga_callbacks import register_paga_callbacks
 from guanaco.pages.matrix.callbacks.volcano_callbacks import register_volcano_callbacks
 from guanaco.pages.matrix.callbacks.grn_demo_callbacks import register_grn_demo_callbacks
+from guanaco.pages.matrix.callbacks.atac_browser_callbacks import register_atac_browser_callbacks
+from guanaco.pages.matrix.plots.atac_browser import has_genomic_peak_features
 from guanaco.utils.colors import discrete_palette_config
+from guanaco.utils.obs_utils import sorted_categories
 from guanaco.data.registry import color_config as _default_color_config
 warnings.filterwarnings('ignore', message='.*observed=False.*')
 
@@ -282,7 +286,14 @@ def generate_left_control(default_gene_markers, label_list, prefix):
     ])
 
 
-def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefix, optional_plot_components=None):
+def generate_other_plots(
+    adata,
+    default_gene_markers,
+    discrete_label_list,
+    prefix,
+    optional_plot_components=None,
+    gene_annotation_path=None,
+):
     component_aliases = {
         'vocano': 'volcano',
         'grn-demo': 'grn',
@@ -294,16 +305,28 @@ def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefi
         'splitviolin': 'split-violin',
         'grouped-violin': 'split-violin',
         'group-violin': 'split-violin',
+        'trackplot': 'peak-browser',
+        'track-plot': 'peak-browser',
+        'genome-browser': 'peak-browser',
+        'atac_browser': 'peak-browser',
+        'atac-browser': 'peak-browser',  # legacy key
     }
-    valid_optional_components = {'heatmap', 'violin', 'split-violin', 'dotplot', 'stacked-bar', 'pseudotime', 'paga', 'volcano', 'grn'}
+    valid_optional_components = {
+        'heatmap', 'violin', 'split-violin', 'dotplot', 'stacked-bar',
+        'pseudotime', 'paga', 'volcano', 'grn', 'peak-browser',
+    }
     if optional_plot_components is None:
         selected_optional_components = ['heatmap', 'violin', 'split-violin', 'dotplot', 'stacked-bar']
+        if has_genomic_peak_features(adata):
+            selected_optional_components.append('peak-browser')
     else:
         selected_optional_components = [
             component_aliases.get(comp, comp)
             for comp in optional_plot_components
             if component_aliases.get(comp, comp) in valid_optional_components
         ]
+    if 'peak-browser' in selected_optional_components and not has_genomic_peak_features(adata):
+        selected_optional_components = [comp for comp in selected_optional_components if comp != 'peak-browser']
     if 'paga' in selected_optional_components and not (
         'paga' in adata.uns and 'connectivities' in adata.uns['paga']
     ):
@@ -320,6 +343,7 @@ def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefi
         ('paga', 'paga-tab'),
         ('volcano', 'volcano-tab'),
         ('grn', 'grn-tab'),
+        ('peak-browser', 'peak-browser-tab'),
     ]
     initial_tab_value = next(
         (tab for key, tab in tab_order if key in selected_optional_components),
@@ -375,6 +399,14 @@ def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefi
         tabs_children.append(
             dcc.Tab(label='GRN', value='grn-tab', children=[html.Div(generate_grn_demo_layout(adata, prefix))])
         )
+    if 'peak-browser' in selected_optional_components:
+        tabs_children.append(
+            dcc.Tab(
+                label='Peak Browser',
+                value='peak-browser-tab',
+                children=[html.Div(generate_atac_browser_layout(adata, prefix, gene_annotation_path=gene_annotation_path))]
+            )
+        )
 
     tabs = dcc.Tabs(
         tabs_children,
@@ -394,7 +426,8 @@ def generate_other_plots(adata, default_gene_markers, discrete_label_list, prefi
     return dbc.Row([
         dbc.Col(
             generate_left_control(default_gene_markers, discrete_label_list, prefix),
-            xs=12, sm=12, md=4, lg=4, xl=2
+            xs=12, sm=12, md=4, lg=4, xl=2,
+            style={"borderRight": "1px solid #ddd", "padding": "10px"},
         ),
         dbc.Col([tabs, no_optional_plots_msg] if no_optional_plots_msg else [tabs], xs=12, sm=12, md=8, lg=8, xl=10)
     ], style={'marginBottom': '50px'})
@@ -418,7 +451,14 @@ def is_continuous_annotation(adata, annotation, threshold=50):
 
 # ============= Main Callback Functions =============
 
-def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", color_config=None):
+def matrix_callbacks(
+    app,
+    adata,
+    prefix,
+    embedding_render_backend="scattergl",
+    color_config=None,
+    gene_annotation_path=None,
+):
     """Combined callback registration for both scatter and other plots"""
     embedding_render_backend = str(embedding_render_backend).lower()
     if embedding_render_backend not in {"scattergl", "datashader"}:
@@ -703,15 +743,10 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", c
     )
     def update_labels_based_on_annotation(selected_annotation, selected_cells):
         # Filter adata if cells are selected
-        if selected_cells:
-            filtered_adata = adata[selected_cells]
-            unique_labels = filtered_adata.obs[selected_annotation].unique().tolist()
-        else:
-            unique_labels = adata.obs[selected_annotation].unique().tolist()
-        
-        label_options = [{'label': label, 'value': label} for label in sorted(unique_labels)]
-        label_values = sorted(unique_labels)
-        return label_options, label_values
+        src = adata[selected_cells] if selected_cells else adata
+        unique_labels = sorted_categories(src, selected_annotation)
+        label_options = [{'label': label, 'value': label} for label in unique_labels]
+        return label_options, list(unique_labels)
 
     register_heatmap_callbacks(
         app,
@@ -795,6 +830,15 @@ def matrix_callbacks(app, adata, prefix, embedding_render_backend="scattergl", c
         adata,
         prefix,
     )
+
+    if has_genomic_peak_features(adata):
+        register_atac_browser_callbacks(
+            app,
+            adata,
+            prefix,
+            gene_annotation_path=gene_annotation_path,
+            color_config=color_config,
+        )
 
     # Add callback to update filter status
     @app.callback(

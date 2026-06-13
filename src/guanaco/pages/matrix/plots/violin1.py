@@ -4,7 +4,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
 from guanaco.utils.gene_extraction_utils import (
-    extract_gene_expression, apply_transformation
+    extract_gene_expression, apply_transformation, prewarm_gene_cache
 )
 import hashlib
 import time
@@ -75,6 +75,46 @@ def _build_group_sample(label_masks, labels, rng):
     return plan
 
 
+def _label_masks(obs_values, labels):
+    obs_values_array = obs_values.to_numpy() if hasattr(obs_values, 'to_numpy') else np.array(obs_values)
+    masks = {}
+    for label in labels:
+        mask = obs_values_array == label
+        if np.any(mask):
+            masks[label] = mask
+    return masks
+
+
+def _row_positions_for_labels(adata, groupby, labels, data_already_filtered):
+    if labels and not data_already_filtered:
+        return np.where(adata.obs[groupby].isin(labels).to_numpy())[0]
+    return None
+
+
+def _extract_gene_frame(adata, valid_genes, row_pos, layer=None):
+    prewarm_gene_cache(adata, valid_genes, layer=layer)
+    gene_data = {}
+    for gene in valid_genes:
+        col = extract_gene_expression(adata, gene, layer=layer)
+        gene_data[gene] = col[row_pos] if row_pos is not None else col
+    return pd.DataFrame(gene_data)
+
+
+def _apply_gene_transformations(gene_df, valid_genes, transformation):
+    if not transformation:
+        return gene_df
+    for gene in valid_genes:
+        gene_df[gene] = apply_transformation(gene_df[gene], method=transformation)
+    return gene_df
+
+
+def _cache_violin_data(cache_key, cached_data):
+    if len(_violin_data_cache) >= 50:
+        oldest_key = next(iter(_violin_data_cache))
+        del _violin_data_cache[oldest_key]
+    _violin_data_cache[cache_key] = cached_data
+
+
 def _create_cache_key(genes, labels, groupby, transformation, adata_id):
     """Create a unique cache key for violin data."""
     key_data = {
@@ -87,14 +127,107 @@ def _create_cache_key(genes, labels, groupby, transformation, adata_id):
     }
     return hashlib.md5(str(key_data).encode()).hexdigest()
 
+
 def _get_adata_id(adata):
     """Get a unique identifier for the adata object."""
     if hasattr(adata, 'isbacked') and adata.isbacked and hasattr(adata, 'filename'):
         return adata.filename
-    else:
-        return f"{id(adata)}_{adata.shape}"
+    return f"{id(adata)}_{adata.shape}"
 
-def _extract_and_cache_violin_data(adata, genes, labels, groupby, transformation, data_already_filtered=False, layer=None):
+
+def _label_color_map(adata, groupby, groupby_label_color_map, adata_obs=None):
+    unique_labels = (
+        sorted(adata_obs[groupby].unique())
+        if adata_obs is not None
+        else sorted(adata.obs[groupby].unique())
+    )
+    if groupby_label_color_map is not None:
+        return groupby_label_color_map
+    return {label: default_color[i % len(default_color)] for i, label in enumerate(unique_labels)}
+
+
+def _subplot_geometry(valid_genes):
+    num_genes = len(valid_genes)
+    fig_height = max(400, num_genes * 140)
+    # Keep a consistent ~28px gap between rows so adjacent y-axis tick labels (the
+    # 0.0 of one row and the top tick of the next) don't overlap, for any number
+    # of genes. vertical_spacing is a fraction of height, capped to Plotly's max.
+    target_gap_px = 28
+    vertical_spacing = min(target_gap_px / fig_height, 0.9 / max(num_genes - 1, 1))
+
+    # Reserve a fixed left label column sized to the longest gene name so every
+    # subplot's y-axis starts at the same x and the labels never overlap.
+    tick_pad = 40
+    max_label_len = max((len(str(g)) for g in valid_genes), default=1)
+    left_margin = int(min(360, tick_pad + max_label_len * 7 + 15))
+    return num_genes, fig_height, vertical_spacing, tick_pad, left_margin
+
+
+def _violin_spanmode(group_expr):
+    return 'soft' if np.var(group_expr) < 1e-10 else 'hard'
+
+
+def _expression_range(gene_values):
+    expr_min = gene_values.min()
+    expr_max = gene_values.max()
+    if expr_max == expr_min:
+        pad = 1e-3 if expr_max == 0 else abs(expr_max) * 0.05
+        return [expr_min - pad, expr_max + pad]
+    return [expr_min, expr_max]
+
+
+def _add_gene_annotation(fig, gene, index, tick_pad):
+    yaxis_domain_ref = "y domain" if index == 0 else f"y{index + 1} domain"
+    fig.add_annotation(
+        text=str(gene),
+        xref="paper", x=0, xanchor="right", xshift=-tick_pad,
+        yref=yaxis_domain_ref, y=0.5, yanchor="middle",
+        showarrow=False,
+        font=dict(size=12),
+    )
+
+
+def _add_violin_trace(fig, group_expr, label, row, show_box, color):
+    fig.add_trace(
+        go.Violin(
+            y=group_expr,
+            x=[label] * len(group_expr),
+            width=0.8,
+            # Show Box Plot -> the violin's inner box (Q1-Q3 + median)
+            # styled as a neutral, narrow, light overlay (Median + IQR).
+            box=dict(
+                visible=show_box,
+                width=0.12,
+                fillcolor=OVERLAY_FILL_COLOR,
+                line=dict(color=OVERLAY_LINE_COLOR, width=1),
+            ),
+            points=False,
+            meanline_visible=True,
+            name=label,
+            spanmode=_violin_spanmode(group_expr),
+            fillcolor=_to_rgba(color, VIOLIN_FILL_ALPHA),
+            line_color='DarkSlateGrey',
+            hoveron='violins',
+            hoverinfo='y',
+            jitter=0.05,
+            scalemode='width',
+            scalegroup=label,
+            marker=dict(size=2),
+        ),
+        row=row,
+        col=1,
+    )
+
+
+def _extract_and_cache_violin_data(
+    adata,
+    genes,
+    labels,
+    groupby,
+    transformation,
+    data_already_filtered=False,
+    layer=None,
+):
     """Extract and cache violin plot data for reuse."""
     adata_id = _get_adata_id(adata)
     cache_key = _create_cache_key(
@@ -116,28 +249,18 @@ def _extract_and_cache_violin_data(adata, genes, labels, groupby, transformation
     if not valid_genes:
         return None
 
-    # Restrict to the selected labels' cells (integer row positions), unless the
-    # caller already passed filtered data -- then keep every row.
-    if labels and not data_already_filtered:
-        row_pos = np.where(adata.obs[groupby].isin(labels).to_numpy())[0]
-    else:
-        row_pos = None
+    row_pos = _row_positions_for_labels(adata, groupby, labels, data_already_filtered)
+    if adata.n_obs == 0 or (row_pos is not None and row_pos.size == 0):
+        return None
 
     # Per-gene extraction through the shared cache-backed single-column path: each
     # gene's full column is read once, cached, and reused across plots; we then keep
     # the selected rows. Consumers index gene_df / obs_values positionally, so it is
     # row order -- not the index -- that must line up, and both come from row_pos.
-    gene_data = {}
-    for gene in valid_genes:
-        col = extract_gene_expression(adata, gene, layer=layer)
-        gene_data[gene] = col[row_pos] if row_pos is not None else col
-    gene_df = pd.DataFrame(gene_data)
+    gene_df = _extract_gene_frame(adata, valid_genes, row_pos, layer=layer)
     obs_values = adata.obs.iloc[row_pos][groupby] if row_pos is not None else adata.obs[groupby]
     
-    # Apply transformations
-    if transformation:
-        for gene in valid_genes:
-            gene_df[gene] = apply_transformation(gene_df[gene], method=transformation)
+    gene_df = _apply_gene_transformations(gene_df, valid_genes, transformation)
     
     # Create cached data structure
     cached_data = {
@@ -147,13 +270,7 @@ def _extract_and_cache_violin_data(adata, genes, labels, groupby, transformation
         'extraction_time': time.time() - start_time
     }
     
-    # Cache with size limit (keep last 50 datasets)
-    if len(_violin_data_cache) > 50:
-        # Remove oldest entries
-        oldest_key = next(iter(_violin_data_cache))
-        del _violin_data_cache[oldest_key]
-    
-    _violin_data_cache[cache_key] = cached_data
+    _cache_violin_data(cache_key, cached_data)
     return cached_data
 
 def plot_violin1(
@@ -183,37 +300,15 @@ def plot_violin1(
     obs_values = cached_data['obs_values']
     valid_genes = cached_data['valid_genes']
     
-    # Set up colors
-    unique_labels = sorted(adata_obs[groupby].unique()) if adata_obs is not None else sorted(adata.obs[groupby].unique())
-    if groupby_label_color_map is None:
-        groupby_label_color_map = {label: default_color[i % len(default_color)] for i, label in enumerate(unique_labels)}
+    groupby_label_color_map = _label_color_map(adata, groupby, groupby_label_color_map, adata_obs=adata_obs)
 
     # Create subplots
-    num_genes = len(valid_genes)
-    fig_height = max(400, num_genes * 140)
-    # Keep a consistent ~28px gap between rows so adjacent y-axis tick labels (the
-    # 0.0 of one row and the top tick of the next) don't overlap, for any number
-    # of genes. vertical_spacing is a fraction of height, capped to Plotly's max.
-    target_gap_px = 28
-    vertical_spacing = min(target_gap_px / fig_height, 0.9 / max(num_genes - 1, 1))
+    num_genes, fig_height, vertical_spacing, tick_pad, left_margin = _subplot_geometry(valid_genes)
     fig = make_subplots(rows=num_genes, cols=1, shared_xaxes=True, vertical_spacing=vertical_spacing)
-
-    # Reserve a fixed left label column sized to the longest gene name so every
-    # subplot's y-axis starts at the same x and the (horizontal) labels never
-    # overlap. tick_pad leaves room for the y-axis tick numbers between the label
-    # and the axis; the label is right-aligned just to the left of them.
-    tick_pad = 40
-    max_label_len = max((len(str(g)) for g in valid_genes), default=1)
-    left_margin = int(min(360, tick_pad + max_label_len * 7 + 15))
 
     # Pre-calculate boolean masks for each label to avoid repeated groupby operations
     # Use numpy array for faster boolean indexing
-    obs_values_array = obs_values.to_numpy() if hasattr(obs_values, 'to_numpy') else np.array(obs_values)
-    label_masks = {}
-    for label in labels:
-        mask = (obs_values_array == label)
-        if np.any(mask):
-            label_masks[label] = mask
+    label_masks = _label_masks(obs_values, labels)
 
     # Fixed seed so each violin's subsample (and thus its shape) is stable across
     # re-renders. The plan is built once and reused for every gene.
@@ -224,77 +319,38 @@ def plot_violin1(
     for i, gene in enumerate(valid_genes):
         # Access gene values directly as numpy array (full data drives the y-range).
         gene_values = gene_df[gene].values
-        expr_max = gene_values.max()
 
         for label in labels:
             if label in group_sample:
                 # Payload-bounded KDE sample for this group (see _build_group_sample).
                 group_expr = gene_values[group_sample[label]]
 
-                # Calculate variance to determine bandwidth (seaborn-like behavior)
-                variance = np.var(group_expr)
-                if variance < 1e-10:  # Near-zero variance
-                    spanmode = 'soft'
-                else:
-                    # Normal bandwidth for data with variance
-                    spanmode = 'hard'
-                
-                fig.add_trace(
-                    go.Violin(
-                        y=group_expr,
-                        x=[label] * len(group_expr),
-                        width=0.8,
-                        # Show Box Plot -> the violin's inner box (Q1-Q3 + median)
-                        # styled as a neutral, narrow, light overlay (Median + IQR).
-                        box=dict(
-                            visible=show_box,
-                            width=0.12,
-                            fillcolor=OVERLAY_FILL_COLOR,
-                            line=dict(color=OVERLAY_LINE_COLOR, width=1),
-                        ),
-                        points=False,
-                        meanline_visible=True,
-                        name=label,
-                        spanmode=spanmode,
-                        fillcolor=_to_rgba(groupby_label_color_map[label], VIOLIN_FILL_ALPHA),
-                        line_color='DarkSlateGrey',
-                        hoveron='violins',
-                        hoverinfo='y',
-                        jitter=0.05,
-                        scalemode='width',
-                        scalegroup=label,
-                        marker=dict(size=2),
-                    ),
-                    row=i + 1, col=1
+                _add_violin_trace(
+                    fig,
+                    group_expr,
+                    label,
+                    i + 1,
+                    show_box,
+                    groupby_label_color_map[label],
                 )
 
-        expr_min = gene_values.min()
-        if expr_max == expr_min:
-            pad = 1e-3 if expr_max == 0 else abs(expr_max) * 0.05
-            y_range = [expr_min - pad, expr_max + pad]
-        else:
-            y_range = [expr_min, expr_max]
         fig.update_yaxes(
-            range=y_range,
+            range=_expression_range(gene_values),
             tickformat=".1f",
-            row=i + 1, col=1
+            row=i + 1,
+            col=1,
         )
         # Horizontal gene label in the reserved left column, right-aligned just to
         # the left of the y-axis tick numbers, vertically centered on the subplot.
-        yaxis_domain_ref = "y domain" if i == 0 else f"y{i + 1} domain"
-        fig.add_annotation(
-            text=str(gene),
-            xref="paper", x=0, xanchor="right", xshift=-tick_pad,
-            yref=yaxis_domain_ref, y=0.5, yanchor="middle",
-            showarrow=False,
-            font=dict(size=12),
-        )
+        _add_gene_annotation(fig, gene, i, tick_pad)
     # Layout
     fig.update_layout(
-    plot_bgcolor='white', paper_bgcolor='white', font=dict(size=10),
-    showlegend=False,
-    height=fig_height,
-    margin=dict(l=left_margin, r=20, t=20, b=40)
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(size=10),
+        showlegend=False,
+        height=fig_height,
+        margin=dict(l=left_margin, r=20, t=20, b=40),
     )
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black')
     fig.update_yaxes(showline=True, linewidth=2, linecolor='black')

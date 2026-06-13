@@ -26,6 +26,7 @@ OPTIONAL_PLOTS = [
     ("PAGA", "paga"),
     ("Volcano", "volcano"),
     ("GRN", "grn"),
+    ("Peak Browser", "peak-browser"),
 ]
 
 DEFAULT_PLOTS = {"heatmap", "violin", "split-violin", "dotplot", "stacked-bar"}
@@ -143,6 +144,87 @@ def _zarr_suffix(value: str) -> bool:
     return base.lower().endswith(".zarr")
 
 
+def _detect_modalities(path: str) -> list[str] | None:
+    """Modality names for a local ``.h5mu`` file, or ``None`` for single AnnData/unknown.
+
+    Reads only the ``mod`` group keys from the HDF5 container (no cell data), so it
+    stays cheap even for large files. Remote stores and ``.h5ad`` are treated as a
+    single (unnamed) modality.
+    """
+    if not path:
+        return None
+    text = path.strip()
+    if _is_remote_uri(text) or not text.lower().endswith(".h5mu"):
+        return None
+    try:
+        import h5py
+
+        with h5py.File(Path(text).expanduser(), "r") as f:
+            if "mod" in f:
+                return list(f["mod"].keys())
+    except Exception:
+        return None
+    return None
+
+
+class ViewBlock:
+    """One set of default-view fields: embeddings, colors, markers, optional gene annotation.
+
+    Used both for a single-modality dataset (``modality_name=None`` -> writes
+    dataset-level ``default_*``/``markers`` keys) and for each modality of a MuData
+    dataset (writes those keys plus ``gene_annotation`` under ``modalities[name]``).
+    """
+
+    def __init__(self, parent, *, modality_name: str | None = None):
+        self.modality_name = modality_name
+        self.embedding_left = StringVar()
+        self.color_left = StringVar()
+        self.embedding_right = StringVar()
+        self.color_right = StringVar()
+        self.gene_annotation = StringVar()
+
+        if modality_name is None:
+            self.frame = ttk.Frame(parent)
+        else:
+            self.frame = ttk.LabelFrame(parent, text=modality_name, padding=8)
+        self.frame.columnconfigure(1, weight=1)
+
+        row = 0
+        _entry_row(self.frame, row, "Left embedding", self.embedding_left, example="e.g. X_umap"); row += 1
+        _entry_row(self.frame, row, "Left color by", self.color_left, example="e.g. cell_type"); row += 1
+        _entry_row(self.frame, row, "Right embedding", self.embedding_right, example="e.g. X_umap"); row += 1
+        _entry_row(self.frame, row, "Right color by", self.color_right, example="e.g. CD3D"); row += 1
+        if modality_name is not None:
+            _entry_row(self.frame, row, "Gene annotation", self.gene_annotation, example="hg38 / URL / path"); row += 1
+        _hinted_label(self.frame, "Marker genes (comma or new line)").grid(
+            row=row, column=0, columnspan=3, sticky="w", pady=(6, 0)
+        )
+        row += 1
+        self.markers_text = _text_box(self.frame, height=2)
+        self.markers_text.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(2, 0))
+
+    def to_dict(self) -> dict:
+        """Config fragment for this block (empty keys omitted)."""
+        d: dict = {}
+        for key, var in (
+            ("default_embedding_left", self.embedding_left),
+            ("default_color_left", self.color_left),
+            ("default_embedding_right", self.embedding_right),
+            ("default_color_right", self.color_right),
+        ):
+            val = var.get().strip()
+            if val:
+                d[key] = val
+        if self.modality_name is not None:
+            ga = self.gene_annotation.get().strip()
+            if ga:
+                d["gene_annotation"] = ga
+        markers = _split_values(self.markers_text.get("1.0", "end"))
+        if markers:
+            d["markers"] = markers
+        return d
+
+
 class DatasetTab:
     """Widgets and variables describing a single dataset (one Notebook tab)."""
 
@@ -157,15 +239,15 @@ class DatasetTab:
 
         self.genome = StringVar(value="hg38")
         self.atac_names = StringVar()
-        self.max_heights = StringVar()
-
-        # Initial state of the two scatter panels (left and right).
-        self.embedding_left = StringVar()
-        self.color_left = StringVar()
-        self.embedding_right = StringVar()
-        self.color_right = StringVar()
 
         self.plot_vars = {value: BooleanVar(value=value in DEFAULT_PLOTS) for _, value in OPTIONAL_PLOTS}
+
+        # Default-view blocks: one for single AnnData, one per modality for MuData.
+        # Rebuilt whenever the selected data file's modality layout is detected.
+        self._view_blocks: list[ViewBlock] = []
+        self._detected_mods: list[str] | None = None
+        self._last_detected_path: str | None = None
+        self._has_peak_modality = False
 
         self._build()
         # Keep the tab label in sync with the dataset name.
@@ -178,11 +260,19 @@ class DatasetTab:
         basics.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         basics.columnconfigure(1, weight=1)
         _entry_row(basics, 0, "Dataset name *", self.name)
-        _entry_row(basics, 1, "Data file/URL *", self.sc_data, browse=self._browse_sc_data)
+        self.sc_data_entry = _entry_row(basics, 1, "Data file/URL *", self.sc_data, browse=self._browse_sc_data)
         _entry_row(basics, 2, "Description", self.description)
-        ttk.Label(basics, text="Plot tabs to show").grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        # Reference genome is a dataset-wide property (species/assembly), but only
+        # peak data (ATAC/ChIP) needs it -- so the row is hidden until something that
+        # uses it is enabled (Peak Browser, IGV tracks, or a detected peak modality).
+        self._genome_row = ttk.Frame(basics)
+        self._genome_row.grid(row=3, column=0, columnspan=3, sticky="ew")
+        self._genome_row.columnconfigure(1, weight=1)
+        _entry_row(self._genome_row, 0, "Reference genome", self.genome, example="e.g. hg38 — for ATAC/peak data")
+        self._genome_row.grid_remove()
+        ttk.Label(basics, text="Plot tabs to show").grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
         plot_box = ttk.Frame(basics)
-        plot_box.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        plot_box.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         # 3 columns so longer labels (Comparative Violin, Expression Trend) fit.
         for col in range(3):
             plot_box.columnconfigure(col, weight=1, uniform="plots")
@@ -190,57 +280,102 @@ class DatasetTab:
             ttk.Checkbutton(plot_box, text=label, variable=self.plot_vars[value]).grid(
                 row=i // 3, column=i % 3, sticky="w", padx=(0, 12), pady=4
             )
+        # Re-read the modality layout when the data file changes (MuData -> one
+        # view block per modality; AnnData -> a single block).
+        self.sc_data_entry.bind("<FocusOut>", self._detect_and_rebuild)
 
         # Advanced settings.
         ttk.Label(self.frame, text="Advanced settings", style="Section.TLabel").grid(
             row=1, column=0, sticky="w", pady=(14, 0)
         )
 
-        # Default views: initial scatter selection + default gene list for the plot tabs.
+        # Default Views: reference genome + initial scatter state (per modality for
+        # MuData) + marker genes + categorical palette.
         views = CollapsibleSection(self.frame, "Default Views", open_by_default=False)
         views.grid(row=2, column=0, sticky="ew")
-        views.body.columnconfigure(1, weight=1)
-        views_hint = ttk.Label(
-            views.body,
-            text="Initial state of the two scatter panels. Leave blank to auto-pick. "
-            "Embedding = obsm key; Color by = a gene or obs column.",
-            justify="left",
-            style="Hint.TLabel",
-        )
-        views_hint.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
-        # Wrap to the label's actual width so the text never gets truncated.
-        views_hint.bind("<Configure>", lambda e: e.widget.configure(wraplength=max(e.width - 4, 1)))
-        _entry_row(views.body, 1, "Left embedding", self.embedding_left, example="e.g. X_umap")
-        _entry_row(views.body, 2, "Left color by", self.color_left, example="e.g. cell_type")
-        _entry_row(views.body, 3, "Right embedding", self.embedding_right, example="e.g. X_umap")
-        _entry_row(views.body, 4, "Right color by", self.color_right, example="e.g. CD3D")
-        _hinted_label(views.body, "Default gene list for the plot tabs (comma or new line)").grid(
-            row=5, column=0, columnspan=3, sticky="w", pady=(8, 0)
-        )
-        self.markers_text = _text_box(views.body, height=3)
-        self.markers_text.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        views.body.columnconfigure(0, weight=1)
+
+        self._blocks_frame = ttk.Frame(views.body)
+        self._blocks_frame.grid(row=0, column=0, sticky="ew")
+        self._blocks_frame.columnconfigure(0, weight=1)
+        self._rebuild_view_blocks(None)
+
         _hinted_label(views.body, "Categorical color palette (comma or new line)").grid(
-            row=7, column=0, columnspan=3, sticky="w", pady=(8, 0)
+            row=1, column=0, sticky="w", pady=(8, 0)
         )
         self.colors_text = _text_box(views.body, height=4)
-        self.colors_text.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        self.colors_text.grid(row=2, column=0, sticky="ew", pady=(4, 0))
         self.colors_text.insert("1.0", "\n".join(DEFAULT_COLORS))
 
-        # Optional genome browser tracks.
-        igv = CollapsibleSection(self.frame, "Genome Browser Tracks", open_by_default=False)
+        # IGV(optional)
+        igv = CollapsibleSection(self.frame, "IGV", open_by_default=False)
         igv.grid(row=3, column=0, sticky="ew")
         igv.body.columnconfigure(1, weight=1)
         ttk.Label(
             igv.body,
-            text="Add bucket URLs to enable the genome browser; leave empty to disable it.",
+            text="Add bucket URLs to enable the IGV genome browser; leave empty to disable it.",
             style="Hint.TLabel",
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        _entry_row(igv.body, 1, "Genome", self.genome)
-        ttk.Label(igv.body, text="Bucket URLs, one per line").grid(row=2, column=0, sticky="nw", pady=4)
+        ttk.Label(igv.body, text="Bucket URLs, one per line").grid(row=1, column=0, sticky="nw", pady=4)
         self.bucket_text = _text_box(igv.body, height=3)
-        self.bucket_text.grid(row=2, column=1, sticky="ew", pady=4)
-        _entry_row(igv.body, 3, "Track names", self.atac_names)
-        _entry_row(igv.body, 4, "Track max heights", self.max_heights)
+        self.bucket_text.grid(row=1, column=1, sticky="ew", pady=4)
+        _entry_row(igv.body, 2, "Track names", self.atac_names)
+
+        # Reveal the Reference genome row only when the dataset needs it: the Peak
+        # Browser is enabled, IGV tracks are added, or a peak modality is detected.
+        self.plot_vars["peak-browser"].trace_add("write", lambda *_: self._sync_genome_visibility())
+        self.bucket_text.bind("<FocusOut>", lambda _e: self._sync_genome_visibility())
+        self._sync_genome_visibility()
+
+    @staticmethod
+    def _is_peak_modality(name: str) -> bool:
+        low = name.lower()
+        return any(tag in low for tag in ("atac", "peak", "chip", "cut"))
+
+    def _genome_needed(self) -> bool:
+        """True if the dataset uses the reference genome (Peak Browser / IGV / peak modality)."""
+        return (
+            self.plot_vars["peak-browser"].get()
+            or self._has_peak_modality
+            or bool(_split_values(self.bucket_text.get("1.0", "end")))
+        )
+
+    def _sync_genome_visibility(self, *_):
+        """Show the Reference genome row iff some peak/genome feature is in use."""
+        if self._genome_needed():
+            self._genome_row.grid()
+        else:
+            self._genome_row.grid_remove()
+
+    def _rebuild_view_blocks(self, modalities: list[str] | None):
+        """(Re)build the Default-Views blocks: one per modality, or a single block."""
+        for vb in self._view_blocks:
+            vb.frame.destroy()
+        self._view_blocks = []
+
+        if modalities:
+            for i, mod in enumerate(modalities):
+                vb = ViewBlock(self._blocks_frame, modality_name=mod)
+                vb.frame.grid(row=i, column=0, sticky="ew", pady=(0, 8))
+                self._view_blocks.append(vb)
+        else:
+            vb = ViewBlock(self._blocks_frame, modality_name=None)
+            vb.frame.grid(row=0, column=0, sticky="ew")
+            self._view_blocks.append(vb)
+
+    def _detect_and_rebuild(self, *_):
+        """Detect the data file's modalities and rebuild the view blocks if changed."""
+        path = self.sc_data.get().strip()
+        if path == self._last_detected_path:
+            return
+        self._last_detected_path = path
+        mods = _detect_modalities(path)
+        if mods == self._detected_mods:
+            return
+        self._detected_mods = mods
+        self._has_peak_modality = bool(mods) and any(self._is_peak_modality(m) for m in mods)
+        self._rebuild_view_blocks(mods)
+        self._sync_genome_visibility()
 
     def _browse_sc_data(self):
         path = filedialog.askopenfilename(
@@ -254,6 +389,7 @@ class DatasetTab:
         )
         if path:
             self.sc_data.set(path)
+            self._detect_and_rebuild()
 
     def _sync_tab_text(self):
         try:
@@ -288,32 +424,38 @@ class DatasetTab:
         if description:
             dataset["description"] = description
 
-        markers = _split_values(self.markers_text.get("1.0", "end"))
-        if markers:
-            dataset["markers"] = markers
+        # Reference genome — saved only when the dataset actually uses it (Peak
+        # Browser, IGV tracks, or a peak modality). Drives IGV's ref track and the
+        # Peak Browser's gene models.
+        genome_value = self.genome.get().strip()
+        if genome_value and self._genome_needed():
+            dataset["genome"] = genome_value
 
         dataset["optional_plot_components"] = [
             value for _, value in OPTIONAL_PLOTS if self.plot_vars[value].get()
         ]
 
-        for key, var in (
-            ("default_embedding_left", self.embedding_left),
-            ("default_color_left", self.color_left),
-            ("default_embedding_right", self.embedding_right),
-            ("default_color_right", self.color_right),
-        ):
-            value = var.get().strip()
-            if value:
-                dataset[key] = value
+        # Default views. A single block writes dataset-level keys (default_*, markers);
+        # modality blocks write a `modalities` map (each with default_*, markers,
+        # gene_annotation).
+        if self._detected_mods:
+            modalities: dict = {}
+            for vb in self._view_blocks:
+                block = vb.to_dict()
+                if block:
+                    modalities[vb.modality_name] = block
+            if modalities:
+                dataset["modalities"] = modalities
+        elif self._view_blocks:
+            dataset.update(self._view_blocks[0].to_dict())
 
         colors = _split_values(self.colors_text.get("1.0", "end"))
         if colors:
             dataset["color"] = colors
 
-        # The genome browser is enabled simply by providing bucket URLs.
+        # Genome browser tracks (IGV) — enabled by providing bucket URLs.
         bucket_urls = _split_values(self.bucket_text.get("1.0", "end"))
         if bucket_urls:
-            dataset["genome"] = self.genome.get().strip() or "hg38"
             dataset["bucket_urls"] = bucket_urls
 
             names = _split_values(self.atac_names.get())
@@ -321,11 +463,6 @@ class DatasetTab:
                 if len(names) != len(bucket_urls):
                     raise ValueError(f"Dataset '{name}': track names must match the number of bucket URLs.")
                 dataset["ATAC_name"] = names
-            heights = _split_values(self.max_heights.get())
-            if heights:
-                if len(heights) != len(bucket_urls):
-                    raise ValueError(f"Dataset '{name}': track max heights must match the number of bucket URLs.")
-                dataset["max_height"] = [int(value) for value in heights]
 
         return name, dataset
 

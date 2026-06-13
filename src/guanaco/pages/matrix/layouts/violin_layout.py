@@ -3,7 +3,7 @@ import dash_draggable
 from dash import dcc, html
 
 from guanaco.utils.plot_config import common_config
-from guanaco.utils.ui_helpers import labeled_dropdown, switch_checklist
+from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE, labeled_dropdown, switch_checklist
 
 
 def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
@@ -29,6 +29,7 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
                     dcc.Loading(
                         id="loading-violin1",
                         type="circle",
+                        overlay_style=LOADING_OVERLAY_STYLE,
                         children=[
                             dcc.Graph(
                                 id=f"{prefix}-violin-plot1",
@@ -161,6 +162,7 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
                     dcc.Loading(
                         id="loading-violin2",
                         type="circle",
+                        overlay_style=LOADING_OVERLAY_STYLE,
                         children=[
                             html.Div(
                                 [

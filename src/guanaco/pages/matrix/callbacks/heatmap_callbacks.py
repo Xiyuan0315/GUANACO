@@ -1,6 +1,7 @@
 from dash import Input, Output, State, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
+from guanaco.utils.obs_utils import sorted_categories
 
 
 # Clientside double-click reset for the heatmap. Plotly's own reset is unreliable
@@ -155,14 +156,14 @@ def register_heatmap_callbacks(
 
         groupby1_label_color_map = None
         if discrete_color_map:
-            unique_labels1 = sorted(adata.obs[selected_annotation].unique())
+            unique_labels1 = sorted_categories(adata, selected_annotation)
             discrete_palette = resolve_discrete_palette(discrete_color_map, len(unique_labels1))
             groupby1_label_color_map = {
                 label: discrete_palette[i % len(discrete_palette)] for i, label in enumerate(unique_labels1)
             }
         groupby2_label_color_map = None
         if secondary_annotation and secondary_annotation != "None" and secondary_annotation != selected_annotation:
-            unique_labels2 = sorted(adata.obs[secondary_annotation].unique())
+            unique_labels2 = sorted_categories(adata, secondary_annotation)
             if secondary_colormap:
                 secondary_palette = resolve_discrete_palette(secondary_colormap, len(unique_labels2))
                 groupby2_label_color_map = {

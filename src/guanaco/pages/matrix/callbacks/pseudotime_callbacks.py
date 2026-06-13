@@ -2,6 +2,7 @@ from dash import Input, Output, State, no_update
 import plotly.graph_objects as go
 
 from guanaco.utils.colors import resolve_discrete_palette
+from guanaco.utils.obs_utils import sorted_categories
 
 
 
@@ -108,7 +109,7 @@ def register_pseudotime_callbacks(
 
         filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
 
-        all_categories = sorted(adata.obs[selected_annotation].unique())
+        all_categories = sorted_categories(adata, selected_annotation)
         if discrete_color_map:
             discrete_palette = resolve_discrete_palette(discrete_color_map, len(all_categories))
             color_map = {cat: discrete_palette[i % len(discrete_palette)] for i, cat in enumerate(all_categories)}

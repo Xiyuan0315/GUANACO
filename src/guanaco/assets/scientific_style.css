@@ -164,44 +164,48 @@
     color: #868e96 !important;
 }
 
-/* Style loading spinner to match LUX theme */
+/* Style loading overlay/spinner to match the grey GUANACO theme */
+._dash-loading-callback {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
 ._dash-loading {
-    color: #1a1a1a !important;
+    color: #6c757d !important;
 }
 
 ._dash-loading-callback::after {
-    color: #1a1a1a !important;
+    color: #6c757d !important;
     border-color: #e9ecef !important;
-    border-top-color: #1a1a1a !important;
+    border-top-color: #6c757d !important;
 }
 
 /* Style Dash loading states */
 .dash-spinner.dash-default-spinner,
 .dash-spinner.dash-sk-circle .sk-circle:before {
-    border-color: #e9ecef #e9ecef #e9ecef #1a1a1a !important;
+    border-color: #e9ecef #e9ecef #e9ecef #6c757d !important;
 }
 
 /* Circle spinner dots */
 .dash-spinner.dash-sk-circle .sk-child:before {
-    background-color: #1a1a1a !important;
+    background-color: #6c757d !important;
 }
 
 /* Default spinner animation */
 @keyframes sk-circleBounceDelay {
     0%, 80%, 100% {
         transform: scale(0);
-        background-color: #1a1a1a !important;
+        background-color: #6c757d !important;
     }
     40% {
         transform: scale(1);
-        background-color: #1a1a1a !important;
+        background-color: #6c757d !important;
     }
 }
 
 /* Rotating spinner */
 .dash-spinner.dash-rotate-loader {
     border: 2px solid #e9ecef !important;
-    border-top-color: #1a1a1a !important;
+    border-top-color: #6c757d !important;
 }
 
 /* Graph loading spinner */
@@ -211,12 +215,12 @@
 
 .dash-graph--pending .dash-spinner {
     border-color: #e9ecef !important;
-    border-top-color: #1a1a1a !important;
+    border-top-color: #6c757d !important;
 }
 
 /* Force override inline styles for circle spinner */
 .sk-circle .sk-child::before {
-    background-color: #1a1a1a !important;
+    background-color: #6c757d !important;
 }
 
 .sk-circle .sk-circle1::before,

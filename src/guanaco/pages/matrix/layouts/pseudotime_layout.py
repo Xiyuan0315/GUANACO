@@ -2,7 +2,7 @@ import dash_bootstrap_components as dbc
 import dash_draggable
 from dash import dcc, html
 
-from guanaco.utils.ui_helpers import graph_flex_container, labeled_dropdown
+from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE, graph_flex_container, labeled_dropdown
 
 
 def generate_pseudotime_layout(prefix):
@@ -48,6 +48,7 @@ def generate_pseudotime_layout(prefix):
             dcc.Loading(
                 id=f"{prefix}-pseudotime-loading",
                 type="circle",
+                overlay_style=LOADING_OVERLAY_STYLE,
                 children=[
                     dash_draggable.GridLayout(
                         id=f"{prefix}-draggable-pseudotime",

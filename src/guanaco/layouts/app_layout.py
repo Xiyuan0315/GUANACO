@@ -3,6 +3,7 @@ from dash import html, dcc
 from guanaco.pages.track.layout import gene_browser_layout
 from guanaco.pages.matrix.layouts.embedding_layout import generate_embedding_plots
 from guanaco.pages.matrix.callbacks import generate_other_plots
+from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
 import muon as mu
 
 # tip
@@ -202,7 +203,15 @@ def create_modality_tabs(dataset, tab):
     )
 
 # AnnData layout (scatter and other plots)
-def anndata_layout(adata, default_gene_markers, discrete_label_list, prefix, optional_plot_components=None, scatter_defaults=None):
+def anndata_layout(
+    adata,
+    default_gene_markers,
+    discrete_label_list,
+    prefix,
+    optional_plot_components=None,
+    scatter_defaults=None,
+    gene_annotation_path=None,
+):
     return dbc.Container(
         fluid=True,
         children=[
@@ -217,6 +226,7 @@ def anndata_layout(adata, default_gene_markers, discrete_label_list, prefix, opt
                             discrete_label_list,
                             prefix,
                             optional_plot_components=optional_plot_components,
+                            gene_annotation_path=gene_annotation_path,
                         ),
                         className="dbc",
                         style={'padding': '20px'}
@@ -276,6 +286,7 @@ def tab_content(dataset, tab):
         dcc.Loading(
             id=f"loading-igv-{tab}",
             type="circle",
+            overlay_style=LOADING_OVERLAY_STYLE,
             children=[
                 html.Div(id={"type": "igv-layout-div", "index": tab}),
             ],

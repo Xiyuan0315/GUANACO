@@ -1,4 +1,5 @@
 from dash import dcc, html
+from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
 
 
 def gene_browser_layout(prefix, hosted_genome_dict):
@@ -28,7 +29,7 @@ def gene_browser_layout(prefix, hosted_genome_dict):
                                 placeholder="Select an IGV session..."
                             ),
                             html.Hr(),
-                            dcc.Loading(id=f'{prefix}-igv-container'),
+                            dcc.Loading(id=f'{prefix}-igv-container', overlay_style=LOADING_OVERLAY_STYLE),
                         ]
                     ),
                     html.Div(

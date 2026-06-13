@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import (
-    extract_gene_expression, apply_transformation, bin_cells_for_heatmap
+    extract_gene_expression, apply_transformation, bin_cells_for_heatmap, prewarm_gene_cache
 )
 
 # Standardization is one of: None (raw), "minmax", "zscore".
@@ -59,6 +59,21 @@ def _binned_cache_put(key, val):
 
 def _validate_genes(adata, genes):
     return [g for g in genes if g in adata.var_names]
+
+
+def _no_valid_genes_figure():
+    fig = go.Figure()
+    fig.add_annotation(
+        text='No valid genes found in the dataset',
+        xref='paper',
+        yref='paper',
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=14),
+    )
+    fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', height=400)
+    return fig
 
 
 def _map_transformation_args(transformation, log, z_score):
@@ -116,6 +131,8 @@ def _extract_gene_df_after_filter(ctx, valid_genes, layer=None):
     source_adata = original_adata if cell_indices_array is not None else adata
     row_indices = np.asarray(cell_indices_array, dtype=np.int64) if cell_indices_array is not None else None
     n_cells = len(filtered_obs_names)
+    # One column slice for all genes so the per-gene loop below hits the cache.
+    prewarm_gene_cache(source_adata, valid_genes, layer=layer)
     gene_matrix = np.empty((n_cells, len(valid_genes)), dtype=np.float32)
     for j, gene in enumerate(valid_genes):
         expr = np.asarray(extract_gene_expression(source_adata, gene, layer=layer, use_cache=True), dtype=np.float32)
@@ -264,6 +281,123 @@ def _legend_annotations(groupby1, label_list1, groupby1_label_color_map, has_sec
     return legend_annotations
 
 
+def _split_pair_label(val):
+    if isinstance(val, tuple) and len(val) >= 2:
+        return val[0], val[1]
+    return val, val
+
+
+def _restore_pair_key_columns(binned, pair_key, groupby1, groupby2):
+    if len(binned) > 0:
+        gb1_vals, gb2_vals = zip(*[_split_pair_label(v) for v in binned[pair_key].values])
+        binned[groupby1] = list(gb1_vals)
+        binned[groupby2] = list(gb2_vals)
+    else:
+        binned[groupby1] = []
+        binned[groupby2] = []
+    return binned.drop(columns=[pair_key])
+
+
+def _column_bin_sizes(sorted_heatmap_df):
+    if '__bin_size__' in sorted_heatmap_df.columns:
+        return sorted_heatmap_df['__bin_size__'].to_numpy(dtype=np.float64), True
+    return np.ones(len(sorted_heatmap_df), dtype=np.float64), False
+
+
+def _group_value_counts(sorted_heatmap_df, groupby, bin_sizes):
+    group_values = sorted_heatmap_df[groupby].to_numpy()
+    labels = sorted_heatmap_df[groupby].unique().tolist()
+    counts = [int(bin_sizes[group_values == label].sum()) for label in labels]
+    return labels, counts
+
+
+def _weighted_x_centers(bin_sizes, is_binned):
+    if not is_binned:
+        return None
+    # Place each column at its cumulative cell-count centre so column widths
+    # (and hence each group's horizontal extent) reflect true cell numbers.
+    edges = np.concatenate([[0.0], np.cumsum(bin_sizes)])
+    return (edges[:-1] + edges[1:]) / 2.0
+
+
+def _category_colorscale(categories, color_map):
+    n_categories = len(categories)
+    if n_categories == 0:
+        return []
+    colorscale = []
+    for i, category in enumerate(categories):
+        color = color_map.get(category, 'grey') if isinstance(color_map, dict) else 'grey'
+        colorscale.append([i / n_categories, color])
+        colorscale.append([(i + 1) / n_categories, color])
+    return colorscale
+
+
+def _ordered_primary_groups(groups_arr, labels):
+    present = set(pd.unique(groups_arr).tolist())
+    if labels:
+        return [group for group in labels if group in present]
+    return sorted(present, key=str)
+
+
+def _build_primary_bin_plan(groups_arr, order, max_cells, n_bins):
+    n_filtered = len(groups_arr)
+    binning = n_filtered > max_cells
+    row_to_bin = np.empty(n_filtered, dtype=np.int64)
+    bin_sizes = []
+    bin_group = []
+    next_bin = 0
+    for group in order:
+        pos = np.flatnonzero(groups_arr == group)
+        n_group = pos.size
+        if n_group == 0:
+            continue
+        if (not binning) or n_group <= 10:
+            row_to_bin[pos] = next_bin + np.arange(n_group)
+            bin_sizes.extend([1] * n_group)
+            bin_group.extend([group] * n_group)
+            next_bin += n_group
+        else:
+            group_bins = min(max(1, int(n_bins * n_group / n_filtered)), n_group)
+            edges = np.unique(np.linspace(0, n_group, num=group_bins + 1, dtype=int))
+            starts, ends = edges[:-1], edges[1:]
+            for offset, (start, end) in enumerate(zip(starts, ends)):
+                row_to_bin[pos[start:end]] = next_bin + offset
+                bin_sizes.append(int(end - start))
+                bin_group.append(group)
+            next_bin += len(starts)
+    return (
+        row_to_bin,
+        np.asarray(bin_sizes, dtype=np.float64),
+        np.asarray(bin_group, dtype=object),
+        next_bin,
+        binning,
+    )
+
+
+def _bin_plan_id(adata_src, groupby1, labels, max_cells, n_bins, cache_sig=None):
+    if cache_sig is not None:
+        return str(cache_sig)
+    backed = bool(getattr(adata_src, "isbacked", False) and getattr(adata_src, "filename", None))
+    src_id = ("backed", str(adata_src.filename)) if backed else ("mem", id(adata_src))
+    return hashlib.md5(
+        repr((src_id, tuple(adata_src.shape), groupby1,
+              tuple(labels) if labels else None, int(max_cells), int(n_bins))).encode()
+    ).hexdigest()
+
+
+def _standardize_vector(col, standardization):
+    if standardization == "minmax":
+        lo = col.min()
+        rng = col.max() - lo
+        return (col - lo) / (rng if rng else 1.0)
+    if standardization == "zscore":
+        # Single-pass: compute mean and std together to avoid scanning twice.
+        mu = col.mean()
+        sd = np.sqrt(((col - mu) ** 2).mean())
+        return (col - mu) / (sd if sd else 1.0)
+    return col
+
+
 # ==========================================================
 # Unified Heatmap (categorical annotations)
 # ==========================================================
@@ -284,57 +418,30 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
 
     group_series = filtered_obs[groupby1]
     groups_arr = group_series.to_numpy()
-    n_filtered = len(groups_arr)
-
-    present = set(pd.unique(groups_arr).tolist())
-    if labels:
-        order = [g for g in labels if g in present]
-    else:
-        order = sorted(present, key=str)
+    order = _ordered_primary_groups(groups_arr, labels)
 
     # --- bin assignment (matches bin_cells_for_heatmap group-wise semantics) ---
-    binning = n_filtered > max_cells
-    row_to_bin = np.empty(n_filtered, dtype=np.int64)
-    bin_sizes = []
-    bin_group = []
-    nb = 0
-    for g in order:
-        pos = np.flatnonzero(groups_arr == g)
-        m = pos.size
-        if m == 0:
-            continue
-        if (not binning) or m <= 10:
-            row_to_bin[pos] = nb + np.arange(m)
-            bin_sizes.extend([1] * m)
-            bin_group.extend([g] * m)
-            nb += m
-        else:
-            gbins = min(max(1, int(n_bins * m / n_filtered)), m)
-            edges = np.unique(np.linspace(0, m, num=gbins + 1, dtype=int))
-            starts, ends = edges[:-1], edges[1:]
-            for b, (s, e) in enumerate(zip(starts, ends)):
-                row_to_bin[pos[s:e]] = nb + b
-                bin_sizes.append(int(e - s))
-                bin_group.append(g)
-            nb += len(starts)
-    n_out = nb
-    bin_sizes = np.asarray(bin_sizes, dtype=np.float64)
-    bin_group = np.asarray(bin_group, dtype=object)
+    row_to_bin, bin_sizes, bin_group, n_out, binning = _build_primary_bin_plan(
+        groups_arr,
+        order,
+        max_cells,
+        n_bins,
+    )
 
     # Stable id for the bin plan: unchanged across gene add/remove (same adata,
     # grouping, labels, cell set), so per-gene binned vectors stay cacheable.
     # Prefer a caller-supplied content signature -- it stays stable for the same
     # cell selection, whereas a fresh adata[selected_cells] view changes id() on
     # every render and would defeat the cache during an active lasso/filter.
-    if cache_sig is not None:
-        plan_id = str(cache_sig)
-    else:
-        backed = bool(getattr(adata_src, "isbacked", False) and getattr(adata_src, "filename", None))
-        src_id = ("backed", str(adata_src.filename)) if backed else ("mem", id(adata_src))
-        plan_id = hashlib.md5(
-            repr((src_id, tuple(adata_src.shape), groupby1,
-                  tuple(labels) if labels else None, int(max_cells), int(n_bins))).encode()
-        ).hexdigest()
+    plan_id = _bin_plan_id(adata_src, groupby1, labels, max_cells, n_bins, cache_sig=cache_sig)
+
+    # Genes whose binned vector isn't cached still need their full column read; do
+    # those in one slice up front so the loop's extraction hits the gene cache.
+    binned_misses = [
+        gene for gene in valid_genes
+        if ((c := _binned_cache_get((plan_id, gene, layer, standardization))) is None or c.shape[0] != n_out)
+    ]
+    prewarm_gene_cache(adata_src, binned_misses, layer=layer)
 
     matrix = np.empty((len(valid_genes), n_out), dtype=np.float32)
     for j, gene in enumerate(valid_genes):
@@ -347,15 +454,7 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
             )
             if row_indices is not None:
                 col = col[row_indices]
-            if standardization == "minmax":
-                lo = col.min()
-                rng = col.max() - lo
-                col = (col - lo) / (rng if rng else 1.0)
-            elif standardization == "zscore":
-                # Single-pass: compute mean and std together to avoid scanning twice.
-                mu = col.mean()
-                sd = np.sqrt(((col - mu) ** 2).mean())
-                col = (col - mu) / (sd if sd else 1.0)
+            col = _standardize_vector(col, standardization)
             sums = np.bincount(row_to_bin, weights=col, minlength=n_out)
             cached = (sums / bin_sizes).astype(np.float32)
             _binned_cache_put(key, cached)
@@ -388,10 +487,7 @@ def plot_unified_heatmap(
 
     valid_genes = _validate_genes(adata, genes)
     if not valid_genes:
-        fig = go.Figure()
-        fig.add_annotation(text='No valid genes found in the dataset', xref='paper', yref='paper', x=0.5, y=0.5, showarrow=False, font=dict(size=14))
-        fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', height=400)
-        return fig
+        return _no_valid_genes_figure()
 
     ctx = _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=data_already_filtered)
     original_adata = ctx['original_adata']
@@ -433,20 +529,7 @@ def plot_unified_heatmap(
                 pair_key = '__pair_key__'
                 heatmap_df[pair_key] = list(zip(heatmap_df[groupby1], heatmap_df[groupby2]))
                 binned = bin_cells_for_heatmap(heatmap_df, valid_genes, pair_key, effective_bins, continuous_key=None)
-
-                def _split_pair(val):
-                    if isinstance(val, tuple) and len(val) >= 2:
-                        return val[0], val[1]
-                    return val, val
-
-                if len(binned) > 0:
-                    gb1_vals, gb2_vals = zip(*[_split_pair(v) for v in binned[pair_key].values])
-                    binned[groupby1] = list(gb1_vals)
-                    binned[groupby2] = list(gb2_vals)
-                else:
-                    binned[groupby1] = []
-                    binned[groupby2] = []
-                heatmap_df = binned.drop(columns=[pair_key])
+                heatmap_df = _restore_pair_key_columns(binned, pair_key, groupby1, groupby2)
             else:
                 heatmap_df = bin_cells_for_heatmap(heatmap_df, valid_genes, groupby1, effective_bins, continuous_key=None)
 
@@ -462,15 +545,8 @@ def plot_unified_heatmap(
         # was applied each column is a bin (>=1 cell); otherwise every column is one
         # cell. Annotation-bar widths and group boundaries use these true cell counts
         # rather than column counts, and the heatmap x is weighted to match.
-        is_binned = '__bin_size__' in sorted_heatmap_df.columns
-        if is_binned:
-            bin_sizes = sorted_heatmap_df['__bin_size__'].to_numpy(dtype=np.float64)
-        else:
-            bin_sizes = np.ones(len(sorted_heatmap_df), dtype=np.float64)
-
-        label_list1 = sorted_heatmap_df[groupby1].unique().tolist()
-        gb1_arr = sorted_heatmap_df[groupby1].to_numpy()
-        value_list1 = [int(bin_sizes[gb1_arr == lbl].sum()) for lbl in label_list1]
+        bin_sizes, is_binned = _column_bin_sizes(sorted_heatmap_df)
+        label_list1, value_list1 = _group_value_counts(sorted_heatmap_df, groupby1, bin_sizes)
 
         groupby1_label_color_map, groupby2_label_color_map = _default_color_maps(adata_obs, original_adata, groupby1, groupby2 if has_secondary else None, groupby1_label_color_map, groupby2_label_color_map, color_config=color_config)
 
@@ -501,13 +577,7 @@ def plot_unified_heatmap(
     fig = make_subplots(rows=rows, cols=1, row_heights=total_height, shared_xaxes=True, vertical_spacing=0.02)
 
     colorbar_len = 0.4 if has_secondary else 0.5
-    if is_binned:
-        # Place each column at its cumulative cell-count centre so column widths
-        # (and hence each group's horizontal extent) reflect true cell numbers.
-        edges = np.concatenate([[0.0], np.cumsum(bin_sizes)])
-        x_centers = (edges[:-1] + edges[1:]) / 2.0
-    else:
-        x_centers = None
+    x_centers = _weighted_x_centers(bin_sizes, is_binned)
     fig.add_trace(_make_expression_heatmap(heatmap_gene_matrix, valid_genes, color_map, standardization, colorbar_len, x=x_centers), row=1, col=1)
 
     if boundary is not False:
@@ -579,10 +649,7 @@ def plot_heatmap2_continuous(
     standardization = _canonical_standardization(standardization)
     valid_genes = _validate_genes(adata, genes)
     if not valid_genes:
-        fig = go.Figure()
-        fig.add_annotation(text='No valid genes found in the dataset', xref='paper', yref='paper', x=0.5, y=0.5, showarrow=False, font=dict(size=14))
-        fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', height=400)
-        return fig
+        return _no_valid_genes_figure()
 
     ctx = _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=data_already_filtered)
     filtered_obs = ctx['filtered_obs']
@@ -634,11 +701,7 @@ def plot_heatmap2_continuous(
     category_values = sorted_heatmap_df[groupby1].map(category_to_num).values.reshape(1, -1)
 
     n_categories = len(unique_categories)
-    colorscale = []
-    for i, cat in enumerate(unique_categories):
-        color = groupby1_label_color_map.get(cat, 'grey') if isinstance(groupby1_label_color_map, dict) else 'grey'
-        colorscale.append([i / n_categories, color])
-        colorscale.append([(i + 1) / n_categories, color])
+    colorscale = _category_colorscale(unique_categories, groupby1_label_color_map)
     fig.add_trace(go.Heatmap(
         z=category_values,
         y=[groupby1],
@@ -649,23 +712,15 @@ def plot_heatmap2_continuous(
         zmax=n_categories-0.5
     ), row=3, col=1)
 
-    legend_annotations = []
-    legend_start_x = 1.01
-    legend_start_y = 0.5
-    legend_annotations.append(dict(
-        x=legend_start_x, y=legend_start_y,
-        xref='paper', yref='paper', text=f"<b>{groupby1}</b>", showarrow=False,
-        font=dict(size=12, color='black'), xanchor='left', yanchor='top'
-    ))
-    current_y = legend_start_y - 0.08
-    for label in unique_categories:
-        color = groupby1_label_color_map.get(label, 'grey') if isinstance(groupby1_label_color_map, dict) else 'grey'
-        legend_annotations.append(dict(
-            x=legend_start_x, y=current_y,
-            xref='paper', yref='paper', text=f"<span style='color:{color}'>■</span> {label}",
-            showarrow=False, font=dict(size=12), xanchor='left', yanchor='middle'
-        ))
-        current_y -= 0.04
+    legend_annotations = _legend_annotations(
+        groupby1,
+        unique_categories,
+        groupby1_label_color_map,
+        False,
+        None,
+        {},
+        {},
+    )
 
     fig.update_layout(
         plot_bgcolor='white', paper_bgcolor='white',

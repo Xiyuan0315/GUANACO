@@ -3,6 +3,7 @@ from dash import dcc, html
 
 from guanaco.utils.colors import continuous_colormap_options, discrete_palette_options
 from guanaco.utils.plot_config import scatter_config, gene_scatter_config
+from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
 
 
 EMBEDDING_PREFIXES = {
@@ -342,6 +343,8 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
             dcc.Store(id=f"{prefix}-left-highlighted-cells-store"),
             # Dummy output for the clientside axis reset-link callback (side-effect only).
             dcc.Store(id=f"{prefix}-axis-reset-link"),
+            # Dummy output for the clientside right-plot cross-highlight (side-effect only).
+            dcc.Store(id=f"{prefix}-right-highlight-link"),
             create_global_metadata_filter(adata, prefix),
             dbc.Row(
                 [
@@ -374,6 +377,7 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                 dcc.Loading(
                                     id=f"{prefix}-loading-annotaion-scatter",
                                     type="circle",
+                                    overlay_style=LOADING_OVERLAY_STYLE,
                                     children=dcc.Graph(id=f"{prefix}-annotation-scatter", config=scatter_config, style={"height": "60vh", "width": "100%"}),
                                     style={"height": "60vh", "width": "100%"},
                                 ),
@@ -453,6 +457,7 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                 dcc.Loading(
                                     id=f"{prefix}-loading-gene-scatter",
                                     type="circle",
+                                    overlay_style=LOADING_OVERLAY_STYLE,
                                     children=dcc.Graph(id=f"{prefix}-gene-scatter", config=gene_scatter_config, style={"height": "60vh", "width": "100%"}),
                                     style={"height": "60vh", "width": "100%"},
                                 ),

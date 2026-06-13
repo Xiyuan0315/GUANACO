@@ -2,6 +2,7 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
+from guanaco.utils.obs_utils import sorted_categories
 from guanaco.utils.render_guard import signature
 
 
@@ -34,7 +35,7 @@ def register_stacked_bar_callbacks(
             x_values = [str(v) for v in selected_labels]
         else:
             src = adata[selected_cells] if selected_cells else adata
-            x_values = [str(v) for v in sorted(src.obs[annotation].unique())]
+            x_values = [str(v) for v in sorted_categories(src, annotation)]
 
         column_defs = [
             {
@@ -114,12 +115,12 @@ def register_stacked_bar_callbacks(
         elif selected_labels:
             final_x_order = [str(v) for v in selected_labels]
         else:
-            final_x_order = [str(v) for v in sorted(adata.obs[annotation].unique())]
+            final_x_order = [str(v) for v in sorted_categories(adata, annotation)]
 
         # Color the stacked layers (the "Stack bars by" variable). Resolve the
         # palette like the scatter/embedding so the same category gets the same
         # color everywhere; str() keys match plot_stacked_bar's astype(str).
-        stack_categories = sorted(adata.obs[stack_by].unique())
+        stack_categories = sorted_categories(adata, stack_by)
         discrete_palette = resolve_discrete_palette(
             discrete_color_map, len(stack_categories), default=color_config
         )

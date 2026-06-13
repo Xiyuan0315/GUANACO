@@ -77,6 +77,54 @@ function(leftRelayout, rightRelayout, leftClu, rightClu, leftX, rightX, leftY, r
 """
 
 
+# Client-side cross-highlight: when the left plot's selection/legend changes, grey
+# out the de-selected cells on the *right* plot without rebuilding it. The store
+# carries the visible cells' row positions; each right-plot trace carries those
+# positions (continuous/coexpression: customdata is the position; categorical:
+# customdata's last column). We translate positions -> per-trace point indices and
+# set them via Plotly.restyle(selectedpoints), so unselected points dim to the
+# trace's `unselected.marker.opacity` -- a pure re-style, no server round-trip and
+# no figure rebuild. Re-runs on a right-plot rebuild (figure Input) to re-apply the
+# current highlight. __RIGHT_ID__ is substituted with the right graph's id.
+_RIGHT_HIGHLIGHT_JS = """
+function(highlightData, _rightFigure) {
+    const noUpdate = window.dash_clientside.no_update;
+    const RIGHT = '__RIGHT_ID__';
+    const wrap = document.getElementById(RIGHT);
+    if (!wrap) return noUpdate;
+    const gd = wrap.classList.contains('js-plotly-plot') ? wrap : wrap.querySelector('.js-plotly-plot');
+    if (!gd || !window.Plotly || !gd.data) return noUpdate;
+
+    const positions = (highlightData && highlightData.positions) ? highlightData.positions : null;
+    const posSet = positions ? new Set(positions) : null;
+
+    const traceIdx = [];
+    const selected = [];
+    for (let t = 0; t < gd.data.length; t++) {
+        const tr = gd.data[t];
+        // The grey "Background" layer and any trace without per-point ids are skipped.
+        if (tr.name === 'Background' || !tr.customdata) continue;
+        traceIdx.push(t);
+        if (posSet === null) {
+            selected.push(null);  // no highlight -> clear selection, all points normal
+            continue;
+        }
+        const cd = tr.customdata;
+        const picked = [];
+        for (let i = 0; i < cd.length; i++) {
+            const ci = cd[i];
+            const pos = Array.isArray(ci) ? ci[ci.length - 1] : ci;
+            if (posSet.has(pos)) picked.push(i);
+        }
+        selected.push(picked);
+    }
+    if (traceIdx.length === 0) return noUpdate;
+    window.Plotly.restyle(gd, {selectedpoints: selected}, traceIdx);
+    return noUpdate;
+}
+"""
+
+
 def register_scatter_callbacks(
     app,
     adata,
@@ -314,6 +362,21 @@ def register_scatter_callbacks(
         layer = data_layer if data_layer and data_layer != "X" else None
 
         triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+
+        # Continuous renders ignore the discrete colormap and legend toggle, so a
+        # change to either control produces an identical figure -- skip the rebuild
+        # those shared controls would otherwise force when this panel is continuous.
+        is_continuous = annotation in adata.var_names or is_continuous_annotation(adata, annotation)
+        if is_continuous and triggered_prop in {
+            f"{prefix}-discrete-color-map-dropdown.value",
+            f"{prefix}-scatter-legend-toggle.value",
+        }:
+            return no_update
+        # Conversely, a categorical render ignores the continuous colormap, so don't
+        # rebuild the discrete embedding when that dropdown changes.
+        if not is_continuous and triggered_prop == f"{prefix}-scatter-color-map-dropdown.value":
+            return no_update
+
         if triggered_prop == f"{prefix}-gene-scatter.relayoutData" and _is_reset_relayout(gene_relayout):
             return no_update
         # Keep left/right plots synced when the right plot was zoomed/reset.
@@ -341,7 +404,6 @@ def register_scatter_callbacks(
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
         filtered_cell_idx = _filtered_cell_indices(filtered_data)
 
-        is_continuous = annotation in adata.var_names or is_continuous_annotation(adata, annotation)
         render_backend = embedding_render_backend
         n_annotation_categories = adata.obs[annotation].nunique() if annotation in adata.obs.columns else 0
         discrete_palette = resolve_discrete_palette(
@@ -397,7 +459,6 @@ def register_scatter_callbacks(
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-global-filtered-data", "data"),
             Input(f"{prefix}-spatial-imgkey-dropdown", "value"),
-            Input(f"{prefix}-left-highlighted-cells-store", "data"),
         ],
         [
             State(f"{prefix}-gene-scatter", "relayoutData"),
@@ -426,7 +487,6 @@ def register_scatter_callbacks(
         discrete_color_map,
         filtered_data,
         spatial_img_key,
-        highlighted_cells,
         gene_relayout,
         left_clustering,
         left_x_axis,
@@ -438,6 +498,27 @@ def register_scatter_callbacks(
         layer = data_layer if data_layer and data_layer != "X" else None
 
         triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+
+        # Classify this panel's render mode up-front. The discrete colormap only feeds
+        # the categorical render; the legend toggle only feeds categorical/coexpression.
+        # When the right plot is showing a continuous gene/annotation, a change to
+        # either control yields an identical figure -- skip the full rebuild it would
+        # otherwise force (these are shared controls the left plot legitimately uses).
+        if gene_name in adata.var_names:
+            right_mode = "coexpression" if (coexpression_mode == "coexpression" and gene2_name) else "continuous"
+        elif is_continuous_annotation(adata, gene_name):
+            right_mode = "continuous"
+        else:
+            right_mode = "categorical"
+        if triggered_prop == f"{prefix}-discrete-color-map-dropdown.value" and right_mode != "categorical":
+            return no_update
+        if triggered_prop == f"{prefix}-scatter-legend-toggle.value" and right_mode == "continuous":
+            return no_update
+        # The continuous colormap only feeds the continuous render (coexpression and
+        # categorical ignore it), so don't rebuild those modes when it changes.
+        if triggered_prop == f"{prefix}-scatter-color-map-dropdown.value" and right_mode != "continuous":
+            return no_update
+
         # A reset of the other plot is handled entirely by the clientside reset-link
         # (resets both panels in the browser). Don't rebuild/sync it here, so the
         # server can't clobber the raster reset with an autorange.
@@ -468,7 +549,9 @@ def register_scatter_callbacks(
         render_backend = embedding_render_backend
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
         filtered_cell_idx = _filtered_cell_indices(filtered_data)
-        highlighted_cell_ids = (highlighted_cells or {}).get("cell_ids")
+        # The left plot's selection no longer rebuilds this figure: the cross-highlight
+        # (grey-out of deselected cells) is applied client-side via selectedpoints, so
+        # the right plot always renders the full cell set and keeps every legend entry.
 
         if gene_name in adata.var_names:
             if coexpression_mode == "coexpression" and gene2_name:
@@ -489,7 +572,6 @@ def register_scatter_callbacks(
                     axis_show=axis_show,
                     source_adata=adata,
                     cell_indices=filtered_cell_idx,
-                    highlighted_cell_ids=highlighted_cell_ids,
                 )
             else:
                 fig = plot_embedding(
@@ -510,7 +592,6 @@ def register_scatter_callbacks(
                     img_key=spatial_img_key,
                     source_adata=adata,
                     cell_indices=filtered_cell_idx,
-                    highlighted_cell_ids=highlighted_cell_ids,
                 )
         elif is_continuous_annotation(adata, gene_name):
             fig = plot_embedding(
@@ -529,7 +610,6 @@ def register_scatter_callbacks(
                 img_key=spatial_img_key,
                 source_adata=adata,
                 cell_indices=filtered_cell_idx,
-                highlighted_cell_ids=highlighted_cell_ids,
             )
         else:
             n_gene_categories = adata.obs[gene_name].nunique() if gene_name in adata.obs.columns else 0
@@ -555,7 +635,6 @@ def register_scatter_callbacks(
                 img_key=spatial_img_key,
                 source_adata=adata,
                 cell_indices=filtered_cell_idx,
-                highlighted_cell_ids=highlighted_cell_ids,
                 show_background_layer=True,
             )
         return apply_relayout(fig, effective_relayout)
@@ -594,17 +673,24 @@ def register_scatter_callbacks(
         [
             Input(f"{prefix}-annotation-scatter", "selectedData"),
             Input(f"{prefix}-annotation-scatter", "restyleData"),
+            Input(f"{prefix}-global-filtered-data", "data"),
         ],
         [
             State(f"{prefix}-annotation-scatter", "figure"),
             State(f"{prefix}-annotation-dropdown", "value"),
-            State(f"{prefix}-global-filtered-data", "data"),
             State(f"{prefix}-left-highlighted-cells-store", "data"),
         ],
     )
-    def update_left_highlighted_cells(selected_data, restyle_data, current_figure, current_annotation, filtered_data, current_store):
+    def update_left_highlighted_cells(selected_data, restyle_data, filtered_data, current_figure, current_annotation, current_store):
         triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
+        src = plot_adata if plot_adata is not None else adata
+
+        # The highlight is expressed as row positions in the current plotted data, which
+        # the global filter re-bases. Clear it on a filter change so the client-side
+        # cross-highlight never applies stale positions to the rebuilt right plot.
+        if triggered_prop == f"{prefix}-global-filtered-data.data":
+            return None
 
         if triggered_prop == f"{prefix}-annotation-scatter.selectedData":
             if not selected_data or not selected_data.get("points"):
@@ -613,7 +699,14 @@ def register_scatter_callbacks(
                 _extract_cell_ids_from_customdata(point.get("customdata"), plot_adata)
                 for point in selected_data.get("points", [])
             )
-            return {"cell_ids": cell_ids, "source": "lasso", "hidden_labels": (current_store or {}).get("hidden_labels", [])}
+            # Map lassoed cell ids to row positions in the plotted data: the right
+            # plot's traces carry these positions, so it highlights them client-side.
+            positions = src.obs.index.get_indexer(cell_ids)
+            return {
+                "positions": positions[positions >= 0].tolist(),
+                "source": "lasso",
+                "hidden_labels": (current_store or {}).get("hidden_labels", []),
+            }
 
         if triggered_prop != f"{prefix}-annotation-scatter.restyleData" or not restyle_data or not current_figure:
             return current_store
@@ -645,11 +738,11 @@ def register_scatter_callbacks(
             return None
 
         # Visible cells = obs rows whose annotation value is NOT in hidden_labels.
-        # Single C-level pandas pass: O(n_cells + n_labels).
-        src = plot_adata if plot_adata is not None else adata
+        # Emit their row positions (single C-level pass) for the client-side
+        # cross-highlight; positions index the right plot's trace customdata.
         visible_mask = ~src.obs[current_annotation].astype(str).isin(hidden_labels)
-        cell_ids = _unique_cell_ids(src.obs_names[visible_mask])
-        return {"cell_ids": cell_ids, "source": "legend", "hidden_labels": sorted(hidden_labels)}
+        positions = np.flatnonzero(visible_mask.to_numpy())
+        return {"positions": positions.tolist(), "source": "legend", "hidden_labels": sorted(hidden_labels)}
 
     @app.callback(
         [
@@ -822,5 +915,16 @@ def register_scatter_callbacks(
         State(f"{prefix}-right-x-axis", "value"),
         State(f"{prefix}-y-axis", "value"),
         State(f"{prefix}-right-y-axis", "value"),
+        prevent_initial_call=True,
+    )
+
+    # Cross-highlight (see _RIGHT_HIGHLIGHT_JS): grey out the left plot's de-selected
+    # cells on the right plot client-side. Fires when the left selection changes and
+    # when the right plot is rebuilt (re-applies the current highlight to the new figure).
+    app.clientside_callback(
+        _RIGHT_HIGHLIGHT_JS.replace("__RIGHT_ID__", f"{prefix}-gene-scatter"),
+        Output(f"{prefix}-right-highlight-link", "data"),
+        Input(f"{prefix}-left-highlighted-cells-store", "data"),
+        Input(f"{prefix}-gene-scatter", "figure"),
         prevent_initial_call=True,
     )

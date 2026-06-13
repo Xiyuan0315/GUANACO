@@ -4,6 +4,9 @@ import dash_bootstrap_components as dbc
 from guanaco.utils.plot_config import common_config
 
 
+LOADING_OVERLAY_STYLE = {"visibility": "visible", "filter": "blur(2px)"}
+
+
 def labeled_dropdown(
     label,
     dropdown_id,

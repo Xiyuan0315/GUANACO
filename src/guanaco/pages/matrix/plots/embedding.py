@@ -162,6 +162,50 @@ def _transform_continuous_values(values, transformation):
     return apply_transformation(values, transformation, copy=False)
 
 
+# Cap the displayed tissue-image resolution. The browser re-rasterizes the
+# background image on every zoom/pan frame and re-encodes it on each figure
+# rebuild; a multi-thousand-pixel hires/fullres image is far larger than the plot
+# can ever show, so it makes spatial views noticeably slower than a plain WebGL
+# embedding for no visible benefit. ~1600 px on the longest side keeps it crisp
+# (including a few zoom-in steps) while cutting the per-frame raster + payload cost.
+SPATIAL_IMAGE_MAX_DIM = 1600
+
+
+def _embedding_scatter_trace():
+    """Trace class used for point embeddings.
+
+    Spatial backgrounds are Plotly layout images with ``layer="below"``. In the
+    supported Plotly 5.x range, Scattergl composites above that image while
+    preserving transparent gaps between points.
+    """
+    return go.Scattergl
+
+
+def _categorical_customdata(obs_names, color_values, indices):
+    """Return [cell id, label, row position] for selection and cross-highlight."""
+    return np.column_stack([obs_names[indices], color_values[indices], indices])
+
+
+def _order_continuous_points(x_values, y_values, color_values, cell_idx, highlighted_mask, order):
+    if order == "max":
+        order_idx = np.argsort(color_values, kind="mergesort")
+    elif order == "min":
+        order_idx = np.argsort(color_values, kind="mergesort")[::-1]
+    elif order == "random":
+        rng = np.random.default_rng(315)
+        order_idx = rng.permutation(color_values.size)
+    else:
+        return x_values, y_values, color_values, cell_idx, highlighted_mask
+
+    x_values = x_values[order_idx]
+    y_values = y_values[order_idx]
+    color_values = color_values[order_idx]
+    cell_idx = cell_idx[order_idx]
+    if highlighted_mask is not None:
+        highlighted_mask = highlighted_mask[order_idx]
+    return x_values, y_values, color_values, cell_idx, highlighted_mask
+
+
 def _apply_spatial_background(fig, spatial_image, img_alpha=1.0):
     if spatial_image is None:
         return
@@ -172,13 +216,26 @@ def _apply_spatial_background(fig, spatial_image, img_alpha=1.0):
             img_array = np.clip(img_array, 0, 1)
             img_array = (img_array * 255).astype(np.uint8)
         spatial_image = Image.fromarray(img_array)
-        img_h, img_w = img_array.shape[0], img_array.shape[1]
-    else:
-        img_w, img_h = spatial_image.size
+
+    # Original pixel dims define the coordinate space (coords were scaled into it),
+    # so sizex/sizey and the axis ranges must stay at the original size.
+    img_w, img_h = spatial_image.size
+
+    # Downscale only the *bitmap* shown as the background; keep sizex/sizey at the
+    # original dims so the points stay aligned. This shrinks the per-zoom raster and
+    # the figure payload without moving anything.
+    longest = max(img_w, img_h)
+    display_image = spatial_image
+    if longest > SPATIAL_IMAGE_MAX_DIM:
+        scale = SPATIAL_IMAGE_MAX_DIM / longest
+        display_image = spatial_image.resize(
+            (max(1, int(round(img_w * scale))), max(1, int(round(img_h * scale)))),
+            Image.BILINEAR,
+        )
 
     fig.update_layout(
         images=[dict(
-            source=spatial_image,
+            source=display_image,
             xref="x", yref="y",
             x=0, y=0,
             sizex=img_w, sizey=img_h,
@@ -480,11 +537,7 @@ def _build_continuous_embedding_figure(
     cmax = float(np.nanmax(color_values))
     colorscale = resolve_continuous_colorscale(color_map)
 
-    # WebGL (Scattergl) renders in a separate canvas that sits below the SVG
-    # layer. When a spatial background image is present (SVG layout image), it
-    # would appear on top of the WebGL dots even with layer="below". Switching to
-    # plain Scatter (SVG) keeps both in the same rendering layer so z-order works.
-    ScatterTrace = go.Scatter if spatial_image is not None else go.Scattergl
+    ScatterTrace = _embedding_scatter_trace()
 
     fig = go.Figure()
     if has_highlight:
@@ -522,7 +575,7 @@ def _build_continuous_embedding_figure(
             hoverinfo="skip",
             selectedpoints=None,
             selected=dict(marker=dict(opacity=1)),
-            unselected=dict(marker=dict(opacity=0.2)),
+            unselected=dict(marker=dict(color="lightgrey", opacity=0.5)),
         )
     )
 
@@ -640,28 +693,14 @@ def plot_embedding(
         values = _transform_continuous_values(values, transformation)
         color_values = np.asarray(values, dtype=np.float32)
         cell_idx = np.arange(color_values.size, dtype=np.int32)
-        if order == "max":
-            order_idx = np.argsort(color_values, kind="mergesort")
-            x_values, y_values, color_values, cell_idx = (
-                x_values[order_idx], y_values[order_idx], color_values[order_idx], cell_idx[order_idx]
-            )
-            if highlighted_mask is not None:
-                highlighted_mask = highlighted_mask[order_idx]
-        elif order == "min":
-            order_idx = np.argsort(color_values, kind="mergesort")[::-1]
-            x_values, y_values, color_values, cell_idx = (
-                x_values[order_idx], y_values[order_idx], color_values[order_idx], cell_idx[order_idx]
-            )
-            if highlighted_mask is not None:
-                highlighted_mask = highlighted_mask[order_idx]
-        elif order == "random":
-            rng = np.random.default_rng(315)
-            order_idx = rng.permutation(color_values.size)
-            x_values, y_values, color_values, cell_idx = (
-                x_values[order_idx], y_values[order_idx], color_values[order_idx], cell_idx[order_idx]
-            )
-            if highlighted_mask is not None:
-                highlighted_mask = highlighted_mask[order_idx]
+        x_values, y_values, color_values, cell_idx, highlighted_mask = _order_continuous_points(
+            x_values,
+            y_values,
+            color_values,
+            cell_idx,
+            highlighted_mask,
+            order,
+        )
         colorbar_title = transformation if transformation else color
         return _build_continuous_embedding_figure(
             x_values,
@@ -725,9 +764,7 @@ def plot_embedding(
         if idx.size:
             label_to_indices[label] = idx.tolist()
 
-    # Same WebGL/SVG layer issue as the continuous path: use plain Scatter when a
-    # spatial background image is present so layer="below" ordering is respected.
-    ScatterTrace = go.Scatter if spatial_image is not None else go.Scattergl
+    ScatterTrace = _embedding_scatter_trace()
 
     fig = go.Figure()
 
@@ -765,10 +802,13 @@ def plot_embedding(
                 opacity=opacity,
             ),
             name=str(label),
-            customdata=np.column_stack([obs_names[indices], color_values[indices]]),
+            customdata=_categorical_customdata(obs_names, color_values, indices),
             hovertemplate=f"{color}: %{{customdata[1]}}<extra></extra>",
             showlegend=not on_data,
             legendgroup=str(label),
+            selectedpoints=None,
+            selected=dict(marker=dict(opacity=opacity)),
+            unselected=dict(marker=dict(color="lightgrey", opacity=0.5)),
         ))
 
     if on_data:
@@ -886,9 +926,7 @@ def plot_coexpression_embedding(
     # Ensure all 4 categories appear in order
     category_order = ['Neither', f'{gene1} only', f'{gene2} only', 'Co-expressed']
     
-    # Same WebGL/SVG layer issue: use plain Scatter when a spatial background
-    # image is present so the tissue image doesn't cover the scatter dots.
-    ScatterTrace = go.Scatter if spatial_image is not None else go.Scattergl
+    ScatterTrace = _embedding_scatter_trace()
 
     fig = go.Figure()
     if highlighted_mask is not None:
@@ -927,7 +965,7 @@ def plot_coexpression_embedding(
                 hoverinfo='skip',
                 selectedpoints=None,
                 selected=dict(marker=dict(opacity=1)),
-                unselected=dict(marker=dict(opacity=0.2))
+                unselected=dict(marker=dict(color="lightgrey", opacity=0.5))
             ))
 
     if legend_show == 'on data':
@@ -945,27 +983,13 @@ def plot_coexpression_embedding(
                     opacity=0.9,
                 )
 
-    fig.update_layout(
-        autosize=True,
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        title=dict(
-            text=f'<b>Co-expression: {gene1} & {gene2}</b>',
-            x=0.5,
-            y=0.98,
-            xanchor='center',
-            yanchor='top'
-        ),
-        xaxis=dict(
-            title=x_axis,
-            showgrid=False,
-            zeroline=False
-        ),
-        yaxis=dict(
-            title=y_axis,
-            showgrid=False,
-            zeroline=False
-        ),
+    _apply_embedding_layout(
+        fig,
+        title_text=f"Co-expression: {gene1} & {gene2}",
+        x_axis=x_axis,
+        y_axis=y_axis,
+        axis_show=axis_show,
+        margin=dict(t=40, r=100, l=50, b=50),
         legend=dict(
             orientation='v',
             itemsizing='constant',
@@ -973,18 +997,8 @@ def plot_coexpression_embedding(
             bgcolor='rgba(0,0,0,0)',
             itemclick='toggle',
             itemdoubleclick='toggleothers',
-            font=dict(size=10)
+            font=dict(size=10),
         ) if legend_show == 'right' else None,
-        margin=dict(t=40, r=100, l=50, b=50)
-    )
-
-    fig.update_xaxes(
-        showline=True, linewidth=2, linecolor='black',
-        tickfont=dict(color='black' if axis_show else 'rgba(0,0,0,0)')
-    )
-    fig.update_yaxes(
-        showline=True, linewidth=2, linecolor='black',
-        tickfont=dict(color='black' if axis_show else 'rgba(0,0,0,0)')
     )
 
     # Draw the tissue image beneath the points for a spatial basis (matches

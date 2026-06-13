@@ -1,3 +1,5 @@
+import warnings
+
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -5,7 +7,7 @@ import pandas as pd
 import plotly.express as px
 from scipy.interpolate import UnivariateSpline
 
-from guanaco.utils.gene_extraction_utils import apply_transformation, extract_gene_expression
+from guanaco.utils.gene_extraction_utils import apply_transformation, extract_gene_expression, prewarm_gene_cache
 
 try:
     from sklearn.linear_model import Ridge
@@ -14,6 +16,24 @@ try:
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
+
+
+def _message_figure(text):
+    """Empty white figure showing a centered message (used for all early-exit cases)."""
+    fig = go.Figure()
+    fig.add_annotation(
+        text=text,
+        xref="paper", yref="paper",
+        x=0.5, y=0.5,
+        showarrow=False,
+        font=dict(size=14),
+    )
+    fig.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        height=400,
+    )
+    return fig
 
 
 def plot_genes_in_pseudotime(
@@ -33,42 +53,17 @@ def plot_genes_in_pseudotime(
     # Filter out genes that don't exist in the dataset
     valid_genes = [gene for gene in genes if gene in adata.var_names]
     if not valid_genes:
-        # Return empty figure if no valid genes
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No valid genes found in the dataset",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5,
-            showarrow=False,
-            font=dict(size=14)
-        )
-        fig.update_layout(
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            height=400
-        )
-        return fig
-    
+        return _message_figure("No valid genes found in the dataset")
+
     # Check if pseudotime exists
     if pseudotime_key not in adata.obs.columns:
-        fig = go.Figure()
-        fig.add_annotation(
-            text=f"'{pseudotime_key}' not found in adata.obs",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5,
-            showarrow=False,
-            font=dict(size=14)
-        )
-        fig.update_layout(
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            height=400
-        )
-        return fig
-    
+        return _message_figure(f"'{pseudotime_key}' not found in adata.obs")
+
     # Per-gene cache-backed extraction (replaces extract_multiple_genes). valid_genes
     # were already confirmed present in var_names above, so no missing-gene handling
     # is needed. Each column is read once and shared with the global gene cache.
+    # One column slice for all genes so the per-gene reads below hit the cache.
+    prewarm_gene_cache(adata, valid_genes, layer=layer, dtype=np.float32)
     expr_df = pd.DataFrame(
         {gene: extract_gene_expression(adata, gene, layer=layer, dtype=np.float32) for gene in valid_genes},
         index=adata.obs_names,
@@ -97,21 +92,8 @@ def plot_genes_in_pseudotime(
     expr_df = expr_df.dropna(subset=['pseudotime'])
     
     if expr_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No cells pass the filtering criteria",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5,
-            showarrow=False,
-            font=dict(size=14)
-        )
-        fig.update_layout(
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            height=400
-        )
-        return fig
-    
+        return _message_figure("No cells pass the filtering criteria")
+
     # Sort by pseudotime
     expr_df = expr_df.sort_values('pseudotime')
     
@@ -227,7 +209,7 @@ def plot_genes_in_pseudotime(
                 )
                 
             except Exception as e:
-                print(f"Warning: Could not fit smooth curve for {gene}: {e}")
+                warnings.warn(f"Could not fit smooth curve for {gene}: {e}", RuntimeWarning)
         
         fig.update_yaxes(title_text=None, row=row, col=1)
     
