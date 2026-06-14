@@ -7,15 +7,30 @@ import numpy as np
 import warnings
 
 plt.switch_backend('Agg')
+
+# Labels for the fields returned by plot_motif, in the exact order they appear
+# in the motif_info list below. Consumers (e.g. the motif search callback) import
+# this so the field ordering is defined in one place only.
+MOTIF_INFO_LABELS = [
+    "TF Name",
+    "Matrix ID",
+    "Collection",
+    "TF Class",
+    "TF Family",
+    "Data Type",
+    "Medline",
+]
+
+
 def plot_motif(motif):
     motif_info = [
-    motif.name,
-    motif.matrix_id,
-    motif.collection,
-    motif.tf_class,
-    motif.tf_family,
-    motif.data_type,
-    motif.medline
+        motif.name,
+        motif.matrix_id,
+        motif.collection,
+        motif.tf_class,
+        motif.tf_family,
+        motif.data_type,
+        motif.medline,
     ]
     df_counts = pd.DataFrame(motif.counts)
     # pseudocounts

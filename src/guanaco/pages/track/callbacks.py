@@ -2,7 +2,12 @@ from pyjaspar import jaspardb
 import dash_bio as dashbio
 from dash import dcc, html, Input, Output, State
 
-from guanaco.pages.track.utils import plot_motif
+from guanaco.pages.track.utils import plot_motif, MOTIF_INFO_LABELS
+
+# Default genome locus shown when an IGV session is first loaded.
+DEFAULT_IGV_LOCUS = 'chr1:1-10000000'
+# JASPAR database release queried for motif lookups.
+JASPAR_RELEASE = 'JASPAR2024'
 
 
 def gene_browser_callbacks(app, genome_tracks, ref_track, prefix):
@@ -47,7 +52,7 @@ def gene_browser_callbacks(app, genome_tracks, ref_track, prefix):
             dashbio.Igv(
                 id=f'igv-{prefix}',
                 genome=ref_track['label'],
-                locus='chr1:1-10000000',
+                locus=DEFAULT_IGV_LOCUS,
                 tracks=genome_tracks[selected_atac]
             )
         ])
@@ -62,7 +67,7 @@ def gene_browser_callbacks(app, genome_tracks, ref_track, prefix):
             return html.Div("Please enter a valid motif ID and click Search.", style={"color": "gray"})
 
         try:
-            jdb_obj = jaspardb(release='JASPAR2024')
+            jdb_obj = jaspardb(release=JASPAR_RELEASE)
             motif = jdb_obj.fetch_motif_by_id(search_value)
             motif_info, img_data = plot_motif(motif)
 
@@ -76,10 +81,7 @@ def gene_browser_callbacks(app, genome_tracks, ref_track, prefix):
                                     [html.Th(f'{key}: ', style={"backgroundColor": "#f2f2f2"}),
                                      html.Td(value, style={"backgroundColor": "#f9f9f9"})]
                                 )
-                                for key, value in zip(
-                                    ["TF Name", "Matrix ID", "Collection", "TF Class", "TF Family", "Data Type", "Medline"],
-                                    motif_info
-                                )
+                                for key, value in zip(MOTIF_INFO_LABELS, motif_info)
                             ],
                         ],
                         style={"width": "100%", "border": "2px solid #6699CC", "borderCollapse": "collapse", "textAlign": "left"}
