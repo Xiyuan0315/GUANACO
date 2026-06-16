@@ -3154,7 +3154,7 @@ packages:
 - pypi: ./
   name: guanaco-viz
   version: '1.0'
-  sha256: a906402b3a1594cd3317fff379af7c5ba3b1ae946f8934df86e465e0fe90dfcf
+  sha256: f435dab5fad30dc24cd0f7da12ccce03b47e018af59264330256b310ffed8029
   requires_dist:
   - dash>=2.18,<3
   - dash-bootstrap-components>=1.3,<2
@@ -3177,6 +3177,7 @@ packages:
   - muon>=0.1.7,<0.2
   - h5py>=3.8
   - psutil>=5.9
+  - zarr>=2.18.7,<3 ; extra == 'cloud'
   - fsspec>=2024.1 ; extra == 'cloud'
   - xarray>=2024.1 ; extra == 'cloud'
   - dask>=2024.1 ; extra == 'cloud'
