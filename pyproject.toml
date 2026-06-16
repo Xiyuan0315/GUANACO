@@ -7,7 +7,7 @@ name = "guanaco-viz"
 version = "1.0"
 description = "GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.15"
 license = { text = "GPL-3.0-or-later" }
 authors = [
   { name = "Xiyuan Zhang", email = "xiyuan315@outlook.com" }
@@ -15,49 +15,51 @@ authors = [
 keywords = ["single-cell", "multi-omics", "visualization", "dash", "bioinformatics"]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Operating System :: OS Independent",
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
   "Topic :: Scientific/Engineering :: Visualization"
 ]
+# Core runtime: enough to run the app on local .h5ad/.h5mu files with the standard
+# plots. Optional features (remote-.zarr streaming, the genome browser, datashader,
+# desktop window, notebook widgets, the deploy server) live in the extras below so a
+# default `pip install guanaco-viz` stays lean and easy to resolve across Python envs.
+# zarr/fsspec are not listed: anndata hard-requires them. matplotlib/scikit-learn/
+# statsmodels/networkx are pulled by scanpy too, but guanaco imports them directly so
+# they're declared here for a robust, self-contained dependency set.
 dependencies = [
-  "dash==2.18.0",
-  "dash-bootstrap-components==1.3.0",
-  "dash-bio==1.0.2",
-  "dash-draggable==0.1.2",
-  "dash-cytoscape>=1.0.2",
-  "dash-ag-grid==32.3.2",
-  "plotly>=5.19.0,<6.0.0",
-  "colorcet>=3.1.0",
+  # Web UI (Dash)
+  "dash>=2.18,<3",
+  "dash-bootstrap-components>=1.3,<2",
+  "dash-ag-grid>=32,<33",
+  "dash-draggable>=0.1.2,<0.2",
+  "dash-cytoscape>=1.0.2,<2",
+  # Plotting / colors
+  "plotly>=5.19,<6",
+  "matplotlib>=3.7",
+  "colorcet>=3.1",
   "cmcrameri>=1.9",
-  "glasbey>=0.3.0,<0.4",
-  "pandas>=2.0.0",
-  "numpy>=1.24.0,<2.0.0",
-  "scipy>=1.11,<1.14",
-  "statsmodels>=0.14.5,<0.15",
+  "glasbey>=0.3,<0.4",
+  "Pillow>=9",
+  # Scientific core (numpy 2 / scipy 1.14+ allowed so Python 3.13 resolves;
+  # the guanaco code base is numpy-2 clean)
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "scipy>=1.11",
+  "scikit-learn>=1.1",
+  "statsmodels>=0.14",
+  "networkx>=2.7",
+  # Single-cell I/O
   "anndata>=0.12,<0.13",
-  "muon==0.1.7",
-  "dask>=2024.1",
-  "fsspec>=2024.1",
-  "s3fs>=2024.1",
-  "gcsfs>=2024.1",
-  "aiohttp>=3.9",
-  "logomaker>=0.8,<0.9",
-  "pyfaidx==0.7.2",
-  "pyjaspar==3.0.0",
-  "aiobotocore==2.15.2",
-  "boto3==1.35.36",
-  "botocore==1.35.36",
-  "s3transfer==0.10.3",
-  "urllib3==1.26.14",
-  "tqdm==4.64.1",
-  "python-dotenv==1.0.0",
-  "click",
-  "gunicorn==21.2.0"
+  "muon>=0.1.7,<0.2",
+  "h5py>=3.8",
+  # System
+  "psutil>=5.9",
 ]
 
 [project.urls]
@@ -70,13 +72,60 @@ guanaco = "guanaco.cli:main"
 guanaco-desktop = "guanaco.desktop:desktop_main"
 
 [project.optional-dependencies]
+# Stream remote .zarr stores over S3 / GCS / HTTPS (anndata read_lazy "backed" mode).
+# zarr + fsspec already come with anndata; these add lazy compute + the cloud backends.
+cloud = [
+  # zarr pinned to v2: zarr v3 made remote HTTP reads aiohttp-async-only, which
+  # raises "Timeout context manager should be used inside a task" when a backed/
+  # lazy .zarr read runs inside a synchronous Dash callback under gunicorn. v2
+  # reads HTTP synchronously via fsspec's own sync loop. anndata allows >=2.18.7.
+  "zarr>=2.18.7,<3",
+  "fsspec>=2024.1",
+  "xarray>=2024.1",
+  "dask>=2024.1",
+  "s3fs>=2024.1",
+  "gcsfs>=2024.1",
+  "aiohttp>=3.9"
+]
+# Genome browser: motif logos, JASPAR matrices, and bigWig/S3 track loading.
+tracks = [
+  "dash-bio>=1.0,<2",
+  "logomaker>=0.8,<0.9",
+  "pyjaspar>=3.0",
+  "boto3>=1.34"
+]
+# datashader rendering backend for very large embeddings (embedding_render_backend).
+datashader = [
+  "datashader>=0.16"
+]
+# Production WSGI server (Plotly Cloud / gunicorn deployments).
+server = [
+  "gunicorn>=21,<23"
+]
+# Desktop app (pywebview window).
 desktop = [
   "pywebview>=5.0"
+]
+# Notebook / marimo embedding widgets.
+notebook = [
+  "ipywidgets>=8",
+  "ipycytoscape>=1.3",
+  "marimo>=0.9"
+]
+# Cloudflare quick-share tunnel + response compression.
+share = [
+  "pycloudflared>=0.2.0",
+  "flask-compress>=1.14",
+  "brotli>=1.1"
 ]
 dev = [
   "pytest>=8",
   "ruff>=0.6",
   "build>=1.2"
+]
+# Convenience: install every optional feature at once.
+all = [
+  "guanaco-viz[cloud,tracks,datashader,server,desktop,notebook,share]"
 ]
 
 [tool.setuptools]

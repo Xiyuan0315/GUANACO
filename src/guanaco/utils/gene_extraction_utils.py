@@ -168,7 +168,13 @@ def _densify(block):
     in-memory blocks pass straight through.
     """
     if hasattr(block, "compute"):  # dask array -> pull just this slice into memory
-        block = block.compute()
+        # Use the synchronous scheduler: under a gunicorn sync worker, dask's default
+        # threaded scheduler calls fsspec's async HTTP from worker threads while its
+        # event loop lives in another thread, which deadlocks (the worker hangs in
+        # `compute()` until gunicorn times out and SIGKILLs it -- looks like an OOM
+        # but isn't). Running inline in the calling thread reads the same single
+        # column with no thread hand-off, so cloud-backed reads work under gunicorn.
+        block = block.compute(scheduler="synchronous")
     if issparse(block):
         block = block.toarray()
     return np.asarray(block)

@@ -2,8 +2,14 @@
 """Command-line interface for GUANACO visualization tool."""
 
 import argparse
+import contextlib
+import io
 import json
+import logging
 import os
+import socket
+import sys
+import warnings
 from pathlib import Path
 
 
@@ -14,7 +20,13 @@ DEFAULT_SETTINGS = {
     "lazy_load": True,
     "backed_mode": False,
     "embedding_render_backend": "scattergl",
+    # Public sharing via a cloudflared quick tunnel, gated by HTTP Basic Auth.
+    "share": False,
+    "share_username": "guanaco",
+    "share_password": "",  # blank -> a random password is generated at launch
 }
+
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*__version__.*deprecated.*")
 
 
 def _as_bool(value, *, field: str) -> bool:
@@ -49,7 +61,42 @@ def _load_settings(config_path: Path) -> dict:
 
     merged["port"] = int(merged["port"])
     merged["max_cells"] = None if merged["max_cells"] is None else int(merged["max_cells"])
+
+    merged["share"] = _as_bool(merged["share"], field="share")
+    merged["share_username"] = str(merged["share_username"]).strip() or "guanaco"
+    merged["share_password"] = str(merged["share_password"])
     return merged
+
+
+def _dataset_names(config_path: Path) -> list[str]:
+    config = json.loads(config_path.read_text())
+    return [
+        key for key, value in config.items()
+        if key not in {"title", "color", "genome", "settings"} and isinstance(value, dict)
+    ]
+
+
+def _loading_message(config_path: Path) -> str:
+    names = _dataset_names(config_path)
+    if not names:
+        return "Loading GUANACO data..."
+    preview = ", ".join(names[:2])
+    if len(names) > 2:
+        preview += f" +{len(names) - 2} more"
+    return f"Loading GUANACO data: {preview}"
+
+
+def _display_urls(host: str, port: int) -> list[str]:
+    if host in {"0.0.0.0", "", None}:
+        urls = [f"http://127.0.0.1:{port}"]
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            local_ip = None
+        if local_ip and not local_ip.startswith("127."):
+            urls.append(f"http://{local_ip}:{port}")
+        return urls
+    return [f"http://{host}:{port}"]
 
 
 def parse_args():
@@ -152,7 +199,7 @@ def _wait_for_server(url: str, timeout: float = 30.0) -> bool:
 def main():
     """Main entry point for GUANACO CLI."""
     import time
-    import sys
+    from flask import cli as flask_cli
     
     args = parse_args()
 
@@ -172,37 +219,28 @@ def main():
     # Set environment variables from CLI args (must precede importing the app)
     apply_settings_env(args.settings, args.config)
 
-    print("🧬 Starting GUANACO server...")
-    print(f"📄 Config file: {args.config}")
-    print(f"📁 Relative data path base: {args.config_dir}")
-    print(f"🌐 Server will run on {args.settings['host']}:{args.settings['port']}")
-    print(f"💾 Backed mode: {args.settings['backed_mode']}")
-    print(f"📊 Embedding render backend: {args.settings['embedding_render_backend']}")
-    print("─" * 60)
-    
     start_time = time.time()
     
     try:
         from guanaco.utils.progress_utils import Spinner
 
-        # Load core libraries
-        with Spinner("Loading core libraries (scanpy, muon)...Please wait 5-10 seconds..."):
-            import anndata 
-            import muon 
-        
-        # Load visualization
-        with Spinner("Loading visualization libraries (matplotlib, plotly)..."):
-            import matplotlib
-            matplotlib.use('Agg')
-            import plotly
-        
-        
-        with Spinner("Importing GUANACO modules and Loading data..."):
-            from guanaco.main import app
+        spinner = Spinner(_loading_message(args.config), show_result=False, stream=sys.stderr)
+        spinner.start()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                import anndata
+                import muon
+                import matplotlib
+                matplotlib.use('Agg')
+                import plotly
+                from guanaco.main import app
+        finally:
+            spinner.stop()
         
         elapsed = time.time() - start_time
-        print(f"\n✅ Startup completed in {elapsed:.1f} seconds")
-        print("─" * 60)
+        print(f"Startup completed in {elapsed:.1f} seconds")
+        for url in _display_urls(args.settings["host"], args.settings["port"]):
+            print(f"Open: {url}")
         
     except KeyboardInterrupt:
         print("\n\n❌ Startup cancelled by user")
@@ -213,12 +251,28 @@ def main():
         traceback.print_exc()
         sys.exit(1)
     
-    # Now actually start the server
-    print()  # Empty line before Flask messages
+    # Optional public sharing: gate the app behind Basic Auth, then open a tunnel.
+    if args.settings["share"]:
+        from guanaco import share
+
+        public_url, username, password = share.enable_sharing(
+            app.server,
+            args.settings["port"],
+            args.settings["share_username"],
+            args.settings["share_password"],
+        )
+        share.print_share_banner(public_url, username, password)
+
+    # Silence Flask/Werkzeug's development banner and per-request access logs.
+    flask_cli.show_server_banner = lambda *args, **kwargs: None
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+    # Now actually start the server.
     app.run_server(
         host=args.settings["host"],
         debug=False,
         port=args.settings["port"],
+        dev_tools_silence_routes_logging=True,
     )
 
 if __name__ == "__main__":

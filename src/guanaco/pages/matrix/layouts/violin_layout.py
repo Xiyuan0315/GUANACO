@@ -1,9 +1,13 @@
 import dash_bootstrap_components as dbc
-import dash_draggable
 from dash import dcc, html
 
 from guanaco.utils.plot_config import common_config
-from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE, labeled_dropdown, switch_checklist
+from guanaco.utils.ui_helpers import (
+    LOADING_OVERLAY_STYLE,
+    labeled_dropdown,
+    responsive_graph_grid,
+    switch_checklist,
+)
 
 
 def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
@@ -26,17 +30,15 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
                     violin1_more_options,
                     dcc.Store(id=f"{prefix}-violin-plot-cache-store"),
                     dcc.Store(id=f"{prefix}-violin1-rendered-key"),
-                    dcc.Loading(
-                        id="loading-violin1",
-                        type="circle",
-                        overlay_style=LOADING_OVERLAY_STYLE,
-                        children=[
-                            dcc.Graph(
-                                id=f"{prefix}-violin-plot1",
-                                config=common_config,
-                                style={"width": "100%", "minHeight": "400px"},
-                            )
-                        ],
+                    # No dcc.Loading wrapper here: the stacked-violin figure is served
+                    # from cache on tab switches (the gene/label data is cached server
+                    # side), so the spinner only ever *flashed* on re-entry without
+                    # signalling real work. Rendering the graph directly removes that
+                    # distracting flash.
+                    dcc.Graph(
+                        id=f"{prefix}-violin-plot1",
+                        config=common_config,
+                        style={"width": "100%", "minHeight": "400px"},
                     ),
                 ],
                 style={"marginBottom": "30px", "padding": "20px"},
@@ -166,38 +168,32 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
                         children=[
                             html.Div(
                                 [
-                                    dash_draggable.GridLayout(
-                                        id=f"{prefix}-draggable-violin2",
-                                        className="grid-layout-no-border",
-                                        children=[
-                                            html.Div(
-                                                children=dcc.Graph(
-                                                    id=f"{prefix}-violin-plot2",
-                                                    config=common_config,
-                                                    responsive=True,
-                                                    style={
-                                                        "min-height": "0",
-                                                        "flex-grow": "1",
-                                                        "border": "none",
-                                                        "box-shadow": "none",
-                                                    },
-                                                ),
+                                    responsive_graph_grid(
+                                        f"{prefix}-violin2-grid",
+                                        f"{prefix}-violin2-grid-item",
+                                        html.Div(
+                                            id=f"{prefix}-violin2-grid-item",
+                                            children=dcc.Graph(
+                                                id=f"{prefix}-violin-plot2",
+                                                config=common_config,
+                                                responsive=True,
                                                 style={
-                                                    "height": "100%",
-                                                    "width": "100%",
-                                                    "display": "flex",
-                                                    "flex-direction": "column",
-                                                    "flex-grow": "0",
+                                                    "min-height": "0",
+                                                    "flex-grow": "1",
                                                     "border": "none",
                                                     "box-shadow": "none",
                                                 },
-                                            )
-                                        ],
-                                        isResizable=True,
-                                        isDraggable=True,
-                                        height=30,
-                                        gridCols=12,
-                                        style={"background": "transparent", "padding": "0px"},
+                                            ),
+                                            style={
+                                                "height": "100%",
+                                                "width": "100%",
+                                                "display": "flex",
+                                                "flex-direction": "column",
+                                                "flex-grow": "0",
+                                                "border": "none",
+                                                "box-shadow": "none",
+                                            },
+                                        ),
                                     )
                                 ]
                             )

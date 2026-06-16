@@ -341,6 +341,12 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
             dcc.Store(id=f"{prefix}-selected-cells-store"),
             dcc.Store(id=f"{prefix}-selected-cells-hash"),
             dcc.Store(id=f"{prefix}-left-highlighted-cells-store"),
+            # Debounced legend state: a clientside callback collapses rapid legend
+            # clicks and writes the settled set of hidden labels here, so the server
+            # recomputes the cross-highlight once per burst instead of per click.
+            dcc.Store(id=f"{prefix}-legend-hidden-store"),
+            # Dummy output for the clientside legend-debounce callback (side-effect only).
+            dcc.Store(id=f"{prefix}-legend-debounce-dummy"),
             # Dummy output for the clientside axis reset-link callback (side-effect only).
             dcc.Store(id=f"{prefix}-axis-reset-link"),
             # Dummy output for the clientside right-plot cross-highlight (side-effect only).
@@ -378,6 +384,12 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                     id=f"{prefix}-loading-annotaion-scatter",
                                     type="circle",
                                     overlay_style=LOADING_OVERLAY_STYLE,
+                                    # Shared controls (e.g. the discrete colormap) fire this
+                                    # callback even when the panel is continuous; the callback
+                                    # returns no_update almost instantly. delay_show keeps the
+                                    # blur overlay from flashing for those near-instant no-ops
+                                    # while still showing it for genuinely slow renders.
+                                    delay_show=300,
                                     children=dcc.Graph(id=f"{prefix}-annotation-scatter", config=scatter_config, style={"height": "60vh", "width": "100%"}),
                                     style={"height": "60vh", "width": "100%"},
                                 ),
@@ -458,6 +470,10 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                     id=f"{prefix}-loading-gene-scatter",
                                     type="circle",
                                     overlay_style=LOADING_OVERLAY_STYLE,
+                                    # See the annotation-scatter loader: delay_show suppresses
+                                    # the blur flash when a shared control fires a no-op
+                                    # (no_update) rebuild on a continuous panel.
+                                    delay_show=300,
                                     children=dcc.Graph(id=f"{prefix}-gene-scatter", config=gene_scatter_config, style={"height": "60vh", "width": "100%"}),
                                     style={"height": "60vh", "width": "100%"},
                                 ),

@@ -1,0 +1,57 @@
+[
+  {
+    "date": "2026-06-13",
+    "mode": "Health Dashboard",
+    "score": 93,
+    "findings": {
+      "critical": 0,
+      "warning": 4,
+      "suggestion": 0
+    },
+    "scope": "src/guanaco/desktop.py"
+  },
+  {
+    "date": "2026-06-13",
+    "mode": "Health Dashboard",
+    "score": 94,
+    "findings": {
+      "critical": 0,
+      "warning": 4,
+      "suggestion": 0
+    },
+    "scope": "src/guanaco/pages/matrix/plots/embedding.py"
+  },
+  {
+    "date": "2026-06-14",
+    "mode": "Full Sweep",
+    "score": 88,
+    "findings": {
+      "critical": 0,
+      "warning": 2,
+      "suggestion": 2
+    },
+    "scope": "dotmatrix.py, pseudotime.py"
+  },
+  {
+    "date": "2026-06-14",
+    "mode": "Full Sweep",
+    "score": 81,
+    "findings": {
+      "critical": 0,
+      "warning": 3,
+      "suggestion": 4
+    },
+    "scope": "track/callbacks.py, track/layout.py, track/utils.py"
+  },
+  {
+    "date": "2026-06-14",
+    "mode": "Full Sweep",
+    "score": 94,
+    "findings": {
+      "critical": 0,
+      "warning": 1,
+      "suggestion": 1
+    },
+    "scope": "marimo.py, widget.py"
+  }
+]

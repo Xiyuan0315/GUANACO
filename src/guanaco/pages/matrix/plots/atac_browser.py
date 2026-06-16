@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+import weakref
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -15,8 +16,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-_LOCUS_RE = re.compile(r"^\s*([^:\s]+)\s*:\s*([0-9,]+)\s*-\s*([0-9,]+)\s*$")
-_PEAK_RE = re.compile(r"^\s*([^:\s]+)\s*:\s*([0-9,]+)\s*-\s*([0-9,]+)\s*$")
+# A locus typed by the user ("chr1:100,000-200,000") and a peak feature name share
+# the same coordinate grammar today; compile both from one pattern so the grammar
+# lives in a single place, while keeping two names so they can diverge later.
+_COORD_PATTERN = r"^\s*([^:\s]+)\s*:\s*([0-9,]+)\s*-\s*([0-9,]+)\s*$"
+_LOCUS_RE = re.compile(_COORD_PATTERN)
+_PEAK_RE = re.compile(_COORD_PATTERN)
 
 
 @dataclass
@@ -60,6 +65,20 @@ class _SimpleTTLCache:
 _peak_index_cache: dict[tuple[int, int], PeakIndex] = {}
 _signal_cache = _SimpleTTLCache(max_items=48, ttl_seconds=180)
 
+# Colorblind-safe fallback colors for signal tracks, used when a track has no entry
+# in the caller-supplied color_map. Cycled by track index.
+_TRACK_PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#5F4690", "#38A6A5"]
+
+
+def _coords_from_match(match: "re.Match") -> tuple[str, int, int]:
+    """(chrom, start, end) from a coordinate regex match, with start/end ordered."""
+    chrom = match.group(1)
+    start = int(match.group(2).replace(",", ""))
+    end = int(match.group(3).replace(",", ""))
+    if end < start:
+        start, end = end, start
+    return chrom, start, end
+
 
 def parse_locus(value: str | None) -> tuple[str, int, int] | None:
     if not value:
@@ -67,11 +86,7 @@ def parse_locus(value: str | None) -> tuple[str, int, int] | None:
     match = _LOCUS_RE.match(str(value))
     if match is None:
         return None
-    chrom = match.group(1)
-    start = int(match.group(2).replace(",", ""))
-    end = int(match.group(3).replace(",", ""))
-    if end < start:
-        start, end = end, start
+    chrom, start, end = _coords_from_match(match)
     return chrom, max(0, start), max(0, end)
 
 
@@ -83,12 +98,7 @@ def _parse_peak_name(name: object) -> tuple[str, int, int] | None:
     match = _PEAK_RE.match(str(name))
     if match is None:
         return None
-    chrom = match.group(1)
-    start = int(match.group(2).replace(",", ""))
-    end = int(match.group(3).replace(",", ""))
-    if end < start:
-        start, end = end, start
-    return chrom, start, end
+    return _coords_from_match(match)
 
 
 def has_genomic_peak_features(adata, *, sample_size: int = 2000, min_hits: int = 5) -> bool:
@@ -173,6 +183,13 @@ def build_peak_index(adata) -> PeakIndex:
         names=names,
     )
     _peak_index_cache[cache_key] = index
+    # id(adata) is recycled by CPython once the object is garbage-collected, so a
+    # later, unrelated AnnData could reuse this id and read a stale index. Evict the
+    # entry when adata is finalized to keep the cache keyed to the live object.
+    try:
+        weakref.finalize(adata, _peak_index_cache.pop, cache_key, None)
+    except TypeError:
+        pass  # not weak-referenceable: fall back to plain id()-keyed caching
     return index
 
 
@@ -287,6 +304,10 @@ def compute_atac_signal(
     cache_key = json.dumps(
         {
             "adata": id(adata),
+            # id() alone can be recycled across objects; pin the shape too so a
+            # reused id on a differently-sized AnnData cannot collide here.
+            "n_obs": int(adata.n_obs),
+            "n_vars": int(adata.n_vars),
             "chrom": chrom,
             "start": start,
             "end": end,
@@ -314,11 +335,21 @@ def compute_atac_signal(
     # grouping below still emits one (empty, flat) track per selected label, so
     # panning into a peak-free stretch keeps every cell-type track on screen
     # instead of collapsing the figure down to just the gene track.
+    # Read the selected peak columns into memory NOW, through the shared synchronous
+    # densify path. For a cloud-backed store adata.X is a lazy dask array; calling
+    # .mean()/(>0).mean() on it later (see _mean_or_detection) would trigger dask's
+    # default threaded scheduler, which deadlocks fsspec's async HTTP under a gunicorn
+    # sync worker (the same hang _densify exists to avoid for gene reads). Densifying
+    # the bounded (<=400-peak) slice up front keeps every downstream op pure-numpy.
+    from guanaco.utils.gene_extraction_utils import _densify
+
+    sub = _densify(adata.X[:, cols])
+    if sub.ndim == 1:
+        sub = sub.reshape(adata.n_obs, -1)
     if rows is None:
-        sub = adata.X[:, cols]
         row_labels = None
     else:
-        sub = adata.X[rows, :][:, cols]
+        sub = sub[rows, :]
         row_labels = rows
 
     signals = []
@@ -608,7 +639,7 @@ def plot_atac_browser(
 
     centers = (peaks["starts"].astype(np.float64) + peaks["ends"].astype(np.float64)) / 2.0
     widths = np.maximum(peaks["ends"] - peaks["starts"], 400)
-    palette = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#5F4690", "#38A6A5"]
+    palette = _TRACK_PALETTE
     metric_label = "Detection fraction" if signal_payload["metric"] == "detection" else "Mean accessibility"
 
     # In "shared" mode every track gets the same y-range (0 .. global max) so bar

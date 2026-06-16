@@ -1,0 +1,40 @@
+{
+  "_comment": "CONFIG 2 -- three datasets, all read into memory (backed_mode=false). The two RNA datasets are the existing in-memory .h5ad demos (Mouse from Zenodo, PBMC from S3); the third adds a PBMC ATAC layer (PBMC_atac.zarr) loaded fully into memory, with the matrix-backed ATAC Browser enabled. genome=hg38 auto-downloads the GENCODE v50 basic GTF for the ATAC gene-model track. Three top-level dataset tabs. If your cluster has no internet, swap each sc_data for a local path.",
+  "Mouse_RNA": {
+    "sc_data": "https://zenodo.org/records/17151851/files/mouse_RNA_demo.h5ad",
+    "description": "Mouse oligodendrocyte-lineage scRNA-seq from an EAE study -- 5,264 cells x 32,285 genes, 6 cell types across EAE vs control. Downloaded once to cache, then read fully into memory.",
+    "optional_plot_components": ["heatmap", "violin", "dotplot", "stacked-bar"],
+    "markers": ["Pdgfra", "Sox10", "Olig1", "Mog", "Plp1", "Mbp", "Gfap", "Cx3cr1"],
+    "default_embedding_left": "X_umap",
+    "default_color_left": "Celltypes"
+  },
+  "PBMC_RNA": {
+    "sc_data": "https://guanaco-pbmc-demo-c16755.s3.eu-north-1.amazonaws.com/pbmc_rna_demo.h5ad",
+    "description": "Human PBMC scRNA-seq (RNA modality of a 10x multiome dataset) -- 8,677 cells x 36,591 genes, 7 cell types. Library-size normalized + log1p. Downloaded once to cache, then read fully into memory.",
+    "optional_plot_components": ["heatmap", "violin", "dotplot", "stacked-bar"],
+    "markers": ["CD3D", "CD8A", "IL7R", "MS4A1", "NKG7", "GNLY", "CD14", "LYZ", "FCER1A", "FCGR3A"],
+    "default_embedding_left": "X_umap",
+    "default_color_left": "CellType"
+  },
+  "PBMC_ATAC": {
+    "sc_data": "https://guanaco-pbmc-demo-c16755.s3.eu-north-1.amazonaws.com/PBMC_atac.zarr",
+    "description": "Matching PBMC scATAC-seq -- 8,677 cells x 87,424 peaks (var_names are chr:start-end peak coordinates), 7 cell types. Loaded into memory; the ATAC Browser reads peak columns and overlays GENCODE gene models.",
+    "genome": "hg38",
+    "optional_plot_components": ["dotplot", "heatmap", "atac-browser"],
+    "default_embedding_left": "X_umap",
+    "default_color_left": "CellType"
+  },
+  "color": [
+    "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
+    "#D55E00", "#CC79A7", "#B2DF8A", "#FB9A99", "#CAB2D6"
+  ],
+  "title": "GUANACO demo -- mouse RNA + PBMC RNA + PBMC ATAC (three datasets)",
+  "settings": {
+    "host": "0.0.0.0",
+    "port": 4399,
+    "max_cells": null,
+    "lazy_load": true,
+    "backed_mode": false,
+    "embedding_render_backend": "scattergl"
+  }
+}

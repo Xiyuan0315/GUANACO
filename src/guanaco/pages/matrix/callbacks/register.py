@@ -119,7 +119,7 @@ class _FilteredDataCache:
             digest = hashlib.md5(payload.encode()).hexdigest()
             return (adata_id, "cells", n, digest)
         if selected_labels and annotation:
-            return (adata_id, "labels", annotation, tuple(sorted(str(l) for l in selected_labels)))
+            return (adata_id, "labels", annotation, tuple(sorted(str(label) for label in selected_labels)))
         return None
 
     def get_or_create(self, adata, annotation, selected_labels, selected_cells):

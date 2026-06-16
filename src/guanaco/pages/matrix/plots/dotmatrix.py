@@ -453,7 +453,7 @@ def plot_dot_matrix(
 
         # Title for size legend
         fig.add_trace(go.Scatter(
-            x=[0.5], y=[0.95], xaxis='x2', yaxis='y2',
+            x=[0.6], y=[0.95], xaxis='x2', yaxis='y2',
             mode='text', text=["Frac. cells"],
             textposition='top center',
             cliponaxis=False,
@@ -461,14 +461,17 @@ def plot_dot_matrix(
             textfont=dict(size=11, color='black')
         ))
 
-        # Dots with percent labels to the right
+        # Dots with percent labels to the right. The dots are fixed-pixel markers;
+        # seating them at x=0.4 (rather than hard against the legend's left edge)
+        # keeps a real gap from the main plot, and cliponaxis clips them to this
+        # subplot so on a very narrow figure they can't bleed onto the data grid.
         for size, value, y in zip(size_legend_sizes, size_legend_values, y_positions):
             percent = f"{int(round(value * 100))}%"
             fig.add_trace(go.Scatter(
-                x=[0.20], y=[y], xaxis='x2', yaxis='y2',
+                x=[0.40], y=[y], xaxis='x2', yaxis='y2',
                 mode='markers',
                 marker=dict(size=size, color='grey', line=dict(color='black', width=0.5)),
-                cliponaxis=False,
+                cliponaxis=True,
                 showlegend=False, hoverinfo='skip'
             ))
             fig.add_trace(go.Scatter(

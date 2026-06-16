@@ -1,18 +1,20 @@
 """Progress indicators for GUANACO startup"""
 
 import sys
-import time
 import threading
+import time
 
 class Spinner:
     """Animated spinner for long operations"""
     
-    def __init__(self, message="Loading"):
+    def __init__(self, message="Loading", *, show_result=True, stream=None):
         self.message = message
         self.running = False
         self.thread = None
         self.spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         self.current = 0
+        self.show_result = show_result
+        self.stream = stream or sys.stdout
         
     def __enter__(self):
         self.start()
@@ -32,8 +34,8 @@ class Spinner:
         """Spin animation"""
         while self.running:
             char = self.spinner_chars[self.current % len(self.spinner_chars)]
-            sys.stdout.write(f'\r{char} {self.message}')
-            sys.stdout.flush()
+            self.stream.write(f'\r{char} {self.message}')
+            self.stream.flush()
             self.current += 1
             time.sleep(0.1)
             
@@ -44,12 +46,13 @@ class Spinner:
             self.thread.join()
         
         # Clear the line and show result
-        sys.stdout.write('\r' + ' ' * (len(self.message) + 4) + '\r')
-        if success:
-            print(f"✓ {self.message}")
-        else:
-            print(f"✗ {self.message}")
-        sys.stdout.flush()
+        self.stream.write('\r' + ' ' * (len(self.message) + 4) + '\r')
+        if self.show_result:
+            if success:
+                self.stream.write(f"✓ {self.message}\n")
+            else:
+                self.stream.write(f"✗ {self.message}\n")
+        self.stream.flush()
 
 
 def progress_bar(current, total, message="", width=40):

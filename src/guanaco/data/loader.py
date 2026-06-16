@@ -1,17 +1,16 @@
 """Dataloader for single‑cell data and genome browser tracks using DatasetBundle objects."""
 
+import hashlib
 import json
+import shutil
 import urllib.parse
 import os
 from pathlib import Path
 from itertools import cycle
 from typing import Any, Sequence
 import anndata as ad
-import boto3
 import numpy as np
 import pandas as pd
-from botocore import UNSIGNED
-from botocore.config import Config
 
 import muon as mu
 mu.set_options(pull_on_update=False)
@@ -195,6 +194,50 @@ def _source_suffix(file: str | Path) -> str:
     """
     text = str(file).split("?", 1)[0].split("#", 1)[0].rstrip("/")
     return os.path.splitext(text)[1].lower()
+
+
+# Whole-file downloads of remote .h5ad/.h5mu land here. Unlike .zarr (which streams
+# chunk-by-chunk from the cloud), HDF5 needs a local, seekable file, so the whole
+# file is fetched once and reused. Override the location with GUANACO_CACHE_DIR.
+_REMOTE_CACHE_DIR = Path(
+    os.environ.get("GUANACO_CACHE_DIR", Path.home() / ".guanaco" / "cache")
+)
+
+
+def _download_remote_to_cache(url: str, cache_dir: Path = _REMOTE_CACHE_DIR) -> Path:
+    """Download a remote ``.h5ad``/``.h5mu`` to a local cache; return the local path.
+
+    HDF5 files can't be read lazily over the network (see :func:`load_adata`), so the
+    whole file is fetched once into ``cache_dir`` and reused on later loads. Any
+    fsspec-supported scheme works (``http(s)``, ``s3``, ``gs`` ...) provided the
+    matching backend (``aiohttp``/``s3fs``/``gcsfs``) is installed. The cache key is a
+    hash of the URL, so different sources never collide and re-downloads are skipped.
+    """
+    try:
+        import fsspec
+    except ImportError as exc:
+        raise ImportError(
+            f"Loading data from a remote URL ({url}) requires the cloud extra. "
+            "Install it with: pip install 'guanaco-viz[cloud]'  "
+            "(or download the file and point sc_data at a local path)."
+        ) from exc
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    url_hash = hashlib.md5(str(url).encode()).hexdigest()[:8]
+    cache_path = cache_dir / f"{url_hash}{_source_suffix(url)}"
+
+    if cache_path.exists():
+        print(f"[guanaco] using cached download: {cache_path}")
+        return cache_path
+
+    print(f"[guanaco] downloading {url} -> {cache_path}")
+    # Stream to a .part file first so an interrupted download can't leave a truncated
+    # file behind that later looks 'cached'; rename only once it's complete.
+    tmp_path = cache_path.with_name(cache_path.name + ".part")
+    with fsspec.open(str(url), "rb") as src, open(tmp_path, "wb") as dst:
+        shutil.copyfileobj(src, dst, length=8 * 1024 * 1024)
+    tmp_path.replace(cache_path)
+    return cache_path
 
 
 def _open_zarr_group(store: str | Path):
@@ -582,9 +625,14 @@ def load_adata(
         - Local ``.h5ad`` / ``.h5mu`` files (absolute paths).
         - Local ``.zarr`` AnnData/MuData stores (absolute directory paths).
         - Cloud ``.zarr`` stores via remote URIs (``s3://``, ``gs://``,
-          ``https://``, ...). Remote URIs are passed through untouched -- never
-          converted to ``pathlib.Path`` -- and require the matching ``fsspec``
-          backend to be installed at read time.
+          ``https://``, ...). The matrix stays on the cloud and is *streamed*
+          chunk-by-chunk; the URI is passed through untouched (never converted to
+          ``pathlib.Path``) and requires the matching ``fsspec`` backend at read time.
+        - Remote ``.h5ad`` / ``.h5mu`` via the same URI schemes. HDF5 can't be read
+          lazily over the network, so the whole file is downloaded once to a local
+          cache (see :func:`_download_remote_to_cache`) and then read from disk. Good
+          for small/medium datasets; prefer ``.zarr`` for large ones to avoid the
+          per-cold-start download and the local disk footprint.
 
     Args:
         file: Absolute local path or remote URI of the data source.
@@ -602,23 +650,30 @@ def load_adata(
     suffix = _source_suffix(file)
 
     if _is_remote_uri(file):
-        # Keep the original URI string; do not Path()-mangle the scheme.
-        if suffix != ".zarr":
-            raise ValueError(
-                f"Remote sc_data must be a .zarr store, got '{suffix or '<none>'}' for {file}. "
-                "Cloud .h5ad/.h5mu reading is not supported; convert to .zarr."
+        # .zarr streams chunk-by-chunk from the cloud -- the matrix never lands on
+        # disk; keep the original URI string (do not Path()-mangle the scheme).
+        if suffix == ".zarr":
+            return _load_zarr(
+                str(file), max_cells=max_cells, seed=seed, backed=backed, expression_layer=expression_layer
             )
-        return _load_zarr(
-            str(file), max_cells=max_cells, seed=seed, backed=backed, expression_layer=expression_layer
-        )
-
-    path = Path(file)
-    if not path.is_absolute():
-        raise ValueError(f"sc_data path must be absolute: {path}")
-    if not path.exists():
-        raise FileNotFoundError(f"Data file not found: {path}")
-    if suffix not in (".h5ad", ".h5mu", ".zarr"):
-        raise ValueError(f"Unsupported file extension: {suffix}")
+        # HDF5 (.h5ad/.h5mu) can't be read lazily over the network, so download the
+        # whole file once to a local cache and read it from disk via the local path
+        # below (backed/down-sample behaviour is then identical to a local file).
+        if suffix in (".h5ad", ".h5mu"):
+            path = _download_remote_to_cache(str(file))
+        else:
+            raise ValueError(
+                f"Remote sc_data must be a .zarr store or an .h5ad/.h5mu file, "
+                f"got '{suffix or '<none>'}' for {file}."
+            )
+    else:
+        path = Path(file)
+        if not path.is_absolute():
+            raise ValueError(f"sc_data path must be absolute: {path}")
+        if not path.exists():
+            raise FileNotFoundError(f"Data file not found: {path}")
+        if suffix not in (".h5ad", ".h5mu", ".zarr"):
+            raise ValueError(f"Unsupported file extension: {suffix}")
 
     if suffix == ".zarr":
         return _load_zarr(
@@ -779,6 +834,19 @@ def load_tracks_from_s3(
 ) -> dict[str, list[dict[str, Any]]]:
     if colors is None:
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]  # fallback default
+
+    # boto3 is only needed to read genome-browser tracks from S3, so import it lazily:
+    # the core install (local files / cloud .zarr via fsspec) shouldn't require the
+    # heavy boto3/botocore stack. Installed via the `guanaco-viz[tracks]` extra.
+    try:
+        import boto3
+        from botocore import UNSIGNED
+        from botocore.config import Config
+    except ImportError as exc:
+        raise ImportError(
+            "Reading genome-browser tracks from S3 requires boto3. "
+            "Install it with: pip install 'guanaco-viz[tracks]'"
+        ) from exc
 
     tracks_dict: dict[str, list[dict[str, Any]]] = {}
     s3_clients: dict[str | None, Any] = {}

@@ -188,58 +188,13 @@ def _edge_widths(filtered: pd.DataFrame) -> pd.Series:
     return scaled.fillna(3.0)
 
 
-def grn_graph(
-    adata: Any,
-    *,
-    selected_context=ALL_CONTEXTS,
-    edge_threshold: float | None = None,
-    layout_name="cose",
-    node_font_size=12,
-):
-    """Backend-agnostic GRN graph for cytoscape.js.
+def grn_base_stylesheet(node_font_size: int = 12) -> list[dict]:
+    """The default (un-highlighted) cytoscape stylesheet for the GRN graph.
 
-    Returns ``{"elements", "stylesheet", "layout", "legend", "directed"}`` so it
-    can drive either the Dash ``cyto.Cytoscape`` component or the ipycytoscape
-    notebook widget (``gc.pl.grn``). Raises ``ValueError`` when there is nothing
-    to render.
+    Factored out of :func:`grn_graph` so the tap-to-focus callback can rebuild the
+    same base look before layering its dim/spotlight rules on top.
     """
-    grn_df = grn_dataframe(adata)
-    context_column = grn_context_column(grn_df)
-    filtered = _filter_grn_edges(grn_df, selected_context, context_column, edge_threshold)
-    if filtered.empty:
-        raise ValueError("No GRN edges match the current filters.")
-
-    source_nodes = set(filtered["source"].astype(str))
-    nodes = {}
-    for source in filtered["source"].astype(str):
-        nodes[source] = {"id": source, "label": source, "node_type": "source"}
-    for target in filtered["target"].astype(str):
-        node_type = "source" if target in source_nodes else "target"
-        nodes.setdefault(target, {"id": target, "label": target, "node_type": node_type})
-
-    widths = _edge_widths(filtered)
-    edge_elements = []
-    for row_index, row in filtered.iterrows():
-        source = str(row["source"])
-        target = str(row["target"])
-        sign = _regulation_sign(row["regulation"])
-        weight = row.get(GRN_WEIGHT_COLUMN)
-        edge_elements.append(
-            {
-                "data": {
-                    "id": f"{source}-{target}-{row_index}",
-                    "source": source,
-                    "target": target,
-                    "weight": None if pd.isna(weight) else float(weight) if GRN_WEIGHT_COLUMN in filtered.columns else None,
-                    "sign": sign,
-                    "width": float(widths.loc[row_index]),
-                }
-            }
-        )
-
-    node_elements = [{"data": node_data} for node_data in nodes.values()]
-
-    stylesheet = [
+    return [
         {
             "selector": "node",
             "style": {
@@ -306,6 +261,102 @@ def grn_graph(
             },
         },
     ]
+
+
+def _cyto_value(value: Any) -> str:
+    """Escape a node id for use inside a double-quoted cytoscape data selector."""
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def grn_highlight_stylesheet(
+    source_id: str,
+    target_ids,
+    node_font_size: int = 12,
+) -> list[dict]:
+    """Base stylesheet + a focus overlay: spotlight ``source_id`` and ``target_ids``
+    (the source's regulon) and fade everything else.
+
+    Later cytoscape rules win per-property, so the broad ``node``/``edge`` dim rules
+    knock everything back and the id-specific rules restore full opacity for the
+    clicked source, its outgoing edges, and their target nodes.
+    """
+    base = grn_base_stylesheet(node_font_size)
+    dim = [
+        {"selector": "node", "style": {"opacity": 0.12}},
+        {"selector": "edge", "style": {"opacity": 0.05}},
+    ]
+    spotlight = [
+        {
+            "selector": f'node[id = "{_cyto_value(source_id)}"]',
+            "style": {"opacity": 1, "border-width": 3, "border-color": "#22333B", "z-index": 9999},
+        },
+        {
+            "selector": f'edge[source = "{_cyto_value(source_id)}"]',
+            "style": {"opacity": 0.95, "z-index": 9999},
+        },
+    ]
+    for target in target_ids:
+        spotlight.append(
+            {
+                "selector": f'node[id = "{_cyto_value(target)}"]',
+                "style": {"opacity": 1, "z-index": 9999},
+            }
+        )
+    return base + dim + spotlight
+
+
+def grn_graph(
+    adata: Any,
+    *,
+    selected_context=ALL_CONTEXTS,
+    edge_threshold: float | None = None,
+    layout_name="cose",
+    node_font_size=12,
+):
+    """Backend-agnostic GRN graph for cytoscape.js.
+
+    Returns ``{"elements", "stylesheet", "layout", "legend", "directed"}`` so it
+    can drive either the Dash ``cyto.Cytoscape`` component or the ipycytoscape
+    notebook widget (``gc.pl.grn``). Raises ``ValueError`` when there is nothing
+    to render.
+    """
+    grn_df = grn_dataframe(adata)
+    context_column = grn_context_column(grn_df)
+    filtered = _filter_grn_edges(grn_df, selected_context, context_column, edge_threshold)
+    if filtered.empty:
+        raise ValueError("No GRN edges match the current filters.")
+
+    source_nodes = set(filtered["source"].astype(str))
+    nodes = {}
+    for source in filtered["source"].astype(str):
+        nodes[source] = {"id": source, "label": source, "node_type": "source"}
+    for target in filtered["target"].astype(str):
+        node_type = "source" if target in source_nodes else "target"
+        nodes.setdefault(target, {"id": target, "label": target, "node_type": node_type})
+
+    widths = _edge_widths(filtered)
+    edge_elements = []
+    for row_index, row in filtered.iterrows():
+        source = str(row["source"])
+        target = str(row["target"])
+        sign = _regulation_sign(row["regulation"])
+        weight = row.get(GRN_WEIGHT_COLUMN)
+        edge_elements.append(
+            {
+                "data": {
+                    "id": f"{source}-{target}-{row_index}",
+                    "source": source,
+                    "target": target,
+                    "weight": None if pd.isna(weight) else float(weight) if GRN_WEIGHT_COLUMN in filtered.columns else None,
+                    "sign": sign,
+                    "width": float(widths.loc[row_index]),
+                }
+            }
+        )
+
+    node_elements = [{"data": node_data} for node_data in nodes.values()]
+
+    stylesheet = grn_base_stylesheet(node_font_size)
 
     return {
         "elements": node_elements + edge_elements,

@@ -90,6 +90,13 @@ def generate_grn_demo_layout(adata, prefix):
     )
 
     return html.Div(
-        [dcc.Store(id=f"{prefix}-grn-demo-rendered-key"), controls, graph_container],
+        [
+            dcc.Store(id=f"{prefix}-grn-demo-rendered-key"),
+            # Tracks which node is currently spotlighted, so tapping it again clears
+            # the focus (toggle) and a graph rebuild resets it.
+            dcc.Store(id=f"{prefix}-grn-demo-highlight-store"),
+            controls,
+            graph_container,
+        ],
         style={"padding": "20px", "marginBottom": "15px"},
     )

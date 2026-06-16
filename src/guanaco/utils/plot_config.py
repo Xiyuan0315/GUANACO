@@ -18,6 +18,16 @@ heatmap_config = {
     'doubleClick': 'reset',
 }
 
+# Dotplot/matrixplot: the figure carries a fixed right-hand inset (size legend +
+# colorbar) anchored by paper/domain fractions. Plotly's default double-click
+# ('reset+autosize') reruns autosize, which re-flows that inset and makes the view
+# jump around. 'reset' alone returns the category axes to their initial extent
+# without the autosize pass, so the reset is stable.
+dotplot_config = {
+    **common_config,
+    'doubleClick': 'reset',
+}
+
 # Annotation scatter config (left side) - with selection tools
 scatter_config = {
     'responsive': True,

@@ -1,0 +1,32 @@
+{
+  "_comment": "CONFIG 1 -- cloud-backed zarr peak browser (ATAC + RNA). Both datasets stream from the public S3 bucket via anndata read_lazy (backed_mode=true): obs/var/obsm load into memory, the expression matrix stays remote and is fetched one column at a time. PBMC_ATAC's var_names are peak coordinates (chr:start-end) so the matrix-backed ATAC Browser works directly; genome=hg38 auto-downloads the GENCODE v50 basic GTF for the gene-model track (cached once). Run: GUANACO_CONFIG=this.json guanaco -c this.json  (or set Main file for gunicorn). If your cluster has no internet, replace the sc_data URLs with local .zarr paths.",
+  "PBMC_RNA": {
+    "sc_data": "https://guanaco-pbmc-demo-c16755.s3.eu-north-1.amazonaws.com/PBMC_rna.zarr",
+    "description": "Human PBMC scRNA-seq (RNA modality of a 10x multiome dataset), 8,677 cells x 36,591 genes, 7 cell types. Served remote-backed: X (CSC) stays on S3, gene columns are streamed on demand.",
+    "optional_plot_components": ["heatmap", "violin", "dotplot", "stacked-bar"],
+    "markers": ["CD3D", "CD8A", "IL7R", "MS4A1", "NKG7", "GNLY", "CD14", "LYZ", "FCER1A", "FCGR3A"],
+    "default_embedding_left": "X_umap",
+    "default_color_left": "CellType"
+  },
+  "PBMC_ATAC": {
+    "sc_data": "https://guanaco-pbmc-demo-c16755.s3.eu-north-1.amazonaws.com/PBMC_atac.zarr",
+    "description": "Matching PBMC scATAC-seq, 8,677 cells x 87,424 peaks (var_names are chr:start-end peak coordinates), 7 cell types. Served remote-backed; the ATAC Browser reads peak columns on demand and overlays GENCODE gene models.",
+    "genome": "hg38",
+    "optional_plot_components": ["dotplot", "heatmap", "atac-browser"],
+    "default_embedding_left": "X_umap",
+    "default_color_left": "CellType"
+  },
+  "color": [
+    "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
+    "#D55E00", "#CC79A7", "#B2DF8A", "#FB9A99", "#CAB2D6"
+  ],
+  "title": "GUANACO PBMC cloud peak browser -- RNA + ATAC (remote-backed zarr)",
+  "settings": {
+    "host": "0.0.0.0",
+    "port": 4399,
+    "max_cells": null,
+    "lazy_load": true,
+    "backed_mode": true,
+    "embedding_render_backend": "scattergl"
+  }
+}

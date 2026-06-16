@@ -1,8 +1,12 @@
 import dash_bootstrap_components as dbc
-import dash_draggable
 from dash import dcc, html
 
-from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE, graph_flex_container, labeled_dropdown
+from guanaco.utils.ui_helpers import (
+    LOADING_OVERLAY_STYLE,
+    graph_flex_container,
+    labeled_dropdown,
+    responsive_graph_grid,
+)
 
 
 def generate_pseudotime_layout(prefix):
@@ -50,15 +54,13 @@ def generate_pseudotime_layout(prefix):
                 type="circle",
                 overlay_style=LOADING_OVERLAY_STYLE,
                 children=[
-                    dash_draggable.GridLayout(
-                        id=f"{prefix}-draggable-pseudotime",
-                        className="grid-layout-no-border",
-                        children=[graph_flex_container(f"{prefix}-pseudotime-plot")],
-                        isResizable=True,
-                        isDraggable=True,
-                        height=30,
-                        gridCols=12,
-                        style={"backgroundColor": "transparent", "padding": "0px", "border": "none", "boxShadow": "none"},
+                    responsive_graph_grid(
+                        f"{prefix}-pseudotime-grid",
+                        f"{prefix}-pseudotime-grid-item",
+                        graph_flex_container(
+                            f"{prefix}-pseudotime-plot",
+                            container_id=f"{prefix}-pseudotime-grid-item",
+                        ),
                     )
                 ],
             ),

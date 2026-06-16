@@ -1,4 +1,3 @@
-import dash_draggable
 from dash import dcc, html
 
 from guanaco.utils.render_guard import rendered_key_store
@@ -8,6 +7,7 @@ from guanaco.utils.ui_helpers import (
     labeled_dropdown,
     labeled_radioitems,
     graph_flex_container,
+    responsive_graph_grid,
 )
 
 
@@ -53,10 +53,15 @@ def generate_heatmap_layout(adata, prefix):
         style={"display": "none"},
     )
 
-    draggable_container = dash_draggable.GridLayout(
-        id=f"{prefix}-draggable-heatmap",
-        className="grid-layout-no-border",
-        children=[graph_flex_container(f"{prefix}-heatmap", config=heatmap_config)],
+    # Width-responsive grid (scales with the screen instead of capping at ~1200px),
+    # matching the dotplot: opens at 3/4 width x ~510px, drag-resize bounded by the
+    # helper's min/max. The container id lets the per-item min/max reach
+    # react-grid-layout. Fresh grid id (was "-draggable-heatmap").
+    grid_item_id = f"{prefix}-heatmap-grid-item"
+    draggable_container = responsive_graph_grid(
+        f"{prefix}-heatmap-grid",
+        grid_item_id,
+        graph_flex_container(f"{prefix}-heatmap", config=heatmap_config, container_id=grid_item_id),
     )
 
     return html.Div(

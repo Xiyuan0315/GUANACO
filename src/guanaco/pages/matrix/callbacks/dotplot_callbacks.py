@@ -1,6 +1,36 @@
 from dash import Input, Output, State, no_update
 
 
+_DOTPLOT_TAB = "dotplot-tab"
+_DEFAULT_MATRIX_LAYER = "X"
+_DEFAULT_CLUSTER_MODE = "none"
+_DEFAULT_CLUSTER_METHOD = "average"
+_DEFAULT_CLUSTER_METRIC = "correlation"
+
+
+def _resolve_layer(data_layer):
+    return data_layer if data_layer and data_layer != _DEFAULT_MATRIX_LAYER else None
+
+
+def _option_enabled(values, option):
+    return bool(values and option in values)
+
+
+def _plot_type(plot_type_selection):
+    return (
+        "matrixplot"
+        if _option_enabled(plot_type_selection, "matrixplot")
+        else "dotplot"
+    )
+
+
+def _cluster_settings(cluster_mode, cluster_method, cluster_metric):
+    return (
+        cluster_mode or _DEFAULT_CLUSTER_MODE,
+        cluster_method or _DEFAULT_CLUSTER_METHOD,
+        cluster_metric or _DEFAULT_CLUSTER_METRIC,
+    )
+
 
 def register_dotplot_callbacks(
     app,
@@ -58,12 +88,15 @@ def register_dotplot_callbacks(
         rendered_key,
         selected_cells,
     ):
-        if active_tab != "dotplot-tab":
+        if active_tab != _DOTPLOT_TAB:
             return no_update, no_update
 
-        transpose = "swap" in transpose_selection if transpose_selection else False
-        plot_type_str = "matrixplot" if plot_type_selection and "matrixplot" in plot_type_selection else "dotplot"
-        layer = data_layer if data_layer and data_layer != "X" else None
+        transpose = _option_enabled(transpose_selection, "swap")
+        plot_type_str = _plot_type(plot_type_selection)
+        cluster_mode, cluster_method, cluster_metric = _cluster_settings(
+            cluster_mode, cluster_method, cluster_metric
+        )
+        layer = _resolve_layer(data_layer)
         cache_key = make_cache_key(
             "dotplot",
             adata,
@@ -74,9 +107,9 @@ def register_dotplot_callbacks(
             data_layer=data_layer,
             standardization=standardization,
             color_map=color_map,
-            cluster_mode=cluster_mode or "none",
-            cluster_method=cluster_method or "average",
-            cluster_metric=cluster_metric or "correlation",
+            cluster_mode=cluster_mode,
+            cluster_method=cluster_method,
+            cluster_metric=cluster_metric,
             transpose=transpose,
             selected_cells=cells_hash,
             is_backed=bool(hasattr(adata, "isbacked") and adata.isbacked),
@@ -98,9 +131,9 @@ def register_dotplot_callbacks(
             standardization=standardization,
             color_map=color_map,
             plot_type=plot_type_str,
-            cluster=cluster_mode or "none",
-            method=cluster_method or "average",
-            metric=cluster_metric or "correlation",
+            cluster=cluster_mode,
+            method=cluster_method,
+            metric=cluster_metric,
             transpose=transpose,
             selected_cells=selected_cells,
         )
@@ -114,7 +147,7 @@ def register_dotplot_callbacks(
         State(f"{prefix}-dotplot-options-collapse", "is_open"),
         prevent_initial_call=True,
     )
-    def toggle_dotplot_options(n_clicks, is_open):
+    def toggle_dotplot_options(_n_clicks, is_open):
         now_open = not is_open
         label = "▾ More options" if now_open else "▸ More options"
         return now_open, label

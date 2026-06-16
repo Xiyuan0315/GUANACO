@@ -310,9 +310,23 @@ def test_relative_path_rejected():
         loader.load_adata("relative/data.h5ad")
 
 
-def test_remote_non_zarr_rejected():
-    with pytest.raises(ValueError, match="Remote sc_data must be a .zarr store"):
-        loader.load_adata("s3://bucket/path/dataset.h5ad")
+def test_remote_h5ad_downloaded_then_read_locally(tmp_path):
+    """A remote .h5ad/.h5mu is no longer rejected: it's downloaded to a local cache
+    and read from disk (HDF5 can't stream over the network like .zarr)."""
+    fake_local = tmp_path / "cached.h5ad"
+    sentinel = object()
+    with mock.patch.object(
+        loader, "_download_remote_to_cache", return_value=fake_local
+    ) as dl, mock.patch.object(loader.ad, "read_h5ad", return_value=sentinel):
+        result = loader.load_adata("s3://bucket/path/dataset.h5ad", backed=True)
+
+    dl.assert_called_once_with("s3://bucket/path/dataset.h5ad")
+    assert result is sentinel
+
+
+def test_remote_unsupported_suffix_rejected():
+    with pytest.raises(ValueError, match="Remote sc_data must be a .zarr store or an"):
+        loader.load_adata("s3://bucket/path/dataset.csv")
 
 
 # ---------------------------------------------------------------------------

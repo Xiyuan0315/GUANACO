@@ -154,13 +154,7 @@ def _subplot_geometry(valid_genes):
     # of genes. vertical_spacing is a fraction of height, capped to Plotly's max.
     target_gap_px = 28
     vertical_spacing = min(target_gap_px / fig_height, 0.9 / max(num_genes - 1, 1))
-
-    # Reserve a fixed left label column sized to the longest gene name so every
-    # subplot's y-axis starts at the same x and the labels never overlap.
-    tick_pad = 40
-    max_label_len = max((len(str(g)) for g in valid_genes), default=1)
-    left_margin = int(min(360, tick_pad + max_label_len * 7 + 15))
-    return num_genes, fig_height, vertical_spacing, tick_pad, left_margin
+    return num_genes, fig_height, vertical_spacing
 
 
 def _violin_spanmode(group_expr):
@@ -176,14 +170,39 @@ def _expression_range(gene_values):
     return [expr_min, expr_max]
 
 
-def _add_gene_annotation(fig, gene, index, tick_pad):
-    yaxis_domain_ref = "y domain" if index == 0 else f"y{index + 1} domain"
-    fig.add_annotation(
-        text=str(gene),
-        xref="paper", x=0, xanchor="right", xshift=-tick_pad,
-        yref=yaxis_domain_ref, y=0.5, yanchor="middle",
-        showarrow=False,
-        font=dict(size=12),
+def _add_gene_row_axes(fig, gene, row, expr_range, labels):
+    """Per-row axes for one gene: the gene name as the left y tick, numbers on the right.
+
+    The two labels sit on opposite sides (left/right) so they're each at a natural
+    axis edge and can't overlap. The gene name is a real y-axis *tick label* with
+    ``automargin`` -- exactly how the heatmap shows row names: Plotly measures the
+    actual rendered text (in the real page font) and grows the left margin to fit
+    it, so long genome loci like "GL000194.1:100880-101887" are never clipped,
+    regardless of font or DPI. The numeric expression scale moves to a right-hand
+    secondary axis -- it's the only magnitude cue, since ``scalemode='width'``
+    normalizes each violin's width.
+    """
+    mid = (expr_range[0] + expr_range[1]) / 2
+    fig.update_yaxes(
+        range=expr_range,
+        tickmode="array", tickvals=[mid], ticktext=[str(gene)],
+        tickfont=dict(size=12), automargin=True,
+        showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor="black",
+        row=row, col=1, secondary_y=False,
+    )
+    # A secondary axis with no trace assigned isn't drawn, so anchor it with an
+    # invisible point to make the right-hand numeric scale render.
+    fig.add_trace(
+        go.Scatter(
+            x=[labels[0]], y=[expr_range[0]], mode="markers",
+            marker=dict(opacity=0), showlegend=False, hoverinfo="skip",
+        ),
+        row=row, col=1, secondary_y=True,
+    )
+    fig.update_yaxes(
+        range=expr_range, tickformat=".1f", tickfont=dict(size=10),
+        showgrid=False, zeroline=False, showline=True, linewidth=2, linecolor="black",
+        row=row, col=1, secondary_y=True,
     )
 
 
@@ -302,9 +321,13 @@ def plot_violin1(
     
     groupby_label_color_map = _label_color_map(adata, groupby, groupby_label_color_map, adata_obs=adata_obs)
 
-    # Create subplots
-    num_genes, fig_height, vertical_spacing, tick_pad, left_margin = _subplot_geometry(valid_genes)
-    fig = make_subplots(rows=num_genes, cols=1, shared_xaxes=True, vertical_spacing=vertical_spacing)
+    # Create subplots. secondary_y on every row gives each gene a left axis (the
+    # gene-name tick) and a right axis (the numeric scale); see _add_gene_row_axes.
+    num_genes, fig_height, vertical_spacing = _subplot_geometry(valid_genes)
+    fig = make_subplots(
+        rows=num_genes, cols=1, shared_xaxes=True, vertical_spacing=vertical_spacing,
+        specs=[[{"secondary_y": True}] for _ in range(num_genes)],
+    )
 
     # Pre-calculate boolean masks for each label to avoid repeated groupby operations
     # Use numpy array for faster boolean indexing
@@ -334,15 +357,7 @@ def plot_violin1(
                     groupby_label_color_map[label],
                 )
 
-        fig.update_yaxes(
-            range=_expression_range(gene_values),
-            tickformat=".1f",
-            row=i + 1,
-            col=1,
-        )
-        # Horizontal gene label in the reserved left column, right-aligned just to
-        # the left of the y-axis tick numbers, vertically centered on the subplot.
-        _add_gene_annotation(fig, gene, i, tick_pad)
+        _add_gene_row_axes(fig, gene, i + 1, _expression_range(gene_values), labels)
     # Layout
     fig.update_layout(
         plot_bgcolor='white',
@@ -350,9 +365,10 @@ def plot_violin1(
         font=dict(size=10),
         showlegend=False,
         height=fig_height,
-        margin=dict(l=left_margin, r=20, t=20, b=40),
+        # Small base margins; automargin on the gene-name (left) axes grows the
+        # left side to fit the longest name on its own.
+        margin=dict(l=10, r=20, t=20, b=40),
     )
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black')
-    fig.update_yaxes(showline=True, linewidth=2, linecolor='black')
-    
+
     return fig

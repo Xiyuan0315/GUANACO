@@ -1,4 +1,3 @@
-import dash_draggable
 from dash import dcc, html
 import dash_bootstrap_components as dbc
 
@@ -7,7 +6,7 @@ from guanaco.pages.matrix.plots.atac_browser import (
     format_locus,
     has_genomic_peak_features,
 )
-from guanaco.utils.ui_helpers import graph_flex_container
+from guanaco.utils.ui_helpers import graph_flex_container, responsive_graph_grid
 
 
 def generate_atac_browser_layout(adata, prefix, gene_annotation_path=None):
@@ -85,7 +84,7 @@ def generate_atac_browser_layout(adata, prefix, gene_annotation_path=None):
                                     {"label": "Auto", "value": "auto"},
                                     {"label": "Shared", "value": "shared"},
                                 ],
-                                value="auto",
+                                value="shared",
                                 inline=True,
                                 style={"fontSize": "13px"},
                             ),
@@ -95,22 +94,21 @@ def generate_atac_browser_layout(adata, prefix, gene_annotation_path=None):
                 ],
                 style={"display": "flex", "gap": "32px", "flexWrap": "wrap", "marginBottom": "12px"},
             ),
-            dash_draggable.GridLayout(
-                id=f"{prefix}-atac-browser-draggable",
-                className="grid-layout-no-border",
-                children=[
-                    graph_flex_container(
-                        f"{prefix}-atac-browser-graph",
-                        config={
-                            # Scroll/trackpad zoom disabled -- it jittered. Navigation
-                            # is left/right drag (pan); use the modebar zoom buttons /
-                            # box-zoom to zoom in.
-                            "scrollZoom": False,
-                            "displaylogo": False,
-                            "modeBarButtonsToRemove": ["select2d", "lasso2d"],
-                        },
-                    )
-                ],
+            responsive_graph_grid(
+                f"{prefix}-atac-browser-grid",
+                f"{prefix}-atac-browser-grid-item",
+                graph_flex_container(
+                    f"{prefix}-atac-browser-graph",
+                    config={
+                        # Scroll/trackpad zoom disabled -- it jittered. Navigation
+                        # is left/right drag (pan); use the modebar zoom buttons /
+                        # box-zoom to zoom in.
+                        "scrollZoom": False,
+                        "displaylogo": False,
+                        "modeBarButtonsToRemove": ["select2d", "lasso2d"],
+                    },
+                    container_id=f"{prefix}-atac-browser-grid-item",
+                ),
             ),
         ],
         style={"padding": "20px"},

@@ -93,8 +93,13 @@ def _resolve_config_via_wizard(initial: Path | None) -> Path | None:
 
 def _run_window(settings: dict) -> None:
     """Open the pywebview window and bring the Dash server up behind a splash."""
+    # Imported dynamically (not `import webview`) so static import scanners -- e.g.
+    # the Dash cloud builder's dependency detection -- don't pick it up and try to
+    # install the unrelated PyPI `webview` package, which needs native GTK/WebKit
+    # and fails to build on a server. Desktop mode is the only path that needs it.
+    import importlib
     try:
-        import webview
+        webview = importlib.import_module("webview")
     except ImportError:
         raise SystemExit(
             "Desktop mode requires pywebview. Install it with:\n"
@@ -133,6 +138,16 @@ def _run_window(settings: dict) -> None:
                 f"<h2>GUANACO failed to load</h2><pre>{_html.escape(str(exc))}</pre></div>"
             )
             return
+
+        # Optional public sharing. Only tunnelled requests are challenged, so the
+        # local webview below loads without a password prompt.
+        if settings.get("share"):
+            from guanaco import share
+
+            public_url, username, password = share.enable_sharing(
+                app.server, port, settings["share_username"], settings["share_password"]
+            )
+            share.print_share_banner(public_url, username, password)
 
         threading.Thread(
             target=lambda: app.run_server(

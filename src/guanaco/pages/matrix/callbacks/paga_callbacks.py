@@ -4,6 +4,12 @@ from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.render_guard import signature
 
 
+_PAGA_TAB = "paga-tab"
+_DEFAULT_COLOR_MODE = "obs"
+_DEFAULT_CONTINUOUS_COLORMAP = "Viridis"
+_DEFAULT_EDGE_THRESHOLD = 0.03
+
+
 def _empty_paga_component(message):
     return html.Div(
         message,
@@ -15,6 +21,21 @@ def _empty_paga_component(message):
             "border": "1px solid #D8DDE6",
             "borderRadius": "6px",
         },
+    )
+
+
+def _resolve_edge_threshold(edge_threshold):
+    return float(
+        edge_threshold if edge_threshold is not None else _DEFAULT_EDGE_THRESHOLD
+    )
+
+
+def _paga_discrete_palette(adata, obs_key, discrete_colormap, color_config):
+    n_colors = adata.obs[obs_key].nunique() if obs_key in adata.obs.columns else 0
+    return resolve_discrete_palette(
+        discrete_colormap,
+        n_colors,
+        default=color_config,
     )
 
 
@@ -36,7 +57,9 @@ def register_paga_callbacks(
             values = [current_value] if current_value else []
             return [{"label": value, "value": value} for value in values]
 
-        matches = [gene for gene in adata.var_names if search_value.lower() in gene.lower()][:25]
+        matches = [
+            gene for gene in adata.var_names if search_value.lower() in gene.lower()
+        ][:25]
         if current_value and current_value not in matches:
             matches = [current_value] + matches
         return [{"label": gene, "value": gene} for gene in matches]
@@ -64,9 +87,17 @@ def register_paga_callbacks(
         Input(f"{prefix}-paga-color-mode", "value"),
         Input(f"{prefix}-paga-obs-dropdown", "value"),
     )
-    def toggle_paga_controls(color_mode, obs_key):
-        obs_style = {"marginBottom": "10px"} if color_mode == "obs" else {"display": "none", "marginBottom": "10px"}
-        gene_style = {"display": "none", "marginBottom": "10px"} if color_mode == "obs" else {"marginBottom": "10px"}
+    def toggle_paga_controls(color_mode, _obs_key):
+        obs_style = (
+            {"marginBottom": "10px"}
+            if color_mode == _DEFAULT_COLOR_MODE
+            else {"display": "none", "marginBottom": "10px"}
+        )
+        gene_style = (
+            {"display": "none", "marginBottom": "10px"}
+            if color_mode == _DEFAULT_COLOR_MODE
+            else {"marginBottom": "10px"}
+        )
         return obs_style, gene_style
 
     @app.callback(
@@ -103,33 +134,40 @@ def register_paga_callbacks(
         active_tab,
         rendered_key,
     ):
-        if active_tab != "paga-tab":
+        if active_tab != _PAGA_TAB:
             return no_update, no_update
 
-        color_mode = color_mode or "obs"
+        color_mode = color_mode or _DEFAULT_COLOR_MODE
 
         if color_mode == "gene" and not gene:
             return _empty_paga_component("Select a gene to color the PAGA graph."), None
-        if color_mode == "obs" and not obs_key:
-            return _empty_paga_component("Select an obs column to color the PAGA graph."), None
+        if color_mode == _DEFAULT_COLOR_MODE and not obs_key:
+            return _empty_paga_component(
+                "Select an obs column to color the PAGA graph."
+            ), None
 
         cache_key = signature(
-            "paga", color_mode, obs_key, gene, continuous_colormap, discrete_colormap,
-            edge_threshold, selected_annotation, selected_labels, selected_cells,
+            "paga",
+            color_mode,
+            obs_key,
+            gene,
+            continuous_colormap,
+            discrete_colormap,
+            edge_threshold,
+            selected_annotation,
+            selected_labels,
+            selected_cells,
         )
         if cache_key == rendered_key:
             return no_update, no_update
 
         discrete_palette = None
-        if color_mode == "obs":
-            n_colors = adata.obs[obs_key].nunique() if obs_key in adata.obs.columns else 0
-            discrete_palette = resolve_discrete_palette(
-                discrete_colormap,
-                n_colors,
-                default=color_config,
+        if color_mode == _DEFAULT_COLOR_MODE:
+            discrete_palette = _paga_discrete_palette(
+                adata, obs_key, discrete_colormap, color_config
             )
 
-        edge_threshold = float(edge_threshold if edge_threshold is not None else 0.03)
+        edge_threshold = _resolve_edge_threshold(edge_threshold)
 
         component = build_paga_cytoscape(
             adata,
@@ -137,7 +175,7 @@ def register_paga_callbacks(
             color_mode=color_mode,
             obs_key=obs_key,
             gene=gene,
-            continuous_color_map=continuous_colormap or "Viridis",
+            continuous_color_map=continuous_colormap or _DEFAULT_CONTINUOUS_COLORMAP,
             discrete_palette=discrete_palette,
             edge_threshold=edge_threshold,
             selected_annotation=selected_annotation,

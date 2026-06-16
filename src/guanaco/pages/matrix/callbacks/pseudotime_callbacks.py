@@ -5,6 +5,81 @@ from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.obs_utils import sorted_categories
 
 
+_PSEUDOTIME_TAB = "pseudotime-tab"
+_DEFAULT_MATRIX_LAYER = "X"
+_CONTINUOUS_OBS_DTYPES = ["float32", "float64", "int32", "int64"]
+_NO_GENES_MESSAGE = (
+    "<b>Please select genes to plot</b><br><br>"
+    "Use the 'Select Variables' dropdown on the left to choose genes"
+)
+_NO_CONTINUOUS_MESSAGE = (
+    "<b>No continuous variable found</b><br><br>"
+    "Please ensure your data has a numeric obs column"
+)
+
+
+def _message_figure(text):
+    fig = go.Figure()
+    fig.add_annotation(
+        text=text,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=16),
+        align="center",
+    )
+    fig.update_layout(
+        plot_bgcolor="#f8f9fa",
+        paper_bgcolor="white",
+        height=400,
+        margin=dict(t=50, b=50, l=50, r=50),
+    )
+    return fig
+
+
+def _resolve_layer(data_layer):
+    return data_layer if data_layer and data_layer != _DEFAULT_MATRIX_LAYER else None
+
+
+def _continuous_obs_columns(adata):
+    columns = []
+    for col in adata.obs.columns:
+        if (
+            adata.obs[col].dtype in _CONTINUOUS_OBS_DTYPES
+            and adata.obs[col].nunique() > 50
+        ):
+            columns.append(col)
+    return columns
+
+
+def _ordered_pseudotime_columns(adata):
+    numeric_cols = _continuous_obs_columns(adata)
+    pseudotime_cols = [
+        col
+        for col in numeric_cols
+        if "pseudotime" in col.lower() or "dpt" in col.lower()
+    ]
+    other_cols = [col for col in numeric_cols if col not in pseudotime_cols]
+    return pseudotime_cols + other_cols
+
+
+def _default_pseudotime_key(adata):
+    columns = _ordered_pseudotime_columns(adata)
+    return columns[0] if columns else None
+
+
+def _pseudotime_color_map(adata, annotation, discrete_color_map, color_config):
+    all_categories = sorted_categories(adata, annotation)
+    if discrete_color_map:
+        palette = resolve_discrete_palette(discrete_color_map, len(all_categories))
+    else:
+        palette = color_config
+    return {
+        category: palette[i % len(palette)] for i, category in enumerate(all_categories)
+    }
+
 
 def register_pseudotime_callbacks(
     app,
@@ -60,29 +135,12 @@ def register_pseudotime_callbacks(
         rendered_key,
         selected_cells,
     ):
-        if selected_tab != "pseudotime-tab":
+        if selected_tab != _PSEUDOTIME_TAB:
             # Not the active tab: leave whatever is there untouched.
             return no_update, no_update
 
         if not selected_genes:
-            fig = go.Figure()
-            fig.add_annotation(
-                text="<b>Please select genes to plot</b><br><br>Use the 'Select Variables' dropdown on the left to choose genes",
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-                showarrow=False,
-                font=dict(size=16),
-                align="center",
-            )
-            fig.update_layout(
-                plot_bgcolor="#f8f9fa",
-                paper_bgcolor="white",
-                height=400,
-                margin=dict(t=50, b=50, l=50, r=50),
-            )
-            return fig, None
+            return _message_figure(_NO_GENES_MESSAGE), None
 
         cache_key = make_cache_key(
             "pseudotime",
@@ -107,47 +165,18 @@ def register_pseudotime_callbacks(
         if cached_fig is not None:
             return cached_fig, cache_key
 
-        filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
+        filtered_adata = filter_data(
+            adata, selected_annotation, selected_labels, selected_cells
+        )
 
-        all_categories = sorted_categories(adata, selected_annotation)
-        if discrete_color_map:
-            discrete_palette = resolve_discrete_palette(discrete_color_map, len(all_categories))
-            color_map = {cat: discrete_palette[i % len(discrete_palette)] for i, cat in enumerate(all_categories)}
-        else:
-            color_map = {cat: color_config[i % len(color_config)] for i, cat in enumerate(all_categories)}
+        color_map = _pseudotime_color_map(
+            adata, selected_annotation, discrete_color_map, color_config
+        )
 
         if not pseudotime_key:
-            numeric_cols = []
-            for col in filtered_adata.obs.columns:
-                if filtered_adata.obs[col].dtype in ["float32", "float64", "int32", "int64"]:
-                    if filtered_adata.obs[col].nunique() > 50:
-                        numeric_cols.append(col)
-
-            pseudotime_cols = [col for col in numeric_cols if "pseudotime" in col.lower() or "dpt" in col.lower()]
-
-            if pseudotime_cols:
-                pseudotime_key = pseudotime_cols[0]
-            elif numeric_cols:
-                pseudotime_key = numeric_cols[0]
-            else:
-                fig = go.Figure()
-                fig.add_annotation(
-                    text="<b>No continuous variable found</b><br><br>Please ensure your data has a numeric obs column",
-                    xref="paper",
-                    yref="paper",
-                    x=0.5,
-                    y=0.5,
-                    showarrow=False,
-                    font=dict(size=16),
-                    align="center",
-                )
-                fig.update_layout(
-                    plot_bgcolor="#f8f9fa",
-                    paper_bgcolor="white",
-                    height=400,
-                    margin=dict(t=50, b=50, l=50, r=50),
-                )
-                return fig, None
+            pseudotime_key = _default_pseudotime_key(filtered_adata)
+            if pseudotime_key is None:
+                return _message_figure(_NO_CONTINUOUS_MESSAGE), None
 
         fig = plot_genes_in_pseudotime(
             filtered_adata,
@@ -156,7 +185,7 @@ def register_pseudotime_callbacks(
             groupby=selected_annotation,
             min_expr=min_expr,
             transformation="none",
-            layer=data_layer if data_layer and data_layer != "X" else None,
+            layer=_resolve_layer(data_layer),
             color_map=color_map,
             marker_size=marker_size,
             opacity=opacity,
@@ -165,19 +194,15 @@ def register_pseudotime_callbacks(
         return fig, cache_key
 
     @app.callback(
-        [Output(f"{prefix}-pseudotime-key-dropdown", "options"), Output(f"{prefix}-pseudotime-key-dropdown", "value")],
+        [
+            Output(f"{prefix}-pseudotime-key-dropdown", "options"),
+            Output(f"{prefix}-pseudotime-key-dropdown", "value"),
+        ],
         Input(f"{prefix}-single-cell-tabs", "value"),
     )
     def update_pseudotime_key_options(active_tab):
-        if active_tab == "pseudotime-tab":
-            numeric_cols = []
-            for col in adata.obs.columns:
-                if adata.obs[col].dtype in ["float32", "float64", "int32", "int64"]:
-                    if adata.obs[col].nunique() > 50:
-                        numeric_cols.append(col)
-            pseudotime_cols = [col for col in numeric_cols if "pseudotime" in col.lower() or "dpt" in col.lower()]
-            other_cols = [col for col in numeric_cols if col not in pseudotime_cols]
-            all_cols = pseudotime_cols + other_cols
+        if active_tab == _PSEUDOTIME_TAB:
+            all_cols = _ordered_pseudotime_columns(adata)
             options = [{"label": col, "value": col} for col in all_cols]
             if not options:
                 options = [{"label": "No continuous variables found", "value": None}]

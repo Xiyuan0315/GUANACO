@@ -1,9 +1,9 @@
 import dash_bootstrap_components as dbc
-import dash_draggable
 from dash import dcc, html
 
-from guanaco.utils.plot_config import common_config
+from guanaco.utils.plot_config import dotplot_config
 from guanaco.utils.render_guard import rendered_key_store
+from guanaco.utils.ui_helpers import responsive_graph_grid
 
 
 def generate_dotplot_layout(prefix):
@@ -129,36 +129,35 @@ def generate_dotplot_layout(prefix):
         is_open=False,
     )
 
-    draggable_container = dash_draggable.GridLayout(
-        id=f"{prefix}-draggable-dotplot",
-        className="grid-layout-no-border",
-        children=[
-            html.Div(
-                [
-                    dcc.Graph(
-                        id=f"{prefix}-dotplot",
-                        config=common_config,
-                        responsive=True,
-                        style={"min-height": "0", "flex-grow": "1", "backgroundColor": "transparent"},
-                    )
-                ],
-                style={
-                    "backgroundColor": "transparent",
-                    "border": "none",
-                    "boxShadow": "none",
-                    "height": "100%",
-                    "width": "100%",
-                    "display": "flex",
-                    "flex-direction": "column",
-                    "flex-grow": "0",
-                },
+    # Width-responsive grid (scales with the screen instead of capping at ~1200px).
+    # Default opens at 3/4 width x ~510px; drag-resize is bounded by the helper's
+    # min/max. The grid item carries the id so the per-item min/max reach
+    # react-grid-layout. Fresh grid id (was "-draggable-dotplot") so a stale saved
+    # layout without these constraints can't override them.
+    grid_item_id = f"{prefix}-dotplot-grid-item"
+    dotplot_graph_item = html.Div(
+        [
+            dcc.Graph(
+                id=f"{prefix}-dotplot",
+                config=dotplot_config,
+                responsive=True,
+                style={"min-height": "0", "flex-grow": "1", "backgroundColor": "transparent"},
             )
         ],
-        isResizable=True,
-        isDraggable=True,
-        height=30,
-        gridCols=12,
-        style={"backgroundColor": "transparent", "padding": "0px", "border": "none", "boxShadow": "none"},
+        id=grid_item_id,
+        style={
+            "backgroundColor": "transparent",
+            "border": "none",
+            "boxShadow": "none",
+            "height": "100%",
+            "width": "100%",
+            "display": "flex",
+            "flex-direction": "column",
+            "flex-grow": "0",
+        },
+    )
+    draggable_container = responsive_graph_grid(
+        f"{prefix}-dotplot-grid", grid_item_id, dotplot_graph_item
     )
 
     return html.Div(

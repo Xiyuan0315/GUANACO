@@ -1,10 +1,111 @@
-import dash
 from dash import Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.obs_utils import sorted_categories
 
+
+_CURRENT_CACHE_KEY = "current_key"
+_MAX_VIOLIN_CACHE_ENTRIES = 10
+
+_MODE_EXPLANATIONS = {
+    "mode1": "Compare expression across groups in obs1 only. Obs2 will be ignored.",
+    "mode2": "Within each obs1 group on the x-axis, split/group the violin by obs2 and compare.",
+    "mode3": "Linear model treating obs2 as a confounder: expression ~ obs1 + obs2",
+    "mode4": "Mixed model treating obs2 as a random effect (e.g. donor, batch, replicate) to account for non-independent samples.",
+}
+
+_BASE_TEST_OPTIONS = (("Auto", "auto"), ("None", "none"))
+_TWO_LEVEL_TEST_OPTIONS = (("Mann-Whitney U", "mwu-test"), ("T-test", "ttest"))
+_MULTI_LEVEL_TEST_OPTIONS = (("Kruskal-Wallis", "kw-test"), ("ANOVA", "anova"))
+_MODEL_TEST_OPTIONS = {
+    "mode3": (
+        ("Linear Model", "linear-model"),
+        ("Linear Model with Interaction", "linear-model-interaction"),
+    ),
+    "mode4": (("Mixed Model", "mixed-model"),),
+}
+
+
+def _dropdown_options(option_pairs):
+    return [{"label": label, "value": value} for label, value in option_pairs]
+
+
+def _resolve_layer(data_layer):
+    return data_layer if data_layer and data_layer != "X" else None
+
+
+def _has_checklist_value(values, value):
+    return value in values if values else False
+
+
+def _annotation_level_count(adata, annotation):
+    if not annotation or annotation not in adata.obs:
+        return 0
+    return adata.obs[annotation].nunique()
+
+
+def _test_options_for_mode(adata, mode, meta1, meta2):
+    options = _dropdown_options(_BASE_TEST_OPTIONS)
+    if mode == "mode1":
+        n_levels = _annotation_level_count(adata, meta1)
+        if n_levels == 0:
+            return options
+        comparison_options = _TWO_LEVEL_TEST_OPTIONS if n_levels == 2 else _MULTI_LEVEL_TEST_OPTIONS
+        return options + _dropdown_options(comparison_options)
+    if mode == "mode2":
+        n_levels = _annotation_level_count(adata, meta2)
+        if n_levels == 0:
+            return options
+        comparison_options = _TWO_LEVEL_TEST_OPTIONS if n_levels == 2 else _MULTI_LEVEL_TEST_OPTIONS
+        return options + _dropdown_options(comparison_options)
+    return options + _dropdown_options(_MODEL_TEST_OPTIONS.get(mode, ()))
+
+
+def _resolve_violin1_color_map(adata, annotation, palette_name):
+    if not palette_name or not annotation:
+        return None
+    unique_labels = sorted_categories(adata, annotation)
+    discrete_palette = resolve_discrete_palette(palette_name, len(unique_labels))
+    return {label: discrete_palette[i % len(discrete_palette)] for i, label in enumerate(unique_labels)}
+
+
+def _resolve_violin2_meta2(mode, meta2):
+    if mode == "mode1" or meta2 == "none":
+        return None
+    return meta2
+
+
+def _resolve_violin2_palette(filtered_adata, meta1, meta2, palette_name, color_config):
+    n_colors = max(
+        (_annotation_level_count(filtered_adata, annotation) for annotation in (meta1, meta2) if annotation),
+        default=0,
+    )
+    return resolve_discrete_palette(palette_name, n_colors, default=color_config)
+
+
+def _size_violin1_figure(fig, selected_genes, selected_labels):
+    num_genes = len(selected_genes) if selected_genes else 0
+    num_categories = len(selected_labels) if selected_labels else 0
+    fig.update_layout(
+        height=min(1000, max(300, 80 * num_genes)),
+        width=min(500, max(200, 110 * num_categories)),
+        margin=dict(l=130, r=10, t=30, b=30),
+    )
+
+
+def _prune_violin_cache(cache_data):
+    figure_keys = [key for key in cache_data if key != _CURRENT_CACHE_KEY]
+    max_figures = max(_MAX_VIOLIN_CACHE_ENTRIES - 1, 0)
+    for key in figure_keys[:-max_figures]:
+        cache_data.pop(key, None)
+
+
+def _store_current_violin_figure(cache_data, cache_key, fig):
+    cache_data[cache_key] = fig.to_dict()
+    cache_data[_CURRENT_CACHE_KEY] = cache_key
+    _prune_violin_cache(cache_data)
+    return cache_data
 
 
 def register_violin_callbacks(
@@ -20,18 +121,6 @@ def register_violin_callbacks(
     var_names_lower,
     color_config=None,
 ):
-    @app.callback(
-        Output(f"{prefix}-violin2-group-selection", "options"),
-        Output(f"{prefix}-violin2-group-selection", "value"),
-        [Input(f"{prefix}-meta1-selection", "value"), Input(f"{prefix}-selected-cells-store", "data")],
-    )
-    def update_group_labels(selected_column, selected_cells):
-        src = adata[selected_cells] if selected_cells else adata
-        unique_labels = sorted_categories(src, selected_column)
-        options = [{"label": str(label), "value": str(label)} for label in unique_labels]
-        values = [str(label) for label in unique_labels]
-        return options, values
-
     @app.callback(
         Output(f"{prefix}-violin-plot-cache-store", "data"),
         [
@@ -66,21 +155,16 @@ def register_violin_callbacks(
         # with. The tab itself is an Input, so switching to violin triggers the build.
         if active_tab != "violin-tab":
             return no_update
-        layer = data_layer if data_layer and data_layer != "X" else None
+        layer = _resolve_layer(data_layer)
         cache_key = f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_{show_box_plot}_{discrete_color_map}_{cells_hash}"
 
         if current_cache is None:
             current_cache = {}
 
-        if "current_key" in current_cache and current_cache["current_key"] == cache_key:
+        if current_cache.get(_CURRENT_CACHE_KEY) == cache_key:
             return current_cache
 
-        color_map = None
-        if discrete_color_map:
-            unique_labels = sorted_categories(adata, selected_annotation)
-            discrete_palette = resolve_discrete_palette(discrete_color_map, len(unique_labels))
-            color_map = {label: discrete_palette[i % len(discrete_palette)] for i, label in enumerate(unique_labels)}
-
+        color_map = _resolve_violin1_color_map(adata, selected_annotation, discrete_color_map)
         filtered_adata = filter_data(adata, selected_annotation, selected_labels, selected_cells)
 
         fig = plot_violin1(
@@ -89,29 +173,14 @@ def register_violin_callbacks(
             selected_annotation,
             labels=selected_labels,
             layer=layer,
-            show_box="show" in show_box_plot if show_box_plot else False,
+            show_box=_has_checklist_value(show_box_plot, "show"),
             groupby_label_color_map=color_map,
             adata_obs=adata.obs,
             data_already_filtered=True,
         )
 
-        num_genes = len(selected_genes) if selected_genes else 0
-        num_categories = len(selected_labels) if selected_labels else 0
-        fig.update_layout(
-            height=min(1000, max(300, 80 * num_genes)),
-            width=min(500, max(200, 110 * num_categories)),
-            margin=dict(l=130, r=10, t=30, b=30),
-        )
-
-        if len(current_cache) > 10:
-            keys_to_remove = list(current_cache.keys())[:-9]
-            for key in keys_to_remove:
-                if key != "current_key":
-                    current_cache.pop(key, None)
-
-        current_cache[cache_key] = fig.to_dict()
-        current_cache["current_key"] = cache_key
-        return current_cache
+        _size_violin1_figure(fig, selected_genes, selected_labels)
+        return _store_current_violin_figure(current_cache, cache_key, fig)
 
     @app.callback(
         [
@@ -131,7 +200,7 @@ def register_violin_callbacks(
         if active_tab != "violin-tab":
             return no_update, no_update
 
-        current_key = cache_data.get("current_key") if cache_data else None
+        current_key = cache_data.get(_CURRENT_CACHE_KEY) if cache_data else None
         # Already showing the figure for this key: don't redraw on a tab switch.
         if current_key and current_key == rendered_key and current_figure:
             return no_update, no_update
@@ -144,13 +213,7 @@ def register_violin_callbacks(
 
     @app.callback(Output(f"{prefix}-mode-explanation", "children"), Input(f"{prefix}-mode-selection", "value"))
     def update_mode_explanation(mode):
-        explanations = {
-            "mode1": "Compare expression across groups in obs1 only. Obs2 will be ignored.",
-            "mode2": "Within each obs1 group on the x-axis, split/group the violin by obs2 and compare.",
-            "mode3": "Linear model treating obs2 as a confounder: expression ~ obs1 + obs2",
-            "mode4": "Mixed model treating obs2 as a random effect (e.g. donor, batch, replicate) to account for non-independent samples.",
-        }
-        return explanations.get(mode, "")
+        return _MODE_EXPLANATIONS.get(mode, "")
 
     @app.callback(
         Output(f"{prefix}-test-method-selection", "options"),
@@ -158,38 +221,7 @@ def register_violin_callbacks(
         [Input(f"{prefix}-mode-selection", "value"), Input(f"{prefix}-meta1-selection", "value"), Input(f"{prefix}-meta2-selection", "value")],
     )
     def update_test_methods(mode, meta1, meta2):
-        # Auto is always available and is the default; None disables the test.
-        base_options = [
-            {"label": "Auto", "value": "auto"},
-            {"label": "None", "value": "none"},
-        ]
-
-        if mode == "mode1":
-            n_levels = len(adata.obs[meta1].unique()) if meta1 else 0
-            if n_levels == 2:
-                options = base_options + [{"label": "Mann-Whitney U", "value": "mwu-test"}, {"label": "T-test", "value": "ttest"}]
-            else:
-                options = base_options + [{"label": "Kruskal-Wallis", "value": "kw-test"}, {"label": "ANOVA", "value": "anova"}]
-        elif mode == "mode2":
-            if meta2 and meta2 != "none":
-                n_levels = len(adata.obs[meta2].unique())
-                if n_levels == 2:
-                    options = base_options + [{"label": "Mann-Whitney U", "value": "mwu-test"}, {"label": "T-test", "value": "ttest"}]
-                else:
-                    options = base_options + [{"label": "Kruskal-Wallis", "value": "kw-test"}, {"label": "ANOVA", "value": "anova"}]
-            else:
-                options = base_options
-        elif mode == "mode3":
-            options = base_options + [
-                {"label": "Linear Model", "value": "linear-model"},
-                {"label": "Linear Model with Interaction", "value": "linear-model-interaction"},
-            ]
-        elif mode == "mode4":
-            options = base_options + [{"label": "Mixed Model", "value": "mixed-model"}]
-        else:
-            options = base_options
-
-        return options, "auto"
+        return _test_options_for_mode(adata, mode, meta1, meta2), "auto"
 
     @app.callback(
         Output(f"{prefix}-violin2-gene-selection", "options"),
@@ -209,7 +241,7 @@ def register_violin_callbacks(
     def toggle_meta2_dropdown(mode):
         if mode == "mode1":
             return True, "none"
-        return False, dash.no_update
+        return False, no_update
 
     @app.callback(
         Output(f"{prefix}-split-violin-options-collapse", "is_open"),
@@ -218,7 +250,7 @@ def register_violin_callbacks(
         State(f"{prefix}-split-violin-options-collapse", "is_open"),
         prevent_initial_call=True,
     )
-    def toggle_split_violin_options(n_clicks, is_open):
+    def toggle_split_violin_options(_n_clicks, is_open):
         now_open = not is_open
         label = "▾ More options" if now_open else "▸ More options"
         return now_open, label
@@ -241,16 +273,13 @@ def register_violin_callbacks(
         # Not tab-gated: all of this plot's controls live on its own tab, so it only
         # recomputes in response to its own inputs -- it was never part of the
         # eager-load issue that the (left-panel-driven) violin1 cache had.
-        layer = data_layer if data_layer and data_layer != "X" else None
+        layer = _resolve_layer(data_layer)
         if selected_cells:
             filtered_adata = filter_data(adata, None, None, selected_cells)
         else:
             filtered_adata = adata
 
-        if mode == "mode1":
-            meta2 = None
-        elif meta2 == "none":
-            meta2 = None
+        meta2 = _resolve_violin2_meta2(mode, meta2)
 
         if mode in ["mode2", "mode3", "mode4"] and meta2 is None:
             raise PreventUpdate
@@ -258,12 +287,7 @@ def register_violin_callbacks(
         # Resolve the categorical palette the same way every other plot does -- the
         # selected discrete colormap, falling back to the dataset color_config -- so
         # the violins share the app's default colors instead of a private palette.
-        n_colors = 0
-        if meta1:
-            n_colors = max(n_colors, filtered_adata.obs[meta1].nunique())
-        if meta2:
-            n_colors = max(n_colors, filtered_adata.obs[meta2].nunique())
-        palette = resolve_discrete_palette(selected_palette_name, n_colors, default=color_config)
+        palette = _resolve_violin2_palette(filtered_adata, meta1, meta2, selected_palette_name, color_config)
 
         fig = plot_violin2_new(
             filtered_adata,
@@ -272,7 +296,7 @@ def register_violin_callbacks(
             meta2=meta2,
             mode=mode,
             layer=layer,
-            show_box="show" in show_box2 if show_box2 else False,
+            show_box=_has_checklist_value(show_box2, "show"),
             test_method=test_method,
             labels=None,
             color_map=None,

@@ -17,6 +17,9 @@ from guanaco.pages.matrix.plots.volcano import (
 )
 
 
+_DEFAULT_X_FIELD = "logfoldchange"
+
+
 def _summary_component(summary):
     return html.Div(
         [
@@ -31,6 +34,22 @@ def _summary_component(summary):
     )
 
 
+def _resolve_x_field(entry, x_field):
+    valid_x_fields = {option["value"] for option in x_axis_options(entry)}
+    return x_field if x_field in valid_x_fields else _DEFAULT_X_FIELD
+
+
+def _resolve_deg_thresholds(padj_threshold, x_threshold):
+    return (
+        float(padj_threshold if padj_threshold is not None else DEFAULT_PADJ_THRESHOLD),
+        float(x_threshold if x_threshold is not None else DEFAULT_X_THRESHOLD),
+    )
+
+
+def _resolve_top_n(top_n):
+    return int(top_n if top_n is not None else DEFAULT_TOP_N)
+
+
 def register_volcano_callbacks(app, adata, prefix):
     @app.callback(
         Output(f"{prefix}-volcano-x-axis-dropdown", "options"),
@@ -40,17 +59,17 @@ def register_volcano_callbacks(app, adata, prefix):
     )
     def update_volcano_x_axis_options(entry_name, current_x_field):
         if not entry_name:
-            return x_axis_options(), "logfoldchange"
+            return x_axis_options(), _DEFAULT_X_FIELD
 
         try:
             payload = load_volcano_payload(adata)
             entry = payload["entries"][entry_name]
         except Exception:
-            return x_axis_options(), "logfoldchange"
+            return x_axis_options(), _DEFAULT_X_FIELD
 
         options = x_axis_options(entry)
         valid_values = {option["value"] for option in options}
-        value = current_x_field if current_x_field in valid_values else "logfoldchange"
+        value = current_x_field if current_x_field in valid_values else _DEFAULT_X_FIELD
         return options, value
 
     @app.callback(
@@ -79,22 +98,28 @@ def register_volcano_callbacks(app, adata, prefix):
         if active_tab != "volcano-tab":
             return no_update, no_update, no_update
         if not entry_name:
-            return empty_volcano_figure("No volcano or rank_genes_groups result is available."), "No DE result selected.", None
+            return (
+                empty_volcano_figure(
+                    "No volcano or rank_genes_groups result is available."
+                ),
+                "No DE result selected.",
+                None,
+            )
 
-        cache_key = signature("volcano", entry_name, x_field, padj_threshold, x_threshold, top_n)
+        cache_key = signature(
+            "volcano", entry_name, x_field, padj_threshold, x_threshold, top_n
+        )
         if cache_key == rendered_key and current_figure:
             return no_update, no_update, no_update
 
         try:
             payload = load_volcano_payload(adata)
             entry = payload["entries"][entry_name]
-            valid_x_fields = {option["value"] for option in x_axis_options(entry)}
-            x_field = x_field if x_field in valid_x_fields else "logfoldchange"
-            resolved_padj_threshold = float(
-                padj_threshold if padj_threshold is not None else DEFAULT_PADJ_THRESHOLD
+            x_field = _resolve_x_field(entry, x_field)
+            resolved_padj_threshold, resolved_x_threshold = _resolve_deg_thresholds(
+                padj_threshold, x_threshold
             )
-            resolved_x_threshold = float(x_threshold if x_threshold is not None else DEFAULT_X_THRESHOLD)
-            resolved_top_n = int(top_n if top_n is not None else DEFAULT_TOP_N)
+            resolved_top_n = _resolve_top_n(top_n)
             fig = plot_volcano(
                 entry_name=entry_name,
                 entry=entry,
@@ -104,11 +129,17 @@ def register_volcano_callbacks(app, adata, prefix):
                 top_n=resolved_top_n,
             )
             summary = _summary_component(
-                deg_summary(entry, x_field, resolved_padj_threshold, resolved_x_threshold)
+                deg_summary(
+                    entry, x_field, resolved_padj_threshold, resolved_x_threshold
+                )
             )
             return fig, summary, cache_key
         except Exception as exc:
-            return empty_volcano_figure(str(exc)), html.Div(str(exc), style={"color": "#b42318"}), None
+            return (
+                empty_volcano_figure(str(exc)),
+                html.Div(str(exc), style={"color": "#b42318"}),
+                None,
+            )
 
     @app.callback(
         Output(f"{prefix}-volcano-degs-download", "data"),
@@ -119,16 +150,18 @@ def register_volcano_callbacks(app, adata, prefix):
         State(f"{prefix}-volcano-x-threshold", "value"),
         prevent_initial_call=True,
     )
-    def download_volcano_degs(n_clicks, entry_name, x_field, padj_threshold, x_threshold):
+    def download_volcano_degs(
+        n_clicks, entry_name, x_field, padj_threshold, x_threshold
+    ):
         if not n_clicks or not entry_name:
             raise PreventUpdate
 
         payload = load_volcano_payload(adata)
         entry = payload["entries"][entry_name]
-        valid_x_fields = {option["value"] for option in x_axis_options(entry)}
-        x_field = x_field if x_field in valid_x_fields else "logfoldchange"
-        resolved_padj_threshold = float(padj_threshold if padj_threshold is not None else DEFAULT_PADJ_THRESHOLD)
-        resolved_x_threshold = float(x_threshold if x_threshold is not None else DEFAULT_X_THRESHOLD)
+        x_field = _resolve_x_field(entry, x_field)
+        resolved_padj_threshold, resolved_x_threshold = _resolve_deg_thresholds(
+            padj_threshold, x_threshold
+        )
         filename = volcano_degs_filename(
             entry_name,
             entry,

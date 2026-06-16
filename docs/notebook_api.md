@@ -285,6 +285,40 @@ gc.pl.volcano(adata, group="T cell", padj_threshold=0.05, x_threshold=1.0, top_n
 
 ---
 
+## Peak browser (ATAC)
+
+### `gc.pl.peak_browser(adata, region=None, ...)`
+
+A genome browser over **peak-like features**: one accessibility bar track per group.
+It needs genomic peaks — either `var_names` like `"chr1:10000-10500"`, or `adata.var`
+columns `["chrom", "start", "end"]` — so it is typically used on an ATAC (or the ATAC
+modality of a multiome) dataset.
+
+```python
+# Search by gene NAME (resolved via gene_annotation) — like the web app's box:
+gc.pl.peak_browser(adata_atac, region="CD8A", groupby="cell_type",
+                   gene_annotation="hg38")
+
+# ...or by locus. gene_annotation also draws the gene-model track.
+gc.pl.peak_browser(adata_atac, region="chr1:1,000,000-3,000,000",
+                   groupby="cell_type", metric="mean", gene_annotation="hg38")
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `region` | `None` | A **gene name** (needs `gene_annotation`), a locus `"chr:start-end"`, or a `{"chrom","start","end"}` dict; defaults to a populated window. |
+| `groupby` | `None` | `obs` category — one accessibility track per group. |
+| `labels` | `None` | Restrict to these groups (subset / order of `groupby`). |
+| `metric` | `"mean"` | `"mean"` accessibility or `"detection"` fraction (fraction of cells with a peak). |
+| `y_mode` | `"shared"` | `"shared"` = same y-range on every track (heights comparable); `"auto"` = each track scales to its own peak. |
+| `max_peaks` | `400` | Cap on peaks drawn in the window (evenly downsampled above this). |
+| `gene_annotation` | `None` | Genome id (`"hg38"`, `"mm10"` …) or a GTF/GFF3 path → adds a gene-model track. |
+| `selected_cells` | `None` | Restrict the signal to a subset of cell barcodes. |
+
+> Raises an error if `adata` has no peak-like features.
+
+---
+
 ## Data requirements at a glance
 
 | Function | Needs in `adata` |
@@ -293,6 +327,7 @@ gc.pl.volcano(adata, group="T cell", padj_threshold=0.05, x_threshold=1.0, top_n
 | `violin` / `stacked_violin` / `heatmap` / `dotplot` | genes in `var_names`, a categorical `obs` column |
 | `stacked_bar` | two categorical `obs` columns |
 | `pseudotime` | a pseudotime column in `obs` |
+| `peak_browser` | peak-like `var_names` (`chr1:10000-10500`) or `var[["chrom","start","end"]]` |
 | `volcano` | `adata.uns["rank_genes_groups"]` or `adata.uns["volcano"]` |
 | `paga` | `adata.uns["paga"]` (run `sc.tl.paga`) |
 | `grn` | `adata.uns["grn"]` (a DataFrame: `source`, `target`, `regulation`, optional `weight`/context) |

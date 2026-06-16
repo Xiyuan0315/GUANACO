@@ -1,10 +1,9 @@
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-import dash_draggable
 from dash import dcc, html
 
 from guanaco.utils.plot_config import common_config
-from guanaco.utils.ui_helpers import labeled_dropdown, labeled_radioitems
+from guanaco.utils.ui_helpers import labeled_dropdown, labeled_radioitems, responsive_graph_grid
 
 
 def generate_stacked_bar_layout(discrete_label_list, prefix):
@@ -38,26 +37,21 @@ def generate_stacked_bar_layout(discrete_label_list, prefix):
         wrapper_style={"marginBottom": "15px"},
     )
 
-    draggable_bar = dash_draggable.GridLayout(
-        id=f"{prefix}-draggable",
-        className="grid-layout-no-border",
-        children=[
-            html.Div(
-                children=[
-                    dcc.Graph(
-                        id=f"{prefix}-stacked-bar-plot",
-                        config=common_config,
-                        responsive=True,
-                        style={"flex-grow": "1"},
-                    )
-                ],
-                style={"height": "100%", "width": "100%", "display": "flex", "flex-direction": "column", "flex-grow": "0"},
-            ),
-        ],
-        isResizable=True,
-        isDraggable=True,
-        height=30,
-        gridCols=12,
+    draggable_bar = responsive_graph_grid(
+        f"{prefix}-stacked-bar-grid",
+        f"{prefix}-stacked-bar-grid-item",
+        html.Div(
+            id=f"{prefix}-stacked-bar-grid-item",
+            children=[
+                dcc.Graph(
+                    id=f"{prefix}-stacked-bar-plot",
+                    config=common_config,
+                    responsive=True,
+                    style={"flex-grow": "1"},
+                )
+            ],
+            style={"height": "100%", "width": "100%", "display": "flex", "flex-direction": "column", "flex-grow": "0"},
+        ),
     )
 
     x_axis_order_title_id = f"{prefix}-x-axis-order-title"

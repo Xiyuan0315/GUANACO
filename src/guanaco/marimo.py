@@ -33,6 +33,7 @@ __all__ = [
     "heatmap",
     "stacked_bar",
     "pseudotime",
+    "peak_browser",
     "volcano",
     "show",
 ]
@@ -108,12 +109,17 @@ def _obs_cols(adata) -> list:
     return list(adata.obs.columns)
 
 
+# Above this many distinct values, a numeric obs column is treated as continuous
+# rather than a grouping key.
+_MAX_DISCRETE_CARDINALITY = 50
+
+
 def _discrete_obs(adata) -> list:
     """obs columns suitable for grouping (categorical / low-cardinality)."""
     cols = []
     for c in adata.obs.columns:
         s = adata.obs[c]
-        if str(s.dtype) in ("category", "object", "bool") or s.nunique(dropna=True) <= 50:
+        if str(s.dtype) in ("category", "object", "bool") or s.nunique(dropna=True) <= _MAX_DISCRETE_CARDINALITY:
             cols.append(c)
     return cols or list(adata.obs.columns)
 
@@ -161,6 +167,10 @@ def _coerce(value, options, fallback=None):
 # --------------------------------------------------------------------------- #
 # Panels
 # --------------------------------------------------------------------------- #
+# Shown by a gene-driven panel's `.plot` when no gene is selected.
+_NO_GENES_MSG = "Select at least one gene."
+
+
 def embedding(adata, *, color: str | None = None, basis: str | None = None, size: int = 5):
     """Control bar for an embedding scatter (``gc.pl.embedding``).
 
@@ -209,7 +219,7 @@ def violin(adata, *, keys=None, groupby: str | None = None):
     def build(v):
         from guanaco import widget as pl
         if not v["genes"]:
-            return "Select at least one gene."
+            return _NO_GENES_MSG
         return pl.violin(
             adata, keys=v["genes"], groupby=v["groupby"], show_box=v["show_box"],
             return_fig=True,
@@ -237,7 +247,7 @@ def dotplot(adata, *, var_names=None, groupby: str | None = None):
     def build(v):
         from guanaco import widget as pl
         if not v["genes"]:
-            return "Select at least one gene."
+            return _NO_GENES_MSG
         std = None if v["standardize"] == "none" else v["standardize"]
         return pl.dotplot(
             adata, var_names=v["genes"], groupby=v["groupby"],
@@ -268,7 +278,7 @@ def heatmap(adata, *, var_names=None, groupby: str | None = None):
         from guanaco.pages.matrix.plots.heatmap import plot_unified_heatmap
         from guanaco.widget import _default_palette
         if not v["genes"]:
-            return "Select at least one gene."
+            return _NO_GENES_MSG
         g2 = None if v["groupby2"] == "(none)" else v["groupby2"]
         std = None if v["standardize"] == "none" else v["standardize"]
         return plot_unified_heatmap(
@@ -326,12 +336,64 @@ def pseudotime(adata, *, genes=None, pseudotime_key: str | None = None, groupby:
     def build(v):
         from guanaco import widget as pl
         if not v["genes"]:
-            return "Select at least one gene."
+            return _NO_GENES_MSG
         gb = None if v["groupby"] == "(none)" else v["groupby"]
         return pl.pseudotime(
             adata, genes=v["genes"], pseudotime_key=v["pseudotime_key"],
             groupby=gb, return_fig=True,
         )
+
+    return _panel(controls, build)
+
+
+def peak_browser(adata, *, region: str | None = None, groupby: str | None = None, gene_annotation: str | None = None):
+    """Control bar for the ATAC Peak Browser (``gc.pl.peak_browser``).
+
+    Controls: search box (a **gene name** or a locus), group-by, metric (mean /
+    detection), and y-axis scale (``shared`` — same range on every track for easy
+    comparison, the default — or ``auto``). Needs peak-like ``var_names``
+    (``"chr1:10000-10500"``) or ``var[['chrom','start','end']]``. Pass
+    ``gene_annotation`` (a genome id like ``"hg38"`` or a GTF/GFF path) to add a
+    gene-model track and enable gene search.
+    """
+    mo = _mo()
+    disc = _discrete_obs(adata)
+    groupby = _coerce(groupby, disc) if groupby else (disc[0] if disc else None)
+
+    # Seed the locus box with a populated default window.
+    region_text = region
+    if region_text is None:
+        try:
+            from guanaco.pages.matrix.plots.atac_browser import default_region, format_locus
+
+            r = default_region(adata)
+            region_text = format_locus(str(r["chrom"]), int(r["start"]), int(r["end"]))
+        except Exception:
+            region_text = "chr1:1,000,000-2,000,000"
+
+    controls = {
+        "region": mo.ui.text(value=region_text, label="Gene or locus"),
+        "groupby": mo.ui.dropdown(["(none)"] + disc, value=groupby or "(none)", label="Group by"),
+        "metric": mo.ui.dropdown(["mean", "detection"], value="mean", label="Metric"),
+        "y_mode": mo.ui.dropdown(["shared", "auto"], value="shared", label="Y-axis"),
+    }
+
+    def build(v):
+        from guanaco import widget as pl
+
+        gb = None if v["groupby"] == "(none)" else v["groupby"]
+        try:
+            return pl.peak_browser(
+                adata,
+                region=v["region"],
+                groupby=gb,
+                metric=v["metric"],
+                y_mode=v["y_mode"],
+                gene_annotation=gene_annotation,
+                return_fig=True,
+            )
+        except ValueError as exc:
+            return str(exc)
 
     return _panel(controls, build)
 

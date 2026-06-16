@@ -2,12 +2,11 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*__version__.*deprecated.*")
 
 from dash import dcc, html, Output, Input, MATCH, State
-from guanaco.app import app
+from guanaco.dash_app import app
 from guanaco.layouts import (
     navbar, tab_content, footprint, guanaco_footer, description_layout,
     anndata_layout, igv_layout, resize_tip_toast
 )
-from guanaco.pages.track.callbacks import gene_browser_callbacks
 from guanaco.pages.matrix.callbacks import matrix_callbacks
 from guanaco.data.loader import get_discrete_labels
 from guanaco.data.registry import datasets, embedding_render_backend
@@ -87,6 +86,10 @@ for name, dataset in datasets.items():
             )
 
     if dataset.genome_tracks is not None and dataset.ref_track is not None:
+        # Imported lazily so the genome-browser deps (pyjaspar, logomaker, dash-bio)
+        # are only required when a dataset actually configures genome tracks --
+        # installed via the `guanaco-viz[tracks]` extra.
+        from guanaco.pages.track.callbacks import gene_browser_callbacks
         gene_browser_callbacks(app, dataset.genome_tracks, dataset.ref_track, dataset.title)
 
 

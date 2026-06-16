@@ -84,10 +84,11 @@ controls cell + a plot cell and swap the `gc.pl` call.
 | 6 | Stacked bar | `gc.pl.stacked_bar` | two `obs` columns |
 | 7 | Pseudotime | `gc.pl.pseudotime` | a numeric `obs` (e.g. `dpt_pseudotime`) |
 | 8 | Volcano | `gc.pl.volcano` | precomputed DE in `adata.uns` |
+| 9 | Peak browser | `gc.pl.peak_browser` | peak-like `var_names` (`chr1:10000-10500`) — ATAC data |
 
-Panels 7 and 8 **adapt to your data**: if your dataset has no numeric pseudotime
-column or no DE in `uns`, the panel shows a short note instead of erroring, so
-the rest of the dashboard still works.
+Panels 7, 8 and 9 **adapt to your data**: if your dataset has no numeric pseudotime
+column, no DE in `uns`, or no genomic peaks, the panel shows a short note instead of
+erroring, so the rest of the dashboard still works.
 
 ---
 

@@ -235,6 +235,48 @@ def _(vol):
 @app.cell
 def _(mo):
     mo.md("""
+    ## 8 · Peak browser (ATAC)
+
+    A genome browser over peak-like features (`chrom:start-end`): one accessibility
+    track per cell type. Type a **gene name** (e.g. `CD8A`) *or* a locus
+    (`chr1:1,000,000-2,000,000`) into the search box to navigate — the same as the web
+    app. Switch the metric (mean vs. detection fraction), or the y-axis scale
+    (`shared` keeps every track on the same range for easy comparison — the default).
+    Uses the ATAC modality of the multiome PBMC dataset.
+
+    `gene_annotation="hg38"` (set below) downloads GENCODE once, draws the gene-model
+    track, and enables gene-name search. Pass a GTF/GFF path to use your own.
+    """)
+    return
+
+
+@app.cell
+def _(data_dir):
+    import muon as mu
+
+    # The peak browser needs peak-like features; use the ATAC modality.
+    adata_atac = mu.read(str(data_dir / "PBMC.h5mu"))["atac"]
+    return (adata_atac,)
+
+
+@app.cell
+def _(adata_atac, gm):
+    # gene_annotation="hg38" adds a gene-model track (downloads GENCODE once, ~50-100 MB,
+    # into a local cache). Pass a GTF/GFF3 path instead to use your own annotation.
+    pb = gm.peak_browser(adata_atac, groupby="CellType", gene_annotation="hg38")
+    pb.hstack()
+    return (pb,)
+
+
+@app.cell
+def _(pb):
+    pb.plot
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
     ---
     ### Tips
 

@@ -1,0 +1,32 @@
+{
+  "PBMC_ATAC": {
+    "description": "Local PBMC MuData test for the matrix-backed ATAC Browser prototype.",
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/PBMC.h5mu",
+    "gene_annotation": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/gencode.v50.basic.annotation.gtf.gz",
+    "genome": "hg38",
+    "optional_plot_components": [
+      "dotplot",
+      "heatmap",
+      "atac-browser"
+    ],
+    "color": [
+      "#0072B2",
+      "#D55E00",
+      "#009E73",
+      "#CC79A7",
+      "#E69F00",
+      "#56B4E9",
+      "#5F4690",
+      "#38A6A5"
+    ]
+  },
+  "title": "GUANACO ATAC Browser Test",
+  "settings": {
+    "host": "127.0.0.1",
+    "port": 4401,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": true,
+    "embedding_render_backend": "scattergl"
+  }
+}

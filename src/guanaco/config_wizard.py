@@ -498,6 +498,11 @@ class ConfigWizard:
         self.max_cells = StringVar(value="10000")
         self.backed_mode = StringVar(value="true")
         self.embedding_backend = StringVar(value="scattergl")
+        # Public sharing (cloudflared tunnel + Basic Auth). Blank password => one
+        # is generated at launch and printed to the console.
+        self.share = BooleanVar(value=False)
+        self.share_username = StringVar(value="guanaco")
+        self.share_password = StringVar(value="")
 
         self.dataset_tabs: list[DatasetTab] = []
 
@@ -642,7 +647,41 @@ class ConfigWizard:
         )
         self.max_cells_hint.grid(row=5, column=1, sticky="w")
         _entry_row(card, 6, "Port", self.port)
-        _entry_row(card, 7, "Host", self.host)
+        # Host is intentionally not exposed: "0.0.0.0" (bind on all interfaces) is
+        # the right default for every desktop/local launch and there's no sensible
+        # value a non-networking user would pick. It stays in self.host so the
+        # written config still carries it.
+
+        # Public sharing: open a cloudflared tunnel so others can reach this app.
+        ttk.Checkbutton(
+            card,
+            text="Share via public link (cloudflared)",
+            variable=self.share,
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(8, 2))
+
+        # Credentials live in their own frame so the whole block can be revealed
+        # only after the user opts in -- hidden until the box is ticked.
+        self.share_fields = ttk.Frame(card)
+        self.share_fields.grid(row=8, column=0, columnspan=2, sticky="ew")
+        self.share_fields.columnconfigure(1, weight=1)
+        self.share_user_entry = _entry_row(self.share_fields, 0, "Share username", self.share_username)
+        self.share_pass_entry = _entry_row(self.share_fields, 1, "Share password", self.share_password)
+        self.share_hint = ttk.Label(
+            self.share_fields,
+            text="Blank password = a random one is generated and shown in the console at launch",
+            style="Hint.TLabel",
+        )
+        self.share_hint.grid(row=2, column=1, sticky="w")
+
+        # Reveal the credential block only while sharing is enabled.
+        def _sync_share_state(*_):
+            if self.share.get():
+                self.share_fields.grid()
+            else:
+                self.share_fields.grid_remove()
+
+        self.share.trace_add("write", _sync_share_state)
+        _sync_share_state()
 
         # Down-sampling is skipped in backed mode, so disable Max cells there.
         def _sync_max_cells_state(*_):
@@ -749,6 +788,9 @@ class ConfigWizard:
             "lazy_load": True,  # always lazy-load; not user-configurable
             "backed_mode": self._parse_backed_mode(self.backed_mode.get()),
             "embedding_render_backend": self.embedding_backend.get(),
+            "share": self.share.get(),
+            "share_username": self.share_username.get().strip() or "guanaco",
+            "share_password": self.share_password.get(),
         }
 
         config = {

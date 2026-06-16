@@ -1,31 +1,10 @@
-import dash
-import dash_bootstrap_components as dbc
-from pathlib import Path
-import os
-import json
+"""Compatibility deployment entrypoint.
 
-def load_config(json_path):
-    if not json_path.exists():
-        raise FileNotFoundError(f"Config file not found: {json_path}")
-    return json.loads(json_path.read_text())
+The raw Dash object lives in :mod:`guanaco.dash_app`, but the app is not usable
+until :mod:`guanaco.main` assigns the layout and registers callbacks. Some cloud
+builders discover/import ``guanaco.app`` directly, so this module intentionally
+exports the fully initialized app from ``guanaco.main`` -- importing it always
+yields an app whose ``layout`` is set (avoiding ``NoLayoutException``).
+"""
 
-# Get config path from environment variable or use default
-JSON_PATH = Path(os.environ.get("GUANACO_CONFIG", "guanaco.json"))
-
-# Initialize the app
-app = dash.Dash(
-    __name__,
-    external_stylesheets=[dbc.themes.LUX, "/assets/scientific_style.css"],
-    suppress_callback_exceptions=True
-)
-
-# Enable dash-cytoscape's extra layouts and SVG image export, used by the
-# PAGA / GRN "Download SVG" buttons. No-op if dash-cytoscape isn't installed.
-try:
-    import dash_cytoscape as _cyto
-    _cyto.load_extra_layouts()
-except Exception:
-    pass
-
-config = load_config(JSON_PATH)
-app.title = config.get("title", "GUANACO")
+from guanaco.main import app, server  # noqa: F401

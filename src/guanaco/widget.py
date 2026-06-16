@@ -44,6 +44,26 @@ def _render(fig: go.Figure, show: bool, return_fig: bool):
     return fig
 
 
+def _show_or_return(obj, *, show: bool, return_widget: bool):
+    """Notebook output convention for cytoscape renders (widget / HTML objects).
+
+    The analogue of :func:`_render` for things that aren't Plotly figures: return
+    the object, or display it inline via IPython (falling back to returning it
+    when no display is available).
+    """
+    if return_widget:
+        return obj
+    if show:
+        try:
+            from IPython.display import display
+
+            display(obj)
+            return None
+        except Exception:
+            return obj
+    return obj
+
+
 def _as_list(value) -> list:
     """Accept a single name or a sequence; always return a list."""
     if value is None:
@@ -512,6 +532,134 @@ def pseudotime(
 
 
 # --------------------------------------------------------------------------- #
+# ATAC Peak Browser (genome browser over peak-like var_names)
+# --------------------------------------------------------------------------- #
+def _resolve_peak_region(adata, region, gene_index):
+    """Turn ``region`` into a ``{"chrom","start","end"}`` dict.
+
+    ``region`` may be ``None`` (a populated default window), a locus string, a gene
+    name (resolved via ``gene_index``), or a coordinate dict — the same "locus or
+    gene" search the web app's box accepts.
+    """
+    from guanaco.pages.matrix.plots.atac_browser import default_region, parse_locus
+
+    if region is None:
+        return default_region(adata)
+    if not isinstance(region, str):
+        return dict(region)
+
+    parsed = parse_locus(region)
+    if parsed is not None:
+        chrom, start, end = parsed
+        return {"chrom": chrom, "start": start, "end": end}
+
+    # Not a locus -> treat it as a gene name (needs the annotation).
+    if gene_index is not None:
+        from guanaco.pages.matrix.plots.gene_annotation import find_gene_region
+
+        gene_region = find_gene_region(gene_index, region)
+        if gene_region is not None:
+            return gene_region
+        raise ValueError(
+            f"Gene {region!r} not found in the annotation. Pass a locus like "
+            "'chr1:1,000,000-2,000,000', or a gene present in gene_annotation."
+        )
+    raise ValueError(
+        f"Could not parse {region!r} as a locus. To search by gene name, also pass "
+        "gene_annotation='hg38' (or a path to a GTF/GFF3 file)."
+    )
+
+
+def peak_browser(
+    adata,
+    region: "str | dict | None" = None,
+    *,
+    groupby: str | None = None,
+    labels=None,
+    metric: str = "mean",
+    max_peaks: int = 400,
+    gene_annotation: str | None = None,
+    selected_cells=None,
+    palette=None,
+    y_mode: str = "shared",
+    show: bool = True,
+    return_fig: bool = False,
+):
+    """ATAC accessibility genome browser over peak-like features (GUANACO's "Peak Browser").
+
+    Needs genomic peaks: either ``var_names`` like ``"chr1:10000-10500"`` or
+    ``adata.var`` columns ``["chrom", "start", "end"]``. Draws one accessibility bar
+    track per group (``groupby``).
+
+    ``region`` accepts a **gene name** (``"CD8A"``) or a locus string
+    (``"chr1:1,000,000-2,000,000"``) — the same "locus or gene" search the web app's
+    box accepts — or a ``{"chrom", "start", "end"}`` dict; it defaults to a populated
+    window. Gene-name search requires ``gene_annotation`` to be set. ``metric`` is
+    ``"mean"`` accessibility or ``"detection"`` fraction. ``y_mode`` is ``"shared"``
+    (default — every track uses the same y-range so heights are directly comparable)
+    or ``"auto"`` (each track scales to its own peak). Pass ``gene_annotation``
+    (a genome id like ``"hg38"`` / ``"mm10"``, or a path to a GTF/GFF3 file) to add a
+    gene-model track above the signal tracks.
+    """
+    from guanaco.pages.matrix.plots.atac_browser import (
+        compute_atac_signal,
+        has_genomic_peak_features,
+        plot_atac_browser,
+    )
+
+    if not has_genomic_peak_features(adata):
+        raise ValueError(
+            "peak_browser needs genomic peak features: var_names like "
+            "'chr1:10000-10500', or var columns ['chrom', 'start', 'end']."
+        )
+
+    # Load the gene annotation up front: it powers both the optional gene track and
+    # gene-name search in ``region`` (mirrors the web app's single search box).
+    gene_index = None
+    if gene_annotation:
+        from guanaco.pages.matrix.plots.gene_annotation import (
+            load_gene_annotation,
+            resolve_annotation_source,
+        )
+
+        gene_index = load_gene_annotation(resolve_annotation_source(gene_annotation))
+
+    region_dict = _resolve_peak_region(adata, region, gene_index)
+
+    group_order = None
+    color_map = None
+    if groupby and groupby in adata.obs.columns:
+        group_order = _all_labels(adata, groupby)
+        color_map = _label_color_map(adata, groupby, _effective_palette(palette))
+
+    payload = compute_atac_signal(
+        adata,
+        region_dict,
+        selected_cells=selected_cells,
+        groupby=groupby,
+        labels=_as_list(labels) if labels is not None else None,
+        group_order=group_order,
+        metric=metric,
+        max_peaks=max_peaks,
+    )
+
+    gene_models = None
+    if gene_index is not None:
+        from guanaco.pages.matrix.plots.gene_annotation import query_gene_models
+
+        r = payload["region"]
+        gene_models = query_gene_models(gene_index, str(r["chrom"]), int(r["start"]), int(r["end"]))
+
+    fig = plot_atac_browser(
+        payload,
+        gene_models=gene_models,
+        color_map=color_map,
+        y_mode=y_mode,
+    )
+    return _render(fig, show, return_fig)
+
+
+# --------------------------------------------------------------------------- #
 # Volcano (from precomputed DE in adata.uns)
 # --------------------------------------------------------------------------- #
 def volcano(
@@ -664,18 +812,7 @@ def _render_cytoscape(graph, *, show, return_widget, renderer="widget"):
     if renderer == "html":
         from IPython.display import HTML
 
-        obj = HTML(_cytoscape_html(graph))
-        if return_widget:
-            return obj
-        if show:
-            try:
-                from IPython.display import display
-
-                display(obj)
-                return None
-            except Exception:
-                return obj
-        return obj
+        return _show_or_return(HTML(_cytoscape_html(graph)), show=show, return_widget=return_widget)
 
     try:
         import ipycytoscape
@@ -723,17 +860,7 @@ def _render_cytoscape(graph, *, show, return_widget, renderer="widget"):
         except Exception:
             rendered = widget
 
-    if return_widget:
-        return rendered
-    if show:
-        try:
-            from IPython.display import display
-
-            display(rendered)
-            return None
-        except Exception:
-            return rendered
-    return rendered
+    return _show_or_return(rendered, show=show, return_widget=return_widget)
 
 
 def grn(
@@ -839,6 +966,7 @@ __all__ = [
     "matrixplot",
     "stacked_bar",
     "pseudotime",
+    "peak_browser",
     "volcano",
     "grn",
     "paga",

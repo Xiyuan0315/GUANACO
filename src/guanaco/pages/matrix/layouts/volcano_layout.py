@@ -1,5 +1,4 @@
 import dash_bootstrap_components as dbc
-import dash_draggable
 from dash import dcc, html
 
 from guanaco.pages.matrix.plots.volcano import (
@@ -10,7 +9,7 @@ from guanaco.pages.matrix.plots.volcano import (
     x_axis_options,
 )
 from guanaco.utils.plot_config import common_config
-from guanaco.utils.ui_helpers import labeled_dropdown
+from guanaco.utils.ui_helpers import labeled_dropdown, responsive_graph_grid
 
 
 def _number_input(input_id, label, value, *, min_value=None, max_value=None, step=None, min_width="160px"):
@@ -166,26 +165,20 @@ def generate_volcano_layout(adata, prefix):
         },
     )
 
-    draggable_container = dash_draggable.GridLayout(
-        id=f"{prefix}-draggable-volcano",
-        className="grid-layout-no-border",
-        children=[
-            html.Div(
-                volcano_panel,
-                style={
-                    "height": "100%",
-                    "width": "100%",
-                    "backgroundColor": "transparent",
-                    "border": "none",
-                    "boxShadow": "none",
-                },
-            )
-        ],
-        isResizable=True,
-        isDraggable=True,
-        height=30,
-        gridCols=12,
-        style={"backgroundColor": "transparent", "padding": "0px", "border": "none", "boxShadow": "none"},
+    draggable_container = responsive_graph_grid(
+        f"{prefix}-volcano-grid",
+        f"{prefix}-volcano-grid-item",
+        html.Div(
+            volcano_panel,
+            id=f"{prefix}-volcano-grid-item",
+            style={
+                "height": "100%",
+                "width": "100%",
+                "backgroundColor": "transparent",
+                "border": "none",
+                "boxShadow": "none",
+            },
+        ),
     )
 
     return html.Div(

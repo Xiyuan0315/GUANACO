@@ -1,9 +1,11 @@
 import numpy as np
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, dcc, html, callback_context, exceptions, no_update
-from dash.exceptions import PreventUpdate
 
 from guanaco.utils.colors import resolve_discrete_palette
+
+# Auto-dismiss delay (ms) for the cell-selection status toasts.
+_SELECTION_ALERT_DURATION_MS = 4000
 
 
 def _is_reset_relayout(relayout):
@@ -125,6 +127,43 @@ function(highlightData, _rightFigure) {
 """
 
 
+# Client-side debounce for legend select/deselect. Toggling legend entries fires a
+# `restyleData` event per click; recomputing the cross-highlight server-side on every
+# one makes rapid clicking (or quickly hiding several labels in a row) stutter. This
+# collapses a burst of clicks into a single trailing update: each event (re)arms a
+# 250 ms timer, and only when clicking settles do we read the *live* trace
+# visibilities off the left graph and push the full set of hidden label names to the
+# debounce store via set_props. The server then recomputes the highlight once.
+# __LEFT_ID__ / __HIDDEN_STORE_ID__ are substituted with the graph id and store id.
+_LEGEND_DEBOUNCE_JS = """
+function(restyleData) {
+    const noUpdate = window.dash_clientside.no_update;
+    const LEFT = '__LEFT_ID__';
+    const STORE = '__HIDDEN_STORE_ID__';
+    const wrap = document.getElementById(LEFT);
+    if (!wrap) return noUpdate;
+    window.__guanacoLegendTimers = window.__guanacoLegendTimers || {};
+    if (window.__guanacoLegendTimers[LEFT]) {
+        clearTimeout(window.__guanacoLegendTimers[LEFT]);
+    }
+    window.__guanacoLegendTimers[LEFT] = setTimeout(function() {
+        const gd = wrap.classList.contains('js-plotly-plot') ? wrap : wrap.querySelector('.js-plotly-plot');
+        if (!gd || !gd.data) return;
+        const hidden = [];
+        for (let t = 0; t < gd.data.length; t++) {
+            const tr = gd.data[t];
+            if (!tr.name || tr.name === 'Background') continue;
+            if (tr.visible === 'legendonly' || tr.visible === false) hidden.push(tr.name);
+        }
+        if (window.dash_clientside.set_props) {
+            window.dash_clientside.set_props(STORE, {data: {labels: hidden, t: Date.now()}});
+        }
+    }, 250);
+    return noUpdate;
+}
+"""
+
+
 def register_scatter_callbacks(
     app,
     adata,
@@ -153,6 +192,25 @@ def register_scatter_callbacks(
         ):
             return np.asarray(filtered_data["cell_indices"], dtype=np.int64)
         return None
+
+    def _resolve_layer(data_layer):
+        # "X" is the sentinel for the default matrix, i.e. no explicit layer.
+        return data_layer if data_layer and data_layer != "X" else None
+
+    def _triggered_prop():
+        return callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+
+    def _combined_search_options(search_value):
+        if not search_value:
+            raise exceptions.PreventUpdate
+        all_matches = search_combined(
+            obs_columns, obs_columns_lower, var_names, var_names_lower, search_value, limit=10
+        )
+        return [{"label": item, "value": item} for item in all_matches]
+
+    def _resolve_discrete_palette_for(annotation, discrete_color_map):
+        n_categories = adata.obs[annotation].nunique() if annotation in adata.obs.columns else 0
+        return resolve_discrete_palette(discrete_color_map, n_categories, default=color_config)
 
     @app.callback(
         Output(f"{prefix}-controls-container", "style"),
@@ -270,24 +328,14 @@ def register_scatter_callbacks(
         Input(f"{prefix}-annotation-dropdown", "search_value"),
     )
     def update_annotation_dropdown(search_value):
-        if not search_value:
-            raise exceptions.PreventUpdate
-        all_matches = search_combined(
-            obs_columns, obs_columns_lower, var_names, var_names_lower, search_value, limit=10
-        )
-        return [{"label": item, "value": item} for item in all_matches]
+        return _combined_search_options(search_value)
 
     @app.callback(
         Output(f"{prefix}-scatter-gene-selection", "options"),
         Input(f"{prefix}-scatter-gene-selection", "search_value"),
     )
     def update_scatter_gene_selection(search_value):
-        if not search_value:
-            raise exceptions.PreventUpdate
-        all_matches = search_combined(
-            obs_columns, obs_columns_lower, var_names, var_names_lower, search_value, limit=10
-        )
-        return [{"label": item, "value": item} for item in all_matches]
+        return _combined_search_options(search_value)
 
     @app.callback(
         Output(f"{prefix}-scatter-gene2-selection", "options"),
@@ -359,9 +407,9 @@ def register_scatter_callbacks(
         if not annotation:
             raise exceptions.PreventUpdate
 
-        layer = data_layer if data_layer and data_layer != "X" else None
+        layer = _resolve_layer(data_layer)
 
-        triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+        triggered_prop = _triggered_prop()
 
         # Continuous renders ignore the discrete colormap and legend toggle, so a
         # change to either control produces an identical figure -- skip the rebuild
@@ -405,12 +453,7 @@ def register_scatter_callbacks(
         filtered_cell_idx = _filtered_cell_indices(filtered_data)
 
         render_backend = embedding_render_backend
-        n_annotation_categories = adata.obs[annotation].nunique() if annotation in adata.obs.columns else 0
-        discrete_palette = resolve_discrete_palette(
-            discrete_color_map,
-            n_annotation_categories,
-            default=color_config,
-        )
+        discrete_palette = _resolve_discrete_palette_for(annotation, discrete_color_map)
         fig = plot_embedding(
             adata=plot_adata,
             adata_full=adata,
@@ -495,9 +538,9 @@ def register_scatter_callbacks(
         if not gene_name:
             raise exceptions.PreventUpdate
 
-        layer = data_layer if data_layer and data_layer != "X" else None
+        layer = _resolve_layer(data_layer)
 
-        triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+        triggered_prop = _triggered_prop()
 
         # Classify this panel's render mode up-front. The discrete colormap only feeds
         # the categorical render; the legend toggle only feeds categorical/coexpression.
@@ -570,6 +613,12 @@ def register_scatter_callbacks(
                     opacity=opacity,
                     legend_show=legend_show,
                     axis_show=axis_show,
+                    # Pass the chosen spatial image so co-expression uses the same
+                    # hires/lowres tissue image (and its scalefactor) as the other
+                    # panels -- without it the coexpression view auto-selected hires
+                    # regardless of the dropdown, so the two panels' coordinate ranges
+                    # diverged and zoom no longer lined up.
+                    img_key=spatial_img_key,
                     source_adata=adata,
                     cell_indices=filtered_cell_idx,
                 )
@@ -612,12 +661,7 @@ def register_scatter_callbacks(
                 cell_indices=filtered_cell_idx,
             )
         else:
-            n_gene_categories = adata.obs[gene_name].nunique() if gene_name in adata.obs.columns else 0
-            discrete_color_map_value = resolve_discrete_palette(
-                discrete_color_map,
-                n_gene_categories,
-                default=color_config,
-            )
+            discrete_color_map_value = _resolve_discrete_palette_for(gene_name, discrete_color_map)
             fig = plot_embedding(
                 adata=plot_adata,
                 adata_full=adata,
@@ -672,17 +716,16 @@ def register_scatter_callbacks(
         Output(f"{prefix}-left-highlighted-cells-store", "data"),
         [
             Input(f"{prefix}-annotation-scatter", "selectedData"),
-            Input(f"{prefix}-annotation-scatter", "restyleData"),
+            Input(f"{prefix}-legend-hidden-store", "data"),
             Input(f"{prefix}-global-filtered-data", "data"),
         ],
         [
-            State(f"{prefix}-annotation-scatter", "figure"),
             State(f"{prefix}-annotation-dropdown", "value"),
             State(f"{prefix}-left-highlighted-cells-store", "data"),
         ],
     )
-    def update_left_highlighted_cells(selected_data, restyle_data, filtered_data, current_figure, current_annotation, current_store):
-        triggered_prop = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+    def update_left_highlighted_cells(selected_data, legend_hidden, filtered_data, current_annotation, current_store):
+        triggered_prop = _triggered_prop()
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
         src = plot_adata if plot_adata is not None else adata
 
@@ -708,33 +751,16 @@ def register_scatter_callbacks(
                 "hidden_labels": (current_store or {}).get("hidden_labels", []),
             }
 
-        if triggered_prop != f"{prefix}-annotation-scatter.restyleData" or not restyle_data or not current_figure:
+        # Legend select/deselect (debounced clientside): the store carries the settled
+        # set of hidden label *names* read off the live legend, so we recompute the
+        # visible-cell positions once per click-burst instead of on every toggle.
+        if triggered_prop != f"{prefix}-legend-hidden-store.data" or not legend_hidden:
             return current_store
 
-        traces = current_figure.get("data", [])
-        # Track deselected groups by *name*, not trace index: re-rendering the left
-        # plot adds/removes the grey "Background" layer, which shifts every index.
-        # Names are stable, so the legendonly state survives the re-render.
-        hidden_labels = set((current_store or {}).get("hidden_labels", []))
-        update = restyle_data[0] if len(restyle_data) > 0 else {}
-        trace_indices = restyle_data[1] if len(restyle_data) > 1 else []
-        visible_values = update.get("visible")
-        if not isinstance(visible_values, list):
-            visible_values = [visible_values] * len(trace_indices)
-
-        for trace_index, visible in zip(trace_indices, visible_values):
-            trace_index = int(trace_index)
-            if not (0 <= trace_index < len(traces)):
-                continue
-            name = traces[trace_index].get("name")
-            if name is None or name == "Background":
-                continue
-            if visible in ("legendonly", False):
-                hidden_labels.add(name)
-            else:
-                hidden_labels.discard(name)
-
-        if not hidden_labels:
+        hidden_labels = set(legend_hidden.get("labels", []))
+        # Nothing hidden, or the panel is showing a continuous gene/obs (no categorical
+        # legend, so the column isn't in obs) -> clear the highlight.
+        if not hidden_labels or not current_annotation or current_annotation not in src.obs.columns:
             return None
 
         # Visible cells = obs rows whose annotation value is NOT in hidden_labels.
@@ -764,7 +790,7 @@ def register_scatter_callbacks(
     def update_threshold_ranges(gene1, gene2, coexpression_mode, data_layer, filtered_data):
         filtered_cell_idx = _filtered_cell_indices(filtered_data)
         default_min, default_max, default_value = 0, 1, 0.5
-        layer = data_layer if data_layer and data_layer != "X" else None
+        layer = _resolve_layer(data_layer)
         from guanaco.utils.gene_extraction_utils import extract_gene_expression
 
         if gene1 and gene1 in adata.var_names:
@@ -819,7 +845,7 @@ def register_scatter_callbacks(
                 f"✓ All {n_cells} cells from scatter plot selected. Other plots updated.",
                 color="info",
                 dismissable=True,
-                duration=4000,
+                duration=_SELECTION_ALERT_DURATION_MS,
             )
             return all_indices, status_msg
 
@@ -875,7 +901,7 @@ def register_scatter_callbacks(
                 f"✓ {n_selected} cells selected from {current_annotation}. Other plots updated.",
                 color="success",
                 dismissable=True,
-                duration=4000,
+                duration=_SELECTION_ALERT_DURATION_MS,
             )
             return selected_indices, status_msg
         return None, ""
@@ -893,12 +919,12 @@ def register_scatter_callbacks(
     def download_selected_cells(n_clicks_txt, selected_cells):
         ctx = callback_context
         if not ctx.triggered or not selected_cells:
-            raise PreventUpdate
+            raise exceptions.PreventUpdate
         button_id = ctx.triggered[0]["prop_id"].split(".")[0]
         if f"{prefix}-download-cellids" in button_id:
             content = "\n".join(selected_cells)
             return dict(content=content, filename="selected_cells.txt")
-        raise PreventUpdate
+        raise exceptions.PreventUpdate
 
     # Reset-link (see _AXIS_RESET_LINK_JS): client-side double-click reset, linked
     # to the other panel when both use the same dimension reduction.
@@ -926,5 +952,18 @@ def register_scatter_callbacks(
         Output(f"{prefix}-right-highlight-link", "data"),
         Input(f"{prefix}-left-highlighted-cells-store", "data"),
         Input(f"{prefix}-gene-scatter", "figure"),
+        prevent_initial_call=True,
+    )
+
+    # Legend debounce (see _LEGEND_DEBOUNCE_JS): collapse a burst of legend clicks
+    # into one trailing update written to the hidden-store, which the server callback
+    # above turns into the cross-highlight -- so rapid select/deselect no longer fires
+    # a server round-trip per click.
+    app.clientside_callback(
+        _LEGEND_DEBOUNCE_JS
+        .replace("__LEFT_ID__", f"{prefix}-annotation-scatter")
+        .replace("__HIDDEN_STORE_ID__", f"{prefix}-legend-hidden-store"),
+        Output(f"{prefix}-legend-debounce-dummy", "data"),
+        Input(f"{prefix}-annotation-scatter", "restyleData"),
         prevent_initial_call=True,
     )

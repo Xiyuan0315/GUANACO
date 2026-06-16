@@ -1,7 +1,31 @@
+from dataclasses import dataclass
+
 from dash import Input, Output, State, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.obs_utils import sorted_categories
+
+
+_HEATMAP_TAB = "heatmap-tab"
+_DEFAULT_MATRIX_LAYER = "X"
+_NO_SECONDARY_ANNOTATION = "None"
+_HEATMAP_BOUNDARY = 1
+
+
+@dataclass(frozen=True)
+class _HeatmapRequest:
+    selected_genes: object
+    selected_annotation: object
+    selected_labels: object
+    standardization: object
+    data_layer: object
+    heatmap_color: object
+    secondary_annotation: object
+    discrete_color_map: object
+    secondary_colormap: object
+    cells_hash: object
+    active_tab: object
+    selected_cells: object
 
 
 # Clientside double-click reset for the heatmap. Plotly's own reset is unreliable
@@ -44,6 +68,155 @@ function(relayout, figure) {
 """
 
 
+def _resolve_layer(data_layer):
+    return data_layer if data_layer and data_layer != _DEFAULT_MATRIX_LAYER else None
+
+
+def _is_backed(adata):
+    return bool(hasattr(adata, "isbacked") and adata.isbacked)
+
+
+def _uses_secondary_annotation(primary_annotation, secondary_annotation):
+    return (
+        bool(secondary_annotation)
+        and secondary_annotation != _NO_SECONDARY_ANNOTATION
+        and secondary_annotation != primary_annotation
+    )
+
+
+def _label_color_map(adata, annotation, palette_name):
+    if not annotation or not palette_name:
+        return None
+    unique_labels = sorted_categories(adata, annotation)
+    palette = resolve_discrete_palette(palette_name, len(unique_labels))
+    if not palette:
+        return None
+    return {label: palette[i % len(palette)] for i, label in enumerate(unique_labels)}
+
+
+def _heatmap_cache_key(
+    make_cache_key,
+    hash_list_signature,
+    adata,
+    request,
+):
+    return make_cache_key(
+        "heatmap",
+        adata,
+        selected_genes=hash_list_signature(request.selected_genes),
+        selected_annotation=request.selected_annotation,
+        selected_labels=hash_list_signature(request.selected_labels),
+        standardization=request.standardization,
+        data_layer=request.data_layer,
+        heatmap_color=request.heatmap_color,
+        secondary_annotation=request.secondary_annotation,
+        discrete_color_map=request.discrete_color_map,
+        secondary_colormap=request.secondary_colormap,
+        selected_cells=request.cells_hash,
+        is_backed=_is_backed(adata),
+        n_obs=adata.n_obs,
+    )
+
+
+def _heatmap_plan_signature(
+    make_cache_key,
+    hash_list_signature,
+    adata,
+    request,
+):
+    # Gene-independent so unchanged per-gene work stays cacheable as the gene list changes.
+    return make_cache_key(
+        "heatmap-plan",
+        adata,
+        selected_annotation=request.selected_annotation,
+        selected_labels=hash_list_signature(request.selected_labels),
+        standardization=request.standardization,
+        data_layer=request.data_layer,
+        selected_cells=request.cells_hash,
+        n_obs=adata.n_obs,
+    )
+
+
+def _heatmap_label_color_maps(adata, request):
+    primary_color_map = _label_color_map(
+        adata,
+        request.selected_annotation,
+        request.discrete_color_map,
+    )
+    secondary_color_map = None
+    if _uses_secondary_annotation(request.selected_annotation, request.secondary_annotation):
+        secondary_color_map = _label_color_map(
+            adata,
+            request.secondary_annotation,
+            request.secondary_colormap,
+        )
+    return primary_color_map, secondary_color_map
+
+
+def _heatmap_kwargs(
+    request,
+    *,
+    plot_adata,
+    layer,
+    label_color_maps,
+    plan_sig,
+    adata_obs,
+    color_config,
+):
+    groupby1_label_color_map, groupby2_label_color_map = label_color_maps
+    return dict(
+        adata=plot_adata,
+        genes=request.selected_genes,
+        groupby1=request.selected_annotation,
+        groupby2=request.secondary_annotation
+        if _uses_secondary_annotation(request.selected_annotation, request.secondary_annotation)
+        else None,
+        labels=request.selected_labels,
+        standardization=request.standardization,
+        layer=layer,
+        boundary=_HEATMAP_BOUNDARY,
+        color_map=request.heatmap_color,
+        groupby1_label_color_map=groupby1_label_color_map,
+        groupby2_label_color_map=groupby2_label_color_map,
+        cache_sig=plan_sig,
+        adata_obs=adata_obs,
+        data_already_filtered=not bool(request.selected_labels),
+        color_config=color_config,
+    )
+
+
+def _build_heatmap_figure(
+    request,
+    adata,
+    *,
+    filter_data,
+    plot_unified_heatmap,
+    make_cache_key,
+    hash_list_signature,
+    color_config,
+):
+    plan_sig = _heatmap_plan_signature(
+        make_cache_key,
+        hash_list_signature,
+        adata,
+        request,
+    )
+    # Keep the source AnnData stable when possible so gene-vector cache hits are maximized.
+    # filter_data returns the same cached view for the same selected_cells, avoiding
+    # repeated obs/var DataFrame slicing for purely cosmetic parameter changes.
+    plot_adata = filter_data(adata, None, None, request.selected_cells)
+    common_kwargs = _heatmap_kwargs(
+        request,
+        plot_adata=plot_adata,
+        layer=_resolve_layer(request.data_layer),
+        label_color_maps=_heatmap_label_color_maps(adata, request),
+        plan_sig=plan_sig,
+        adata_obs=adata.obs,
+        color_config=color_config,
+    )
+    return plot_unified_heatmap(**common_kwargs)
+
+
 def register_heatmap_callbacks(
     app,
     adata,
@@ -63,7 +236,7 @@ def register_heatmap_callbacks(
         Input(f"{prefix}-heatmap-label-dropdown", "value"),
     )
     def toggle_secondary_colormap_dropdown(secondary_annotation):
-        if secondary_annotation and secondary_annotation != "None":
+        if secondary_annotation and secondary_annotation != _NO_SECONDARY_ANNOTATION:
             return {"display": "block"}
         return {"display": "none"}
 
@@ -107,25 +280,19 @@ def register_heatmap_callbacks(
         rendered_key,
         selected_cells,
     ):
-        if active_tab != "heatmap-tab":
+        request = _HeatmapRequest(
+            selected_genes, selected_annotation, selected_labels, standardization,
+            data_layer, heatmap_color, secondary_annotation, discrete_color_map,
+            secondary_colormap, cells_hash, active_tab, selected_cells,
+        )
+        if request.active_tab != _HEATMAP_TAB:
             return no_update, no_update
 
-        layer = data_layer if data_layer and data_layer != "X" else None
-        cache_key = make_cache_key(
-            "heatmap",
+        cache_key = _heatmap_cache_key(
+            make_cache_key,
+            hash_list_signature,
             adata,
-            selected_genes=hash_list_signature(selected_genes),
-            selected_annotation=selected_annotation,
-            selected_labels=hash_list_signature(selected_labels),
-            standardization=standardization,
-            data_layer=data_layer,
-            heatmap_color=heatmap_color,
-            secondary_annotation=secondary_annotation,
-            discrete_color_map=discrete_color_map,
-            secondary_colormap=secondary_colormap,
-            selected_cells=cells_hash,
-            is_backed=bool(hasattr(adata, "isbacked") and adata.isbacked),
-            n_obs=adata.n_obs,
+            request,
         )
         if rendered_key == cache_key and current_figure:
             return no_update, no_update
@@ -134,63 +301,15 @@ def register_heatmap_callbacks(
         if cached_fig is not None:
             return cached_fig, cache_key
 
-        # Gene-independent signature for the per-gene binned cache: stays stable as
-        # the user adds/removes genes (so unchanged genes stay cached) but changes
-        # with the cell selection / grouping / standardization / layer, even though
-        # a fresh adata[selected_cells] view would otherwise change identity each render.
-        plan_sig = make_cache_key(
-            "heatmap-plan",
+        fig = _build_heatmap_figure(
+            request,
             adata,
-            selected_annotation=selected_annotation,
-            selected_labels=hash_list_signature(selected_labels),
-            standardization=standardization,
-            data_layer=data_layer,
-            selected_cells=cells_hash,
-            n_obs=adata.n_obs,
-        )
-
-        # Keep the source AnnData stable when possible so gene-vector cache hits are maximized.
-        # filter_data returns the same cached view for the same selected_cells, avoiding
-        # repeated obs/var DataFrame slicing for purely cosmetic parameter changes.
-        plot_adata = filter_data(adata, None, None, selected_cells)
-
-        groupby1_label_color_map = None
-        if discrete_color_map:
-            unique_labels1 = sorted_categories(adata, selected_annotation)
-            discrete_palette = resolve_discrete_palette(discrete_color_map, len(unique_labels1))
-            groupby1_label_color_map = {
-                label: discrete_palette[i % len(discrete_palette)] for i, label in enumerate(unique_labels1)
-            }
-        groupby2_label_color_map = None
-        if secondary_annotation and secondary_annotation != "None" and secondary_annotation != selected_annotation:
-            unique_labels2 = sorted_categories(adata, secondary_annotation)
-            if secondary_colormap:
-                secondary_palette = resolve_discrete_palette(secondary_colormap, len(unique_labels2))
-                groupby2_label_color_map = {
-                    label: secondary_palette[i % len(secondary_palette)] for i, label in enumerate(unique_labels2)
-                }
-
-        labels_need_post_filter = bool(selected_labels)
-        common_kwargs = dict(
-            adata=plot_adata,
-            genes=selected_genes,
-            groupby1=selected_annotation,
-            groupby2=secondary_annotation
-            if secondary_annotation and secondary_annotation != "None" and secondary_annotation != selected_annotation
-            else None,
-            labels=selected_labels,
-            standardization=standardization,
-            layer=layer,
-            boundary=1,
-            color_map=heatmap_color,
-            groupby1_label_color_map=groupby1_label_color_map,
-            groupby2_label_color_map=groupby2_label_color_map,
-            cache_sig=plan_sig,
-            adata_obs=adata.obs,
-            data_already_filtered=not labels_need_post_filter,
+            filter_data=filter_data,
+            plot_unified_heatmap=plot_unified_heatmap,
+            make_cache_key=make_cache_key,
+            hash_list_signature=hash_list_signature,
             color_config=color_config,
         )
-        fig = plot_unified_heatmap(**common_kwargs)
         cached_figure_set(cache_key, fig)
         return fig, cache_key
 
