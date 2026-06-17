@@ -65,7 +65,7 @@ function(leftRelayout, rightRelayout, leftClu, rightClu, leftX, rightX, leftY, r
             const im = imgs[0];
             window.Plotly.relayout(gd, {
                 'xaxis.range': [im.x, im.x + im.sizex],
-                'yaxis.range': [im.y + im.sizey, im.y],
+                'yaxis.range': [im.y - im.sizey, im.y],
                 'xaxis.autorange': false,
                 'yaxis.autorange': false
             });
@@ -104,8 +104,7 @@ function(highlightData, _rightFigure) {
     const selected = [];
     for (let t = 0; t < gd.data.length; t++) {
         const tr = gd.data[t];
-        // The grey "Background" layer and any trace without per-point ids are skipped.
-        if (tr.name === 'Background' || !tr.customdata) continue;
+        if (!tr.customdata) continue;
         traceIdx.push(t);
         if (posSet === null) {
             selected.push(null);  // no highlight -> clear selection, all points normal
@@ -152,7 +151,7 @@ function(restyleData) {
         const hidden = [];
         for (let t = 0; t < gd.data.length; t++) {
             const tr = gd.data[t];
-            if (!tr.name || tr.name === 'Background') continue;
+            if (!tr.name) continue;
             if (tr.visible === 'legendonly' || tr.visible === false) hidden.push(tr.name);
         }
         if (window.dash_clientside.set_props) {
@@ -474,9 +473,6 @@ def register_scatter_callbacks(
             img_key=spatial_img_key,
             source_adata=adata,
             cell_indices=filtered_cell_idx,
-            # Always-on grey background so a legend deselect greys cells (instead of
-            # removing them + rescaling) entirely client-side -- no re-render flash.
-            show_background_layer=not is_continuous,
         )
         return apply_relayout(fig, effective_relayout)
 
@@ -679,7 +675,6 @@ def register_scatter_callbacks(
                 img_key=spatial_img_key,
                 source_adata=adata,
                 cell_indices=filtered_cell_idx,
-                show_background_layer=True,
             )
         return apply_relayout(fig, effective_relayout)
 
