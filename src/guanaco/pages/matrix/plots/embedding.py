@@ -323,6 +323,8 @@ def _build_datashader_continuous_figure(
 ):
     try:
         import datashader as ds
+        import datashader.transfer_functions as tf
+        import plotly.colors as pcolors
     except Exception as exc:
         return None, f"datashader unavailable: {exc}"
 
@@ -334,37 +336,67 @@ def _build_datashader_continuous_figure(
     y_vals = np.asarray(y_values[valid_mask], dtype=np.float32)
     c_vals = np.asarray(color_values[valid_mask], dtype=np.float32)
 
-    resolution_scale = max(0.2, 5.0 / max(5, marker_size))
-    result = _datashader_canvas(ds, x_vals, y_vals, resolution_scale=resolution_scale)
+    result = _datashader_canvas(ds, x_vals, y_vals)
     if result is None:
         return None, "invalid axis bounds"
-    canvas, x_min, x_max, y_min, y_max, _, _ = result
+    canvas, x_min, x_max, y_min, y_max, x_span, y_span = result
 
     ds_df = pd.DataFrame({"x": x_vals, "y": y_vals, "v": c_vals})
     agg = canvas.points(ds_df, "x", "y", agg=ds.mean("v"))
-    z = np.asarray(agg.values, dtype=np.float32)
-    if z.size == 0 or np.isnan(z).all():
+    if agg.values.size == 0 or np.isnan(agg.values).all():
         return None, "datashader aggregation produced empty grid"
 
-    x_grid = np.asarray(agg.coords["x"].values, dtype=np.float32)
-    y_grid = np.asarray(agg.coords["y"].values, dtype=np.float32)
     cmin = float(np.nanmin(c_vals))
     cmax = float(np.nanmax(c_vals))
-    colorscale = resolve_continuous_colorscale(color_map)
+
+    # Resolve Plotly colorscale to a hex list for tf.shade.
+    resolved = resolve_continuous_colorscale(color_map)
+    if isinstance(resolved, str):
+        scale_list = pcolors.PLOTLY_SCALES.get(resolved, pcolors.PLOTLY_SCALES["Viridis"])
+    else:
+        scale_list = resolved
+    hex_cmap = []
+    for _, color in scale_list:
+        if color.startswith("#"):
+            hex_cmap.append(color)
+        else:
+            r, g, b = pcolors.unlabel_rgb(color)
+            hex_cmap.append(f"#{r:02x}{g:02x}{b:02x}")
+
+    span = (cmin, cmax) if cmin < cmax else (cmin, cmin + 1e-6)
+    shaded = tf.shade(agg, cmap=hex_cmap, how="linear", span=span)
+    spread_px = int(max(0, (marker_size - 1) // 2))
+    if spread_px > 0:
+        shaded = tf.spread(shaded, px=spread_px)
+    pil_img = shaded.to_pil()
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Heatmap(
-            z=z,
-            x=x_grid,
-            y=y_grid,
-            colorscale=colorscale,
-            zmin=cmin,
-            zmax=cmax,
-            hoverinfo="skip",
-            colorbar=dict(title=colorbar_title, len=0.8),
-        )
+    fig.update_layout(
+        images=[dict(
+            source=pil_img,
+            xref="x", yref="y",
+            x=x_min, y=y_max,
+            sizex=x_span, sizey=y_span,
+            xanchor="left", yanchor="top",
+            sizing="stretch",
+            layer="below",
+        )]
     )
+    # Invisible dummy trace to display the colorbar.
+    fig.add_trace(go.Scattergl(
+        x=[None], y=[None],
+        mode="markers",
+        marker=dict(
+            colorscale=scale_list,
+            cmin=cmin, cmax=cmax,
+            colorbar=dict(title=colorbar_title, len=0.8),
+            color=[cmin],
+            showscale=True,
+            size=1,
+        ),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
 
     _apply_embedding_layout(
         fig,
@@ -438,7 +470,7 @@ def _build_datashader_categorical_figure(
     if int(agg.sum()) == 0:
         return None, "datashader aggregation produced empty grid"
 
-    shaded = tf.shade(agg, color_key=color_key, how="eq_hist")
+    shaded = tf.shade(agg, color_key=color_key, how="linear")
     spread_px = int(max(0, (marker_size - 1) // 2))
     if spread_px > 0:
         shaded = tf.spread(shaded, px=spread_px)
