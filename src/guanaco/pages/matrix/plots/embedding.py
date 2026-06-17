@@ -181,10 +181,6 @@ def _embedding_scatter_trace():
     return go.Scattergl
 
 
-def _categorical_customdata(obs_names, color_values, indices):
-    """Return [cell id, label, row position] for selection and cross-highlight."""
-    return np.column_stack([obs_names[indices], color_values[indices], indices])
-
 
 def _order_continuous_points(x_values, y_values, color_values, cell_idx, highlighted_mask, order):
     if order == "max":
@@ -449,9 +445,18 @@ def _build_datashader_categorical_figure(
 
     x_vals = np.asarray(x_values[valid_mask], dtype=np.float32)
     y_vals = np.asarray(y_values[valid_mask], dtype=np.float32)
-    cat_strs = np.asarray([str(c) for c in cat_values[valid_mask]], dtype=object)
+    # Avoid a Python-level str() loop when the array is already an object (string)
+    # array — the loop would allocate N new Python string objects on the heap for no
+    # reason (~57 bytes each → ~57 MB at 1 M cells).
+    raw = cat_values[valid_mask]
+    cat_strs = raw if raw.dtype.kind == "O" else raw.astype(str)
 
-    result = _datashader_canvas(ds, x_vals, y_vals)
+    # count_cat aggregates into a (W, H, N_cats) tensor.  Scale the canvas down
+    # proportionally when there are many categories so the tensor stays manageable:
+    # 20 cats → 1.0×, 45 cats → 0.67×, 80 cats → 0.5×.
+    n_cats = len(label_to_color_dict)
+    resolution_scale = min(1.0, (20.0 / max(n_cats, 1)) ** 0.5) if n_cats > 20 else 1.0
+    result = _datashader_canvas(ds, x_vals, y_vals, resolution_scale=resolution_scale)
     if result is None:
         return None, "invalid axis bounds"
     canvas, x_min, x_max, y_min, y_max, x_span, y_span = result
@@ -467,6 +472,7 @@ def _build_datashader_categorical_figure(
     }
 
     agg = canvas.points(df, "x", "y", agg=ds.count_cat("cat"))
+    del df  # free before tf.shade to avoid holding DataFrame and agg tensor simultaneously
     if int(agg.sum()) == 0:
         return None, "datashader aggregation produced empty grid"
 
@@ -713,8 +719,6 @@ def plot_embedding(
         library_id=library_id,
         auto_select_spatial=True,
     )
-    obs_names = np.asarray(adata.obs_names, dtype=object)
-
     if mode == "continuous":
         values = _resolve_continuous_values(
             adata,
@@ -785,20 +789,20 @@ def plot_embedding(
             return ds_fig
 
     unique_labels_filtered = sorted(pd.unique(color_values))
-    all_indices = np.arange(color_values.size, dtype=np.int64)
+    all_indices = np.arange(color_values.size)
     label_to_indices = {}
     for label in unique_labels_filtered:
         idx = all_indices[color_values == label]
         if idx.size:
-            label_to_indices[label] = idx.tolist()
+            label_to_indices[label] = idx.astype(np.int32, copy=False)
 
     ScatterTrace = _embedding_scatter_trace()
 
     fig = go.Figure()
 
     for label in unique_labels_filtered:
-        indices = np.asarray(label_to_indices.get(label, []), dtype=np.int32)
-        if indices.size == 0:
+        indices = label_to_indices.get(label)
+        if indices is None or indices.size == 0:
             continue
         fig.add_trace(ScatterTrace(
             x=x_values[indices],
@@ -810,8 +814,8 @@ def plot_embedding(
                 opacity=opacity,
             ),
             name=str(label),
-            customdata=_categorical_customdata(obs_names, color_values, indices),
-            hovertemplate=f"{color}: %{{customdata[1]}}<extra></extra>",
+            customdata=indices,
+            hoverinfo="skip",
             showlegend=not on_data,
             legendgroup=str(label),
             selectedpoints=None,
@@ -821,8 +825,8 @@ def plot_embedding(
 
     if on_data:
         for label in unique_labels_filtered:
-            indices = np.asarray(label_to_indices.get(label, []), dtype=np.int32)
-            if indices.size == 0:
+            indices = label_to_indices.get(label)
+            if indices is None or indices.size == 0:
                 continue
             fig.add_annotation(
                 x=float(np.median(x_values[indices])),

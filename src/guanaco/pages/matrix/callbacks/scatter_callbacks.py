@@ -860,35 +860,13 @@ def register_scatter_callbacks(
                     point_number = point.get("pointNumber", 0)
                     selected_indices.append(plot_adata.obs.index[point_number])
         else:
-            category_to_indices = {
-                cat: plot_adata.obs.index[idx].tolist() for cat, idx in plot_adata.obs.groupby(current_annotation).indices.items()
-            }
-            unique_categories = sorted(category_to_indices.keys())
             for point in selected_points:
-                curve_number = point.get("curveNumber", 0)
-                point_number = point.get("pointNumber", 0)
-                if curve_number == 0:
-                    continue
-
                 if "customdata" in point:
-                    customdata = point["customdata"]
-                    if isinstance(customdata, (list, tuple)):
-                        if customdata and str(customdata[0]) in plot_adata.obs.index:
-                            selected_indices.append(str(customdata[0]))
-                            continue
-                        category = customdata[0]
-                    else:
-                        category = customdata
-                    category_indices = category_to_indices.get(category, [])
-                    if point_number < len(category_indices):
-                        selected_indices.append(category_indices[point_number])
-                else:
-                    category_index = curve_number - 1
-                    if category_index >= 0 and category_index < len(unique_categories):
-                        selected_category = unique_categories[category_index]
-                        category_indices = category_to_indices.get(selected_category, [])
-                        if point_number < len(category_indices):
-                            selected_indices.append(category_indices[point_number])
+                    try:
+                        row_idx = int(point["customdata"])
+                        selected_indices.append(plot_adata.obs.index[row_idx])
+                    except (IndexError, ValueError, TypeError):
+                        pass
 
         if selected_indices:
             n_selected = len(selected_indices)
