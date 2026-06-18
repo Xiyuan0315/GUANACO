@@ -47,7 +47,7 @@ def generate_pseudotime_layout(prefix):
                         width=6,
                     ),
                 ],
-                style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "white"},
+                style={"marginBottom": "20px"},
             ),
             dcc.Loading(
                 id=f"{prefix}-pseudotime-loading",
@@ -64,5 +64,6 @@ def generate_pseudotime_layout(prefix):
                     )
                 ],
             ),
-        ]
+        ],
+        style={"padding": "20px", "marginBottom": "15px"},
     )

@@ -1,6 +1,6 @@
 """Runtime dataset registry built from the active GUANACO config."""
 
-from guanaco.data.loader import DEFAULT_COLORS, JSON_PATH, initialize_data, load_config
+from guanaco.data.loader import JSON_PATH, initialize_data, load_config
 
 
 def _bool_setting(settings: dict, key: str, default: bool) -> bool:
@@ -46,4 +46,4 @@ datasets = initialize_data(
     max_cells=max_cells,
     cfg=cfg,
 )
-color_config = cfg.get("color", DEFAULT_COLORS)
+color_config = cfg.get("color", [])

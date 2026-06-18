@@ -37,16 +37,6 @@ _register_anndata_null_reader_compat()
 # Get paths from environment variables set by CLI, with fallbacks
 JSON_PATH = Path(os.environ.get("GUANACO_CONFIG", "guanaco.json"))
 
-DEFAULT_COLORS: list[str] = [
-    "#E69F00",
-    "#56B4E9",
-    "#009E73",
-    "#F0E442",
-    "#0072B2",
-    "#D55E00",
-    "#CC79A7",
-]
-
 GLOBAL_CONFIG_KEYS = {"title", "color", "genome", "settings"}
 
 class DatasetBundle:
@@ -354,10 +344,10 @@ def _eager_load_annotations(adata: ad.AnnData, group=None) -> None:
     """Materialize a lazy AnnData's small annotations in place, keeping X/layers lazy.
 
     ``read_lazy`` returns ``obs``/``var`` as xarray ``Dataset2D`` and ``obsm`` as
-    dask arrays, which the app's pandas/numpy code paths don't accept. These are
-    small (per-cell/per-gene metadata, embeddings), so we pull them into memory
-    while leaving the large ``X``/``layers`` matrices on cloud storage for on-demand
-    per-gene reads.
+    dask arrays, which the app's pandas/numpy code paths don't accept. Per-cell
+    and per-gene metadata are pulled into memory, while embeddings are trimmed to
+    the first two axes used for scatter plots. The large ``X``/``layers`` matrices
+    stay on cloud storage for on-demand per-gene reads.
 
     When the open zarr ``group`` is supplied we read each annotation with
     :func:`_eager_read_elem` (one batched native read), which is dramatically faster
@@ -371,17 +361,21 @@ def _eager_load_annotations(adata: ad.AnnData, group=None) -> None:
     if not isinstance(adata.var, pd.DataFrame):
         df = _eager_read_elem(group, "var")
         adata.var = df if isinstance(df, pd.DataFrame) else adata.var.ds.to_dataframe()
+    # Embeddings only use two axes for scatter plots, so materialize just the
+    # first two columns instead of loading full matrices such as N x 50 X_pca.
+    MAX_EMBED_COLS = 2
     for key in list(adata.obsm.keys()):
         arr = adata.obsm[key]
-        if isinstance(arr, np.ndarray):
+        if getattr(arr, "ndim", 2) != 2:
+            adata.obsm[key] = (
+                arr.compute(scheduler="synchronous") if hasattr(arr, "compute") else np.asarray(arr)
+            )
             continue
-        eager = _eager_read_elem(group, "obsm", key)
-        if eager is not None:
-            adata.obsm[key] = eager if isinstance(eager, np.ndarray) else np.asarray(eager)
-        elif hasattr(arr, "compute"):
-            adata.obsm[key] = arr.compute()
-        else:
-            adata.obsm[key] = np.asarray(arr)
+        ncol = min(MAX_EMBED_COLS, arr.shape[1])
+        block = arr[:, :ncol]
+        if hasattr(block, "compute"):
+            block = block.compute(scheduler="synchronous")
+        adata.obsm[key] = np.asarray(block)
 
 
 def _backed_expression_layer(group, adata, preferred: str | None = None) -> str | None:
@@ -1031,7 +1025,7 @@ def initialize_data(
 
     if cfg is None:
         cfg = load_config(json_path)
-    global_colors = cfg.get("color", DEFAULT_COLORS)
+    global_colors = cfg.get("color", [])
     genome = cfg.get("genome", "hg38")
     config_base_dir = Path(json_path).expanduser().resolve().parent
     datasets: dict[str, DatasetBundle] = {}

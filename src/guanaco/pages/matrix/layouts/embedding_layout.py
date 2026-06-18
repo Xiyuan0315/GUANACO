@@ -1,6 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from guanaco.data.loader import get_discrete_labels
 from guanaco.utils.colors import continuous_colormap_options, discrete_palette_options
 from guanaco.utils.plot_config import scatter_config, gene_scatter_config
 from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
@@ -87,12 +88,7 @@ def generate_scatter_gene_selection(combined_list, prefix, default_value=None):
 
 
 def create_global_metadata_filter(adata, prefix):
-    categorical_columns = []
-    for col in adata.obs.columns:
-        if adata.obs[col].dtype == "category" or adata.obs[col].dtype == "object":
-            unique_vals = adata.obs[col].unique()
-            if len(unique_vals) < 100:
-                categorical_columns.append(col)
+    categorical_columns = get_discrete_labels(adata)
 
     filter_components = []
     for col in categorical_columns:
@@ -393,6 +389,26 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                     children=dcc.Graph(id=f"{prefix}-annotation-scatter", config=scatter_config, style={"height": "60vh", "width": "100%"}),
                                     style={"height": "60vh", "width": "100%"},
                                 ),
+                                html.Div(
+                                    [
+                                        dbc.Button(
+                                            "Update other Plots",
+                                            id=f"{prefix}-update-plots-button",
+                                            color="primary",
+                                            n_clicks=0,
+                                        ),
+                                        dbc.DropdownMenu(
+                                            [dbc.DropdownMenuItem("Cell IDs (.txt)", id=f"{prefix}-download-cellids")],
+                                            label="Download",
+                                            color="secondary",
+                                            id=f"{prefix}-download-menu",
+                                            disabled=True,
+                                        ),
+                                        dcc.Download(id=f"{prefix}-download-cells-data"),
+                                    ],
+                                    style={"display": "flex", "alignItems": "center", "gap": "10px", "marginTop": "10px"},
+                                ),
+                                html.Div(id=f"{prefix}-selection-status", style={"marginTop": "5px"}),
                             ],
                             className="dbc",
                             style={"marginBottom": "20px"},
@@ -487,48 +503,6 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                         lg=4,
                         xl=5,
                     ),
-                ]
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(width={"size": 0, "offset": 0, "md": 4, "lg": 4, "xl": 2}),
-                    dbc.Col(
-                        [
-                            html.Div(
-                                [
-                                    html.Div(
-                                        [
-                                            dbc.Button(
-                                                "Update other Plots",
-                                                id=f"{prefix}-update-plots-button",
-                                                color="primary",
-                                                n_clicks=0,
-                                                style={"marginRight": "10px", "display": "inline-block"},
-                                            ),
-                                            dbc.DropdownMenu(
-                                                [dbc.DropdownMenuItem("Cell IDs (.txt)", id=f"{prefix}-download-cellids")],
-                                                label="Download",
-                                                color="secondary",
-                                                id=f"{prefix}-download-menu",
-                                                disabled=True,
-                                                style={"display": "inline-block"},
-                                            ),
-                                            dcc.Download(id=f"{prefix}-download-cells-data"),
-                                        ],
-                                        style={"textAlign": "left"},
-                                    ),
-                                    html.Div(id=f"{prefix}-selection-status", style={"textAlign": "left", "marginTop": "5px"}),
-                                ],
-                                style={"marginTop": "10px"},
-                            )
-                        ],
-                        xs=12,
-                        sm=12,
-                        md=4,
-                        lg=4,
-                        xl=5,
-                    ),
-                    dbc.Col(width={"size": 0, "md": 4, "lg": 4, "xl": 5}),
                 ]
             ),
         ]

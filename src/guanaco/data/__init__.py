@@ -1,7 +1,6 @@
 """Data models, loaders, and runtime dataset registry."""
 
 from .loader import (
-    DEFAULT_COLORS,
     DatasetBundle,
     get_discrete_labels,
     get_modality_variables,
@@ -12,7 +11,6 @@ from .loader import (
     load_tracks_from_s3,
 )
 __all__ = [
-    "DEFAULT_COLORS",
     "DatasetBundle",
     "color_config",
     "datasets",

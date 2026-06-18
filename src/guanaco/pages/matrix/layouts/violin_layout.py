@@ -18,33 +18,26 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
     """
     violin_show_box1 = switch_checklist(f"{prefix}-show-box1", "Show Box Plot")
 
-    violin1_more_options = html.Div(
-        [violin_show_box1],
-        style={"marginBottom": "15px"},
-    )
-
     return html.Div(
         [
             html.Div(
-                [
-                    violin1_more_options,
-                    dcc.Store(id=f"{prefix}-violin-plot-cache-store"),
-                    dcc.Store(id=f"{prefix}-violin1-rendered-key"),
-                    # No dcc.Loading wrapper here: the stacked-violin figure is served
-                    # from cache on tab switches (the gene/label data is cached server
-                    # side), so the spinner only ever *flashed* on re-entry without
-                    # signalling real work. Rendering the graph directly removes that
-                    # distracting flash.
-                    dcc.Graph(
-                        id=f"{prefix}-violin-plot1",
-                        config=common_config,
-                        style={"width": "100%", "minHeight": "400px"},
-                    ),
-                ],
-                style={"marginBottom": "30px", "padding": "20px"},
+                [violin_show_box1],
+                style={"marginBottom": "15px"},
+            ),
+            dcc.Store(id=f"{prefix}-violin-plot-cache-store"),
+            dcc.Store(id=f"{prefix}-violin1-rendered-key"),
+            # No dcc.Loading wrapper here: the stacked-violin figure is served
+            # from cache on tab switches (the gene/label data is cached server
+            # side), so the spinner only ever *flashed* on re-entry without
+            # signalling real work. Rendering the graph directly removes that
+            # distracting flash.
+            dcc.Graph(
+                id=f"{prefix}-violin-plot1",
+                config=common_config,
+                style={"width": "100%", "minHeight": "400px"},
             ),
         ],
-        style={"width": "100%"},
+        style={"padding": "20px", "marginBottom": "15px"},
     )
 
 
@@ -123,7 +116,7 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
         id=f"{prefix}-split-violin-options-toggle",
         color="link",
         size="sm",
-        style={"padding": "2px 0", "textDecoration": "none", "fontWeight": "bold"},
+        style={"padding": "2px 0", "textDecoration": "none", "fontWeight": "bold", "marginBottom": "10px"},
     )
 
     advanced_panel = dbc.Collapse(
@@ -153,56 +146,49 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
     return html.Div(
         [
             html.Div(
-                [
-                    html.Div(
-                        [violin2_gene_selection, meta1_selection],
-                        style={"display": "flex", "gap": "10px", "marginBottom": "10px"},
-                    ),
-                    html.Div(violin_show_box2, style={"marginBottom": "10px"}),
-                    advanced_toggle,
-                    advanced_panel,
-                    dcc.Loading(
-                        id="loading-violin2",
-                        type="circle",
-                        overlay_style=LOADING_OVERLAY_STYLE,
-                        children=[
-                            html.Div(
-                                [
-                                    responsive_graph_grid(
-                                        f"{prefix}-violin2-grid",
-                                        f"{prefix}-violin2-grid-item",
-                                        html.Div(
-                                            id=f"{prefix}-violin2-grid-item",
-                                            children=dcc.Graph(
-                                                id=f"{prefix}-violin-plot2",
-                                                config=common_config,
-                                                responsive=True,
-                                                style={
-                                                    "min-height": "0",
-                                                    "flex-grow": "1",
-                                                    "border": "none",
-                                                    "box-shadow": "none",
-                                                },
-                                            ),
-                                            style={
-                                                "height": "100%",
-                                                "width": "100%",
-                                                "display": "flex",
-                                                "flex-direction": "column",
-                                                "flex-grow": "0",
-                                                "border": "none",
-                                                "box-shadow": "none",
-                                            },
-                                        ),
-                                    )
-                                ]
-                            )
-                        ],
-                        style={"padding": "10px", "display": "flex", "flex-direction": "column", "height": "100%"},
-                    ),
+                [violin2_gene_selection, meta1_selection],
+                style={"display": "flex", "gap": "10px", "marginBottom": "10px"},
+            ),
+            html.Div(
+                [violin_show_box2],
+                style={"marginBottom": "15px"},
+            ),
+            advanced_toggle,
+            advanced_panel,
+            dcc.Loading(
+                id="loading-violin2",
+                type="circle",
+                overlay_style=LOADING_OVERLAY_STYLE,
+                children=[
+                    responsive_graph_grid(
+                        f"{prefix}-violin2-grid",
+                        f"{prefix}-violin2-grid-item",
+                        html.Div(
+                            id=f"{prefix}-violin2-grid-item",
+                            children=dcc.Graph(
+                                id=f"{prefix}-violin-plot2",
+                                config=common_config,
+                                responsive=True,
+                                style={
+                                    "min-height": "0",
+                                    "flex-grow": "1",
+                                    "border": "none",
+                                    "box-shadow": "none",
+                                },
+                            ),
+                            style={
+                                "height": "100%",
+                                "width": "100%",
+                                "display": "flex",
+                                "flex-direction": "column",
+                                "flex-grow": "0",
+                                "border": "none",
+                                "box-shadow": "none",
+                            },
+                        ),
+                    )
                 ],
-                style={"padding": "10px"},
             ),
         ],
-        style={"width": "100%"},
+        style={"padding": "20px", "marginBottom": "15px"},
     )

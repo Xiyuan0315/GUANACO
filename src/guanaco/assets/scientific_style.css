@@ -56,6 +56,15 @@
     margin-right: 5px;
 }
 
+/* Shared card utilities */
+.plot-section {
+    padding: 20px;
+}
+
+.card-elevated {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
 /* Remove borders and shadows from draggable grid items */
 .grid-layout-no-border .react-grid-item {
     border: none !important;

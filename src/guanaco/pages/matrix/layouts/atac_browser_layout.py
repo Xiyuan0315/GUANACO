@@ -111,5 +111,5 @@ def generate_atac_browser_layout(adata, prefix, gene_annotation_path=None):
                 ),
             ),
         ],
-        style={"padding": "20px"},
+        style={"padding": "20px", "marginBottom": "15px"},
     )

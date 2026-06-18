@@ -91,6 +91,53 @@ def _resolve_config_via_wizard(initial: Path | None) -> Path | None:
     return config_path if should_launch else None
 
 
+def _set_macos_app_identity() -> None:
+    """Set the macOS dock icon and app name to GUANACO branding.
+
+    Must be called before webview.create_window() so the dock registers the
+    correct process name on first activation.
+    """
+    import sys
+    if sys.platform != "darwin":
+        return
+    try:
+        import io
+        from PIL import Image as PILImage
+        from AppKit import NSApplication, NSImage
+        from Foundation import NSBundle, NSData, NSProcessInfo
+
+        # Dock label: KVC bypasses the read-only processName property.
+        try:
+            NSProcessInfo.processInfo().setValue_forKey_("GUANACO", "processName")
+        except Exception:
+            pass
+
+        # Menu-bar / bundle name fallback.
+        info = NSBundle.mainBundle().infoDictionary()
+        if info is not None:
+            info["CFBundleName"] = "GUANACO"
+            info["CFBundleDisplayName"] = "GUANACO"
+
+        # Dock icon: logo.png is 267×400 (portrait); pad it to a square so the
+        # dock doesn't squish it.
+        icon_path = Path(__file__).parent / "assets" / "logo.png"
+        if icon_path.exists():
+            logo = PILImage.open(icon_path).convert("RGBA")
+            w, h = logo.size
+            size = max(w, h)
+            square = PILImage.new("RGBA", (size, size), (0, 0, 0, 0))
+            square.paste(logo, ((size - w) // 2, (size - h) // 2))
+            buf = io.BytesIO()
+            square.save(buf, format="PNG")
+            png_bytes = buf.getvalue()
+            ns_data = NSData.dataWithBytes_length_(png_bytes, len(png_bytes))
+            icon = NSImage.alloc().initWithData_(ns_data)
+            if icon:
+                NSApplication.sharedApplication().setApplicationIconImage_(icon)
+    except Exception:
+        pass
+
+
 def _run_window(settings: dict) -> None:
     """Open the pywebview window and bring the Dash server up behind a splash."""
     # Imported dynamically (not `import webview`) so static import scanners -- e.g.
@@ -116,6 +163,8 @@ def _run_window(settings: dict) -> None:
     # pywebview must hit a loopback address; 0.0.0.0 is only a bind address.
     window_host = "127.0.0.1" if host in ("0.0.0.0", "", None) else host
     url = f"http://{window_host}:{port}"
+
+    _set_macos_app_identity()
 
     window = webview.create_window(
         "GUANACO",

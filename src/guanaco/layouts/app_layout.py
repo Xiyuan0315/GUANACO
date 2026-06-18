@@ -21,6 +21,7 @@ def resize_tip_toast():
             [
                 html.Img(
                     src="/assets/lamp_guanaco.png",
+                    alt="Tip",
                     style={"height": "1.25rem", "marginRight": "0.5rem"},
                 ),
                 html.Span("Tip!"),
@@ -41,6 +42,7 @@ def resize_tip_toast():
 
 # Footer and footprint
 footprint = html.Div(
+    role="presentation",
     style={
         'backgroundImage': 'url("/assets/footprint.png")',
         'backgroundRepeat': 'repeat-x',
@@ -62,7 +64,7 @@ guanaco_footer = html.Footer(
         "textAlign": "center",
         "fontSize": "14px",
         "padding": "10px",
-        "color": "#666"
+        "color": "#6c757d"
     })
 )
 
@@ -73,7 +75,7 @@ def navbar(datasets):
             dbc.Container(
                 dbc.Row(
                     [
-                        dbc.Col(html.Img(src="/assets/logo.png", height="70px"), width="auto", align="center"),
+                        dbc.Col(html.Img(src="/assets/logo.png", alt="GUANACO logo", height="70px"), width="auto", align="center"),
                         dbc.Col(
                             dbc.NavLink(
                                 "GUANACO",
@@ -217,7 +219,7 @@ def anndata_layout(
         children=[
             dbc.Card(
                 [
-                    html.Div(generate_embedding_plots(adata, prefix, scatter_defaults=scatter_defaults), style={'padding': '20px'}),
+                    html.Div(generate_embedding_plots(adata, prefix, scatter_defaults=scatter_defaults), className="plot-section"),
                     html.Hr(style={'border': '1px solid #ddd'}),
                     html.Div(
                         generate_other_plots(
@@ -228,12 +230,10 @@ def anndata_layout(
                             optional_plot_components=optional_plot_components,
                             gene_annotation_path=gene_annotation_path,
                         ),
-                        className="dbc",
-                        style={'padding': '20px'}
+                        className="dbc plot-section",
                     ),
-                    # html.Hr(style={'border': '1px solid #ddd'}),
                 ],
-                style={'boxShadow': '0 4px 8px rgba(0, 0, 0, 0.1)'}
+                className="card-elevated",
             )
         ]
     )
@@ -248,31 +248,12 @@ def igv_layout(session_names, prefix):
         fluid=True,
         children=[
             dbc.Card(
-            html.Div(
-                gene_browser_layout(prefix, session_names),
-                style={'padding': '20px'}
-            ),
-            style={'boxShadow': '0 4px 8px rgba(0, 0, 0, 0.1)', 'marginTop': '20px'}
+                html.Div(gene_browser_layout(prefix, session_names), className="plot-section"),
+                className="card-elevated",
+                style={'marginTop': '20px'},
             )
         ]
     )
-
-# Modality selector
-def create_modality_selector(dataset, tab):
-    if dataset.adata is None:
-        return html.Div()  # Return empty div if no adata
-    
-    return html.Div([
-        html.Label("Select modality:"),
-        dcc.Dropdown(
-            id={"type": "modality-selector", "index": tab},
-            options=[
-                {"label": mod, "value": mod} for mod in dataset.adata.mod.keys()
-            ] if isinstance(dataset.adata, mu.MuData) else [{"label": "rna", "value": "rna"}],
-            value=list(dataset.adata.mod.keys())[0] if isinstance(dataset.adata, mu.MuData) else "rna",
-            clearable=False
-        )
-    ], style={"padding": "10px"})
 
 # Entire tab content
 def tab_content(dataset, tab):

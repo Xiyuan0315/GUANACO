@@ -2,7 +2,6 @@
 
 from .app_layout import (
     anndata_layout,
-    create_modality_selector,
     create_modality_tabs,
     description_layout,
     footprint,
@@ -15,7 +14,6 @@ from .app_layout import (
 
 __all__ = [
     "anndata_layout",
-    "create_modality_selector",
     "create_modality_tabs",
     "description_layout",
     "footprint",

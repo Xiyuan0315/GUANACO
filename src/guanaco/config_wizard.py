@@ -31,16 +31,6 @@ OPTIONAL_PLOTS = [
 
 DEFAULT_PLOTS = {"heatmap", "violin", "split-violin", "dotplot", "stacked-bar"}
 
-DEFAULT_COLORS = [
-    "#E69F00",
-    "#56B4E9",
-    "#009E73",
-    "#F0E442",
-    "#0072B2",
-    "#D55E00",
-    "#CC79A7",
-]
-
 # Top-level keys reserved for global config; a dataset cannot use these names.
 RESERVED_NAMES = {"title", "color", "genome", "settings"}
 
@@ -305,7 +295,6 @@ class DatasetTab:
         )
         self.colors_text = _text_box(views.body, height=4)
         self.colors_text.grid(row=2, column=0, sticky="ew", pady=(4, 0))
-        self.colors_text.insert("1.0", "\n".join(DEFAULT_COLORS))
 
         # IGV(optional)
         igv = CollapsibleSection(self.frame, "IGV", open_by_default=False)
