@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from guanaco.data.loader import obs_col
 
 
 # A locus typed by the user ("chr1:100,000-200,000") and a peak feature name share
@@ -64,6 +65,16 @@ class _SimpleTTLCache:
 
 _peak_index_cache: dict[tuple[int, int], PeakIndex] = {}
 _signal_cache = _SimpleTTLCache(max_items=48, ttl_seconds=180)
+# Caches the raw dense matrix slice (zarr read result) keyed by region + cell
+# selection only -- independent of groupby/labels/metric. This means switching
+# annotation or metric for the same region skips the slow zarr read and only
+# re-runs the fast numpy aggregation step.
+_dense_cache = _SimpleTTLCache(max_items=16, ttl_seconds=300)
+# Per-column cache: each peak column (dense numpy array of shape (n_obs,)) is
+# cached individually. When the user pans to an adjacent region, most peak columns
+# overlap with the previous region -- only the newly entered columns need S3 reads.
+# At ~35 KB per column (8677 cells × float32), 2000 columns ≈ 70 MB.
+_col_cache = _SimpleTTLCache(max_items=2000, ttl_seconds=600)
 
 # Colorblind-safe fallback colors for signal tracks, used when a track has no entry
 # in the caller-supplied color_map. Cycled by track index.
@@ -193,16 +204,35 @@ def build_peak_index(adata) -> PeakIndex:
     return index
 
 
-def default_region(adata, *, width: int = 1_000_000) -> dict[str, int | str]:
+def default_region(adata, *, padding: int = 5_000) -> dict[str, int | str]:
+    """Return a region centred on the first peak in var_names, with light padding.
+
+    Showing a single peak rather than a 1 Mbp window reduces the initial S3
+    read to ~1-3 columns instead of ~50, making the peak browser open fast.
+    """
+    # Try to parse the first var_name directly (e.g. "chr1:100000-101000").
+    first_name = str(adata.var_names[0]) if adata.n_vars > 0 else None
+    if first_name:
+        parsed = _parse_peak_name(first_name)
+        if parsed:
+            chrom, start, end = parsed
+            return {
+                "chrom": chrom,
+                "start": max(0, start - padding),
+                "end": end + padding,
+            }
+
+    # Fallback: use the index to find the first peak on chr1 (or first chrom).
     index = build_peak_index(adata)
     preferred = next((c for c in ("chr1", "1") if c in index.starts), None)
     chrom = preferred or (index.chroms[0] if index.chroms else "chr1")
     starts = index.starts.get(chrom)
+    ends = index.ends.get(chrom)
     if starts is None or starts.size == 0:
-        return {"chrom": chrom, "start": 0, "end": width}
-    center = int(starts[min(len(starts) // 2, len(starts) - 1)])
-    start = max(0, center - width // 2)
-    return {"chrom": chrom, "start": start, "end": start + width}
+        return {"chrom": chrom, "start": 0, "end": 200_000}
+    start = int(starts[0])
+    end = int(ends[0]) if ends is not None and ends.size > 0 else start + 1000
+    return {"chrom": chrom, "start": max(0, start - padding), "end": end + padding}
 
 
 def coerce_region(index: PeakIndex, region: dict, *, min_span: int = 3_000, max_span: int = 5_000_000) -> dict[str, int | str]:
@@ -273,6 +303,45 @@ def _selected_signature(selected_cells) -> str:
     return f"{len(selected_cells)}:{digest}"
 
 
+def _read_peak_cols(adata, cols: np.ndarray) -> np.ndarray:
+    """Read peak columns from zarr with per-column caching.
+
+    Checks _col_cache for each requested column. Only columns not already
+    cached are read from zarr (one batched read). When panning to an adjacent
+    region most columns overlap with the previous one, so typically only a few
+    new columns need S3 reads instead of all 50.
+    """
+    from guanaco.utils.gene_extraction_utils import _densify
+
+    adata_sig = f"{id(adata)}:{adata.n_obs}:{adata.n_vars}"
+    n_obs = adata.n_obs
+    n_cols = len(cols)
+    result = np.empty((n_obs, n_cols), dtype=np.float32)
+
+    missing_local: list[int] = []
+    missing_global: list[int] = []
+
+    for local_i, col_idx in enumerate(cols):
+        cached = _col_cache.get(f"{adata_sig}:{col_idx}")
+        if cached is not None:
+            result[:, local_i] = cached
+        else:
+            missing_local.append(local_i)
+            missing_global.append(int(col_idx))
+
+    if missing_global:
+        missing_arr = np.array(missing_global, dtype=np.intp)
+        sub = _densify(adata.X[:, missing_arr])
+        if sub.ndim == 1:
+            sub = sub.reshape(n_obs, 1)
+        for i, (local_i, col_idx) in enumerate(zip(missing_local, missing_global)):
+            col_data = sub[:, i].astype(np.float32)
+            result[:, local_i] = col_data
+            _col_cache.set(f"{adata_sig}:{col_idx}", col_data)
+
+    return result
+
+
 def _mean_or_detection(matrix, metric: str) -> np.ndarray:
     if matrix.shape[0] == 0:
         return np.zeros(matrix.shape[1], dtype=np.float32)
@@ -331,30 +400,37 @@ def compute_atac_signal(
         rows = None
     n_cells = adata.n_obs if rows is None else int(rows.size)
 
-    # Note: we deliberately do NOT bail out when the window has no peaks. The
-    # grouping below still emits one (empty, flat) track per selected label, so
-    # panning into a peak-free stretch keeps every cell-type track on screen
-    # instead of collapsing the figure down to just the gene track.
-    # Read the selected peak columns into memory NOW, through the shared synchronous
-    # densify path. For a cloud-backed store adata.X is a lazy dask array; calling
-    # .mean()/(>0).mean() on it later (see _mean_or_detection) would trigger dask's
-    # default threaded scheduler, which deadlocks fsspec's async HTTP under a gunicorn
-    # sync worker (the same hang _densify exists to avoid for gene reads). Densifying
-    # the bounded (<=400-peak) slice up front keeps every downstream op pure-numpy.
-    from guanaco.utils.gene_extraction_utils import _densify
-
-    sub = _densify(adata.X[:, cols])
-    if sub.ndim == 1:
-        sub = sub.reshape(adata.n_obs, -1)
-    if rows is None:
-        row_labels = None
+    # The dense matrix read (zarr I/O) is keyed by region + cell selection only,
+    # independent of groupby/labels/metric. Switching annotation or metric for the
+    # same region reuses the cached matrix and only re-runs the fast numpy aggregation.
+    dense_key = json.dumps(
+        {
+            "adata": id(adata),
+            "n_obs": int(adata.n_obs),
+            "n_vars": int(adata.n_vars),
+            "cols": cols.tolist(),
+            "selected": selected_sig,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    cached_dense = _dense_cache.get(dense_key)
+    if cached_dense is not None:
+        sub, row_labels = cached_dense
     else:
-        sub = sub[rows, :]
+        # _read_peak_cols reads each column through _col_cache: columns already
+        # seen (from a previous region) are returned instantly; only new columns
+        # trigger S3 reads. Panning to an adjacent region typically reuses most
+        # cached columns, reducing S3 requests from ~50 to just the newly entered peaks.
+        sub = _read_peak_cols(adata, cols)
+        if rows is not None:
+            sub = sub[rows, :]
         row_labels = rows
+        _dense_cache.set(dense_key, (sub, row_labels))
 
     signals = []
     if groupby and groupby in adata.obs.columns:
-        labels_source = adata.obs[groupby].astype(str).to_numpy()
+        labels_source = obs_col(adata.obs, groupby).astype(str).to_numpy()
         row_label_values = labels_source if row_labels is None else labels_source[row_labels]
         # Which groups get a track is driven by the left panel's selected labels;
         # selected_cells only narrows the cells inside each track. Order follows the

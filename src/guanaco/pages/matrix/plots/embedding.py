@@ -5,6 +5,7 @@ import plotly.express as px
 from PIL import Image
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
+from guanaco.data.loader import obs_col
 
 EMBEDDING_PREFIXES = {
     "X_umap": "UMAP",
@@ -30,7 +31,7 @@ def _resolve_spatial_context(
         if len(spatial) == 1:
             library_id = next(iter(spatial.keys()))
         elif "library_id" in adata.obs.columns:
-            obs_library_ids = [str(x) for x in pd.Series(adata.obs["library_id"]).dropna().unique()]
+            obs_library_ids = [str(x) for x in obs_col(adata.obs, "library_id").dropna().unique()]
             matching = [lib for lib in obs_library_ids if lib in spatial]
             if len(matching) == 1:
                 library_id = matching[0]
@@ -137,7 +138,7 @@ def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=No
 
     # Follow Scanpy-like precedence: obs -> var_names
     if key in adata.obs.columns:
-        values = pd.to_numeric(adata.obs[key], errors="coerce").to_numpy()
+        values = pd.to_numeric(obs_col(adata.obs, key), errors="coerce").to_numpy()
     elif key in source_adata.var_names:
         values = extract_gene_expression(source_adata, key, layer=layer)
         if row_idx is not None:
@@ -670,9 +671,9 @@ def _color_is_continuous(adata, color, *, threshold=50):
     if color in adata.var_names:
         return True
     if color in adata.obs.columns:
-        dtype = adata.obs[color].dtype
+        dtype = adata.obs.dtypes[color]
         if getattr(dtype, "kind", None) in ("i", "u", "f"):
-            return adata.obs[color].nunique() >= threshold
+            return obs_col(adata.obs, color).nunique() >= threshold
     return False
 
 
@@ -759,7 +760,7 @@ def plot_embedding(
         )
 
     adata_full = adata if adata_full is None else adata_full
-    all_unique_labels = sorted(adata_full.obs[color].unique())
+    all_unique_labels = sorted(obs_col(adata_full.obs, color).unique())
     palette = discrete_color_map or px.colors.qualitative.Plotly
     label_to_color_dict = {
         label: palette[i % len(palette)]
@@ -767,7 +768,7 @@ def plot_embedding(
     }
     on_data = legend_show == "on data"
 
-    color_values = adata.obs[color].to_numpy()
+    color_values = obs_col(adata.obs, color).to_numpy()
 
     # Server-side rasterization for large datasets: no per-point lasso/hover,
     # so only used when there's no spatial background to compose with.

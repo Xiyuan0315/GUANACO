@@ -341,23 +341,13 @@ def _eager_read_elem(group, *path):
 
 
 def _eager_load_annotations(adata: ad.AnnData, group=None) -> None:
-    """Materialize a lazy AnnData's small annotations in place, keeping X/layers lazy.
+    """Materialize var and obsm in place; obs is left as lazy Dataset2D.
 
     ``read_lazy`` returns ``obs``/``var`` as xarray ``Dataset2D`` and ``obsm`` as
-    dask arrays, which the app's pandas/numpy code paths don't accept. Per-cell
-    and per-gene metadata are pulled into memory, while embeddings are trimmed to
-    the first two axes used for scatter plots. The large ``X``/``layers`` matrices
-    stay on cloud storage for on-demand per-gene reads.
-
-    When the open zarr ``group`` is supplied we read each annotation with
-    :func:`_eager_read_elem` (one batched native read), which is dramatically faster
-    over a remote store than materializing the lazy ``Dataset2D`` column by column.
-    We fall back to the lazy ``.to_dataframe()`` / ``.compute()`` conversion whenever
-    the eager read is unavailable.
+    dask arrays. var and obsm are small and needed immediately, so they are pulled
+    into memory here. obs stays as Dataset2D — per-cell annotation columns are read
+    from zarr on demand when callbacks access them.
     """
-    if not isinstance(adata.obs, pd.DataFrame):
-        df = _eager_read_elem(group, "obs")
-        adata.obs = df if isinstance(df, pd.DataFrame) else adata.obs.ds.to_dataframe()
     if not isinstance(adata.var, pd.DataFrame):
         df = _eager_read_elem(group, "var")
         adata.var = df if isinstance(df, pd.DataFrame) else adata.var.ds.to_dataframe()
@@ -399,10 +389,10 @@ def _backed_expression_layer(group, adata, preferred: str | None = None) -> str 
         print(f"[guanaco] expression_layer '{preferred}' not found in {layer_names}; using X.")
         return None
     try:
-        if str(dict(group["X"].attrs).get("encoding-type", "")) != "csr_matrix":
+        if _zarr_encoding(group, ("X",)) != "csr_matrix":
             return None
         for name in layer_names:
-            if str(dict(group["layers"][name].attrs).get("encoding-type", "")) == "csc_matrix":
+            if _zarr_encoding(group, ("layers", name)) == "csc_matrix":
                 return name
     except Exception:
         return None
@@ -734,31 +724,28 @@ def load_adata(
 # Discrete label helpers
 # ----------------------------------------------------------------------------
 
+def obs_col(obs, col: str) -> "pd.Series":
+    """Get an obs column as a pandas Series from either a DataFrame or a lazy Dataset2D."""
+    s = obs[col]
+    return s.to_series() if hasattr(s, "to_series") else s
+
+
 def get_discrete_labels(adata: ad.AnnData, *, max_unique: int = 50) -> list[str]:
     obs = adata.obs
-    if obs is None or obs.empty:
+    if obs is None:
+        return []
+    if getattr(obs, "shape", (1,))[0] == 0:
         return []
 
-    # Cardinality per column, vectorized. Categorical columns expose their
-    # cardinality as metadata (``len(cat.categories)``, O(1)); all other columns
-    # use pandas' C-level ``nunique`` in one batched call. Both avoid a Python-level
-    # scan of every value, which on large (100k+ cell) backed datasets cost ~10s at
-    # startup -- the bottleneck this replaces.
-    counts: dict[str, int] = {}
-    plain_cols: list[str] = []
-    for col in obs.columns:
-        dtype = obs[col].dtype
-        if isinstance(dtype, pd.CategoricalDtype):
-            counts[col] = len(dtype.categories)
-        else:
-            plain_cols.append(col)
+    # Only categorical columns, safe to call on a lazy Dataset2D.
+    dtypes = obs.dtypes
 
-    if plain_cols:
-        plain_nunique = obs[plain_cols].nunique(dropna=True)
-        for col in plain_cols:
-            counts[col] = int(plain_nunique[col])
-
-    selected = [(col, n) for col, n in counts.items() if n < max_unique]
+    selected = [
+        (col, len(dtype.categories))
+        for col in obs.columns
+        if isinstance(dtype := dtypes[col], pd.CategoricalDtype)
+        and len(dtype.categories) < max_unique
+    ]
     selected.sort(key=lambda item: item[1])
     return [col for col, _ in selected]
 

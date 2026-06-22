@@ -2,6 +2,8 @@
 
 import weakref
 
+from guanaco.data.loader import obs_col
+
 # id(dataset) -> (weakref to the dataset, {(col, dropna): sorted categories}).
 # Keyed by id() because AnnData/MuData are unhashable, and guarded by a weakref
 # so an entry is dropped the moment its dataset is collected -- this prevents a
@@ -43,7 +45,7 @@ def sorted_categories(adata, col, *, dropna: bool = True) -> list:
         except TypeError:
             per_col = None  # not weak-referenceable: compute without caching
 
-    values = adata.obs[col]
+    values = obs_col(adata.obs, col)
     uniques = values.dropna().unique() if dropna else values.unique()
     try:
         ordered = sorted(uniques)

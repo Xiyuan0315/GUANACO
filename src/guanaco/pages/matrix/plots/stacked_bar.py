@@ -1,12 +1,13 @@
 import plotly.express as px
 import pandas as pd
+from guanaco.data.loader import obs_col
 
 def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, x_order=None):
     """Plot stacked bar chart."""
     # Check if x_meta and y_meta are the same - if so, create a histogram
     if x_meta == y_meta:
         # Create a simple count dataframe for histogram
-        count_df = adata.obs[x_meta].value_counts().reset_index()
+        count_df = obs_col(adata.obs, x_meta).value_counts().reset_index()
         count_df.columns = [x_meta, 'count']
         count_df[x_meta] = count_df[x_meta].astype(str)
         
@@ -45,7 +46,7 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
     else:
         # Original stacked bar logic
         # Create count dataframe
-        count_df = adata.obs.groupby([x_meta, y_meta]).size().reset_index(name='count')
+        count_df = pd.DataFrame({x_meta: obs_col(adata.obs, x_meta), y_meta: obs_col(adata.obs, y_meta)}).groupby([x_meta, y_meta]).size().reset_index(name='count')
         count_df[x_meta] = count_df[x_meta].astype(str)
         count_df[y_meta] = count_df[y_meta].astype(str)
 

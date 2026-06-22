@@ -3,6 +3,7 @@ import dash_bootstrap_components as dbc
 from dash import Input, Output, State, dcc, html, callback_context, exceptions, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
+from guanaco.data.loader import obs_col
 
 # Auto-dismiss delay (ms) for the cell-selection status toasts.
 _SELECTION_ALERT_DURATION_MS = 4000
@@ -208,7 +209,7 @@ def register_scatter_callbacks(
         return [{"label": item, "value": item} for item in all_matches]
 
     def _resolve_discrete_palette_for(annotation, discrete_color_map):
-        n_categories = adata.obs[annotation].nunique() if annotation in adata.obs.columns else 0
+        n_categories = obs_col(adata.obs, annotation).nunique() if annotation in adata.obs.columns else 0
         return resolve_discrete_palette(discrete_color_map, n_categories, default=color_config)
 
     @app.callback(
@@ -761,7 +762,7 @@ def register_scatter_callbacks(
         # Visible cells = obs rows whose annotation value is NOT in hidden_labels.
         # Emit their row positions (single C-level pass) for the client-side
         # cross-highlight; positions index the right plot's trace customdata.
-        visible_mask = ~src.obs[current_annotation].astype(str).isin(hidden_labels)
+        visible_mask = ~obs_col(src.obs, current_annotation).astype(str).isin(hidden_labels)
         positions = np.flatnonzero(visible_mask.to_numpy())
         return {"positions": positions.tolist(), "source": "legend", "hidden_labels": sorted(hidden_labels)}
 

@@ -8,6 +8,7 @@ import plotly.express as px
 from scipy.interpolate import UnivariateSpline
 
 from guanaco.utils.gene_extraction_utils import apply_transformation, extract_gene_expression, prewarm_gene_cache
+from guanaco.data.loader import obs_col
 
 try:
     from sklearn.linear_model import Ridge
@@ -76,11 +77,11 @@ def plot_genes_in_pseudotime(
         expr_df = apply_transformation(expr_df, method='z_score', copy=True)
 
     expr_df[valid_genes] = expr_df[valid_genes].replace([np.inf, -np.inf], np.nan)
-    expr_df['pseudotime'] = pd.to_numeric(adata.obs[pseudotime_key].values, errors='coerce')
+    expr_df['pseudotime'] = pd.to_numeric(obs_col(adata.obs, pseudotime_key).values, errors='coerce')
     expr_df['pseudotime'] = expr_df['pseudotime'].replace([np.inf, -np.inf], np.nan)
 
     if groupby and groupby in adata.obs.columns:
-        expr_df[groupby] = adata.obs[groupby].values
+        expr_df[groupby] = obs_col(adata.obs, groupby).values
 
     # Filter cells based on minimum expression (per-cell: keep if any gene passes)
     if min_expr > 0:

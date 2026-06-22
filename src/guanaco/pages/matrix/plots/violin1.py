@@ -6,6 +6,7 @@ import pandas as pd
 from guanaco.utils.gene_extraction_utils import (
     extract_gene_expression, apply_transformation, prewarm_gene_cache
 )
+from guanaco.data.loader import obs_col
 import hashlib
 import time
 
@@ -87,7 +88,7 @@ def _label_masks(obs_values, labels):
 
 def _row_positions_for_labels(adata, groupby, labels, data_already_filtered):
     if labels and not data_already_filtered:
-        return np.where(adata.obs[groupby].isin(labels).to_numpy())[0]
+        return np.where(obs_col(adata.obs, groupby).isin(labels).to_numpy())[0]
     return None
 
 
@@ -137,9 +138,9 @@ def _get_adata_id(adata):
 
 def _label_color_map(adata, groupby, groupby_label_color_map, adata_obs=None):
     unique_labels = (
-        sorted(adata_obs[groupby].unique())
+        sorted(obs_col(adata_obs, groupby).unique())
         if adata_obs is not None
-        else sorted(adata.obs[groupby].unique())
+        else sorted(obs_col(adata.obs, groupby).unique())
     )
     if groupby_label_color_map is not None:
         return groupby_label_color_map
@@ -277,7 +278,12 @@ def _extract_and_cache_violin_data(
     # the selected rows. Consumers index gene_df / obs_values positionally, so it is
     # row order -- not the index -- that must line up, and both come from row_pos.
     gene_df = _extract_gene_frame(adata, valid_genes, row_pos, layer=layer)
-    obs_values = adata.obs.iloc[row_pos][groupby] if row_pos is not None else adata.obs[groupby]
+    if row_pos is not None:
+        _obs_slice = adata.obs.iloc[row_pos]
+        _obs_slice = _obs_slice.to_memory() if hasattr(_obs_slice, 'to_memory') else _obs_slice
+        obs_values = obs_col(_obs_slice, groupby)
+    else:
+        obs_values = obs_col(adata.obs, groupby)
     
     gene_df = _apply_gene_transformations(gene_df, valid_genes, transformation)
     

@@ -31,6 +31,11 @@ from typing import Any, Sequence
 import plotly.graph_objects as go
 
 
+def _obs_col(obs, col):
+    s = obs[col]
+    return s.to_series() if hasattr(s, "to_series") else s
+
+
 # --------------------------------------------------------------------------- #
 # Internal helpers
 # --------------------------------------------------------------------------- #
@@ -96,7 +101,7 @@ def _label_color_map(adata, groupby: str, palette):
     """Build a stable {category: color} map for ``groupby`` (or None)."""
     if palette is None:
         return None
-    labels = sorted(adata.obs[groupby].unique().tolist())
+    labels = sorted(_obs_col(adata.obs, groupby).unique().tolist())
     colors = _palette_list(palette, len(labels))
     if not colors:
         return None
@@ -104,7 +109,7 @@ def _label_color_map(adata, groupby: str, palette):
 
 
 def _all_labels(adata, groupby: str) -> list:
-    return sorted(adata.obs[groupby].unique().tolist())
+    return sorted(_obs_col(adata.obs, groupby).unique().tolist())
 
 
 def _default_palette() -> list:
@@ -319,9 +324,9 @@ def violin_grouped(
     if mode in ("mode2", "mode3", "mode4") and meta2 is None:
         raise ValueError(f"mode '{mode}' requires `groupby2`.")
 
-    n_colors = adata.obs[groupby].nunique()
+    n_colors = _obs_col(adata.obs, groupby).nunique()
     if meta2:
-        n_colors = max(n_colors, adata.obs[meta2].nunique())
+        n_colors = max(n_colors, _obs_col(adata.obs, meta2).nunique())
 
     fig = plot_violin2_new(
         adata,

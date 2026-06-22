@@ -14,6 +14,7 @@ from guanaco.pages.matrix.plots.violin1 import (
     _to_rgba,
 )
 from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
+from guanaco.data.loader import obs_col
 
 DEFAULT_COLORS = [
     "#E69F00",
@@ -315,10 +316,10 @@ def _build_expression_frame(adata, key, meta1, meta2, mode, transformation=None,
 
     data = {
         'Expression': expression_data,
-        meta1: adata.obs[meta1].values,
+        meta1: obs_col(adata.obs, meta1).values,
     }
     if mode != 'mode1' and meta2:
-        data[meta2] = adata.obs[meta2].values
+        data[meta2] = obs_col(adata.obs, meta2).values
 
     df = pd.DataFrame(data)
     if labels:

@@ -9,6 +9,7 @@ from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import (
     extract_gene_expression, apply_transformation, bin_cells_for_heatmap, prewarm_gene_cache
 )
+from guanaco.data.loader import obs_col
 
 # Standardization is one of: None (raw), "minmax", "zscore".
 #   "minmax" -> Scanpy standard_scale: per-gene (x-min)/(max-min) -> [0, 1].
@@ -94,9 +95,9 @@ def _resolve_effective_bins(n_rows, requested_bins, max_bins=4000):
 def _is_continuous_annotation(adata, annotation, threshold=50):
     if annotation not in adata.obs.columns:
         return False
-    dtype = str(adata.obs[annotation].dtype)
+    dtype = str(adata.obs.dtypes[annotation])
     if any(t in dtype for t in ['float', 'int']):
-        return adata.obs[annotation].nunique() >= threshold
+        return obs_col(adata.obs, annotation).nunique() >= threshold
     return False
 
 
@@ -107,9 +108,10 @@ def _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=False):
     filtered_obs_names = adata.obs_names
     cell_indices_array = None
     if labels and not data_already_filtered:
-        mask = adata.obs[groupby1].isin(labels)
+        mask = obs_col(adata.obs, groupby1).isin(labels)
         cell_indices_array = np.where(mask.to_numpy())[0]
-        filtered_obs = adata.obs.iloc[cell_indices_array]
+        _obs_slice = adata.obs.iloc[cell_indices_array]
+        filtered_obs = _obs_slice.to_memory() if hasattr(_obs_slice, 'to_memory') else _obs_slice
         filtered_obs_names = adata.obs_names[cell_indices_array]
     return {
         'adata': adata,
@@ -240,10 +242,10 @@ def _default_color_maps(adata_obs, original_adata, groupby1, groupby2, groupby1_
     except Exception:
         tab20_colors = default_color
     if groupby1_label_color_map is None:
-        unique_labels_primary = sorted(adata_obs[groupby1].unique()) if adata_obs is not None else sorted(original_adata.obs[groupby1].unique())
+        unique_labels_primary = sorted(obs_col(adata_obs, groupby1).unique()) if adata_obs is not None else sorted(obs_col(original_adata.obs, groupby1).unique())
         groupby1_label_color_map = {label: default_color[i % len(default_color)] for i, label in enumerate(unique_labels_primary)}
     if groupby2 and groupby2_label_color_map is None:
-        unique_labels_secondary = sorted(adata_obs[groupby2].unique()) if adata_obs is not None else sorted(original_adata.obs[groupby2].unique())
+        unique_labels_secondary = sorted(obs_col(adata_obs, groupby2).unique()) if adata_obs is not None else sorted(obs_col(original_adata.obs, groupby2).unique())
         groupby2_label_color_map = {label: tab20_colors[i % len(tab20_colors)] for i, label in enumerate(unique_labels_secondary)}
     return groupby1_label_color_map, groupby2_label_color_map
 
@@ -416,7 +418,7 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
     row_indices = ctx['cell_indices_array']
     row_indices = None if row_indices is None else np.asarray(row_indices, dtype=np.int64)
 
-    group_series = filtered_obs[groupby1]
+    group_series = obs_col(filtered_obs, groupby1)
     groups_arr = group_series.to_numpy()
     order = _ordered_primary_groups(groups_arr, labels)
 
@@ -520,7 +522,7 @@ def plot_unified_heatmap(
             annotation_columns.append(groupby2)
         heatmap_df = gene_df
         for annotation in annotation_columns:
-            heatmap_df[annotation] = filtered_obs[annotation].to_numpy()
+            heatmap_df[annotation] = obs_col(filtered_obs, annotation).to_numpy()
 
         # Binning for large datasets (apply even when secondary categorical annotation is present)
         if len(heatmap_df) > max_cells:
@@ -657,8 +659,8 @@ def plot_heatmap2_continuous(
     gene_df = _extract_gene_df_after_filter(ctx, valid_genes, layer=layer)
     gene_df = _apply_transformations(gene_df, valid_genes, log, standardization)
     heatmap_df = gene_df.copy()
-    heatmap_df[groupby1] = filtered_obs[groupby1].to_numpy()
-    heatmap_df[continuous_key] = filtered_obs[continuous_key].to_numpy()
+    heatmap_df[groupby1] = obs_col(filtered_obs, groupby1).to_numpy()
+    heatmap_df[continuous_key] = obs_col(filtered_obs, continuous_key).to_numpy()
 
     sorted_heatmap_df = heatmap_df.sort_values(continuous_key)
     use_binning = len(sorted_heatmap_df) > max_cells
@@ -673,7 +675,7 @@ def plot_heatmap2_continuous(
         )
     heatmap_gene_matrix = sorted_heatmap_df[valid_genes].to_numpy(dtype=np.float32, copy=False).T
 
-    unique_labels = sorted(adata_obs[groupby1].unique()) if adata_obs is not None else sorted(adata.obs[groupby1].unique())
+    unique_labels = sorted(obs_col(adata_obs, groupby1).unique()) if adata_obs is not None else sorted(obs_col(adata.obs, groupby1).unique())
     if groupby1_label_color_map is None:
         if color_config is None:
             from guanaco.data.registry import color_config

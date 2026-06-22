@@ -1,7 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from guanaco.data.loader import get_discrete_labels
+from guanaco.data.loader import get_discrete_labels, obs_col
 from guanaco.utils.colors import continuous_colormap_options, discrete_palette_options
 from guanaco.utils.plot_config import scatter_config, gene_scatter_config
 from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
@@ -92,7 +92,7 @@ def create_global_metadata_filter(adata, prefix):
 
     filter_components = []
     for col in categorical_columns:
-        unique_values = sorted([str(val) for val in adata.obs[col].unique()])
+        unique_values = sorted([str(val) for val in obs_col(adata.obs, col).unique()])
         filter_components.append(
             html.Div(
                 [
@@ -297,8 +297,8 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
     # slow. Continuous (numeric) columns are always kept (continuous colormap).
     annotations = []
     for col in adata.obs.columns:
-        if adata.obs[col].dtype == "category" or adata.obs[col].dtype == "object":
-            unique_vals = adata.obs[col].unique()
+        if adata.obs.dtypes[col] == "category" or adata.obs.dtypes[col] == "object":
+            unique_vals = obs_col(adata.obs, col).unique()
             if len(unique_vals) > 50:
                 continue
         annotations.append(col)

@@ -49,6 +49,7 @@ from guanaco.pages.matrix.plots.atac_browser import has_genomic_peak_features
 from guanaco.utils.colors import discrete_palette_config
 from guanaco.utils.obs_utils import sorted_categories
 from guanaco.data.registry import color_config as _default_color_config
+from guanaco.data.loader import obs_col
 warnings.filterwarnings('ignore', message='.*observed=False.*')
 
 palette_json = discrete_palette_config()
@@ -133,7 +134,7 @@ class _FilteredDataCache:
         if selected_cells is not None and len(selected_cells) > 0:
             filtered = adata[selected_cells]
         else:
-            filtered = adata[adata.obs[annotation].isin(selected_labels)]
+            filtered = adata[obs_col(adata.obs, annotation).isin(selected_labels)]
         self._store[key] = filtered
         self._store.move_to_end(key)
         while len(self._store) > self.max_items:
@@ -443,9 +444,9 @@ def is_continuous_annotation(adata, annotation, threshold=50):
     # covers uint16/uint32/etc. (e.g. n_genes, n_umis) that an exact dtype-name
     # list misses -- otherwise they're treated as categorical and a column with
     # thousands of unique values renders thousands of traces and crashes.
-    dtype = adata.obs[annotation].dtype
+    dtype = adata.obs.dtypes[annotation]
     if getattr(dtype, "kind", None) in ("i", "u", "f"):
-        n_unique = adata.obs[annotation].nunique()
+        n_unique = obs_col(adata.obs, annotation).nunique()
         return n_unique >= threshold
     return False
 
@@ -558,7 +559,7 @@ def matrix_callbacks(
             for i, (filter_values, filter_id) in enumerate(zip(values, all_ids)):
                 if filter_values:  # Only apply if values are selected
                     column = filter_id['column']
-                    col_values = adata.obs[column].astype(str).to_numpy()
+                    col_values = obs_col(adata.obs, column).astype(str).to_numpy()
                     mask &= np.isin(col_values, filter_values)
             
             # Get preview count
@@ -589,7 +590,7 @@ def matrix_callbacks(
         for i, (values, filter_id) in enumerate(zip(filter_values, filter_ids)):
             if values:  # Only apply if values are selected
                 column = filter_id['column']
-                col_values = adata.obs[column].astype(str).to_numpy()
+                col_values = obs_col(adata.obs, column).astype(str).to_numpy()
                 mask &= np.isin(col_values, values)
         
         # Store positional indices (smaller than index labels in payload and faster to apply)

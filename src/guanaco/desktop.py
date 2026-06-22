@@ -199,7 +199,7 @@ def _run_window(settings: dict) -> None:
             share.print_share_banner(public_url, username, password)
 
         threading.Thread(
-            target=lambda: app.run_server(
+            target=lambda: app.run(
                 host=host, port=port, debug=False, use_reloader=False
             ),
             daemon=True,

@@ -26,6 +26,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+
+def _obs_col(obs, col):
+    s = obs[col]
+    return s.to_series() if hasattr(s, "to_series") else s
+
 __all__ = [
     "embedding",
     "violin",
@@ -118,7 +123,7 @@ def _discrete_obs(adata) -> list:
     """obs columns suitable for grouping (categorical / low-cardinality)."""
     cols = []
     for c in adata.obs.columns:
-        s = adata.obs[c]
+        s = _obs_col(adata.obs, c)
         if str(s.dtype) in ("category", "object", "bool") or s.nunique(dropna=True) <= _MAX_DISCRETE_CARDINALITY:
             cols.append(c)
     return cols or list(adata.obs.columns)

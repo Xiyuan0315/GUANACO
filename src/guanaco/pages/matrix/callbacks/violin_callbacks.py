@@ -3,6 +3,7 @@ from dash.exceptions import PreventUpdate
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.obs_utils import sorted_categories
+from guanaco.data.loader import obs_col
 
 
 _CURRENT_CACHE_KEY = "current_key"
@@ -42,7 +43,7 @@ def _has_checklist_value(values, value):
 def _annotation_level_count(adata, annotation):
     if not annotation or annotation not in adata.obs:
         return 0
-    return adata.obs[annotation].nunique()
+    return obs_col(adata.obs, annotation).nunique()
 
 
 def _test_options_for_mode(adata, mode, meta1, meta2):

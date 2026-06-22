@@ -180,4 +180,4 @@ def update_igv_layout(active_tab):
 server = app.server
 
 if __name__ == "__main__":
-    app.run_server(host = '127.0.0.1', debug=True, port=4399)
+    app.run(host = '127.0.0.1', debug=True, port=4399)

@@ -2,6 +2,7 @@ from dash import Input, Output, State, html, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.render_guard import signature
+from guanaco.data.loader import obs_col
 
 
 _PAGA_TAB = "paga-tab"
@@ -31,7 +32,7 @@ def _resolve_edge_threshold(edge_threshold):
 
 
 def _paga_discrete_palette(adata, obs_key, discrete_colormap, color_config):
-    n_colors = adata.obs[obs_key].nunique() if obs_key in adata.obs.columns else 0
+    n_colors = obs_col(adata.obs, obs_key).nunique() if obs_key in adata.obs.columns else 0
     return resolve_discrete_palette(
         discrete_colormap,
         n_colors,

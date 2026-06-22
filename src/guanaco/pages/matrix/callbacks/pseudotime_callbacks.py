@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.obs_utils import sorted_categories
+from guanaco.data.loader import obs_col
 
 
 _PSEUDOTIME_TAB = "pseudotime-tab"
@@ -47,8 +48,8 @@ def _continuous_obs_columns(adata):
     columns = []
     for col in adata.obs.columns:
         if (
-            adata.obs[col].dtype in _CONTINUOUS_OBS_DTYPES
-            and adata.obs[col].nunique() > 50
+            adata.obs.dtypes[col] in _CONTINUOUS_OBS_DTYPES
+            and obs_col(adata.obs, col).nunique() > 50
         ):
             columns.append(col)
     return columns

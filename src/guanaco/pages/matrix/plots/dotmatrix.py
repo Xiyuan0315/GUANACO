@@ -9,6 +9,7 @@ from guanaco.utils.gene_extraction_utils import (
     prewarm_gene_cache,
 )
 from guanaco.pages.matrix.plots.heatmap import ZSCORE_COLOR_CLIP
+from guanaco.data.loader import obs_col
 
 from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram as _scipy_dendro
 from scipy.spatial.distance import pdist
@@ -330,7 +331,7 @@ def plot_dot_matrix(
         raise PreventUpdate
 
     # Scanpy-like flow: cached gene vectors + vectorized grouped aggregations.
-    group_series = adata.obs[groupby]
+    group_series = obs_col(adata.obs, groupby)
     row_indices, use_selected_cells = _selected_row_indices(
         adata,
         group_series,

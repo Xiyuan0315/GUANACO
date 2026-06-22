@@ -267,8 +267,8 @@ def main():
     flask_cli.show_server_banner = lambda *args, **kwargs: None
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-    # Now actually start the server.
-    app.run_server(
+    # Now actually start the server. (dash 3 removed run_server in favour of run.)
+    app.run(
         host=args.settings["host"],
         debug=False,
         port=args.settings["port"],

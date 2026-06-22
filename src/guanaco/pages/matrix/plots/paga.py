@@ -13,6 +13,7 @@ except Exception:
 
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import extract_gene_expression
+from guanaco.data.loader import obs_col
 
 
 MAX_RENDERED_CYTOSCAPE_PIE_SLICES = 16
@@ -28,7 +29,7 @@ def _infer_paga_groupby(adata, paga_uns, n_nodes):
 
     candidate_columns = []
     for col in adata.obs.columns:
-        series = adata.obs[col]
+        series = obs_col(adata.obs, col)
         if hasattr(series, "cat"):
             try:
                 n_categories = len(series.cat.categories)
@@ -113,7 +114,7 @@ def _prepare_paga_context(
 
     n_nodes = connectivities.shape[0]
     paga_groupby = _infer_paga_groupby(adata, paga_uns, n_nodes)
-    group_series = adata.obs[paga_groupby]
+    group_series = obs_col(adata.obs, paga_groupby)
     if not hasattr(group_series, "cat"):
         group_series = group_series.astype("category")
     group_categories = list(group_series.cat.categories)
@@ -127,7 +128,7 @@ def _prepare_paga_context(
 
     selection_mask = np.ones(adata.n_obs, dtype=bool)
     if selected_labels and selected_annotation in adata.obs.columns:
-        selection_mask &= adata.obs[selected_annotation].isin(selected_labels).to_numpy()
+        selection_mask &= obs_col(adata.obs, selected_annotation).isin(selected_labels).to_numpy()
     if selected_cells:
         selected_cells_set = set(selected_cells)
         selection_mask &= adata.obs_names.isin(selected_cells_set)
@@ -447,7 +448,7 @@ def paga_graph(
             continuous_value_label = obs_key
             node_mode = "solid"
         else:
-            obs_categories = _ordered_obs_categories(adata.obs[obs_key])
+            obs_categories = _ordered_obs_categories(obs_col(adata.obs, obs_key))
             pie_categories, pie_proportions, category_details = _categorical_group_composition(
                 obs_values,
                 filtered_group_series,
