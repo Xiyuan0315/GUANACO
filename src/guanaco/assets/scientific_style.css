@@ -332,3 +332,26 @@
 /* [id$="-annotation-scatter"] {
     min-height: 450px !important;
 } */
+
+/* Crisp heatmaps in the desktop (pywebview / WebKit) window.
+   A Plotly go.Heatmap is drawn as a tiny raster (a few gene rows x many cell
+   columns) embedded in an SVG <image> that the browser scales up to the plot
+   size. Plotly emits an inline `image-rendering` cascade ending in `pixelated`;
+   Chrome (used by `guanaco -c`) honors it and renders nearest-neighbor (crisp),
+   but the macOS WebKit engine behind `guanaco-desktop` resolves the cascade to a
+   smoothing mode (`-webkit-optimize-contrast`) and bilinearly blurs the upscaled
+   grid. Override the inline style with !important so WebKit uses nearest-neighbor
+   too. Scoped to .heatmaplayer so photographic layout images (spatial tissue,
+   datashader embeddings) keep their smooth scaling.
+
+   `optimizeSpeed` must come first: it is the SVG-spec keyword WebKit honors on an
+   SVG <image> for crisp scaling. WebKit drops the CSS3 `crisp-edges` / `pixelated`
+   values on SVG images, so without optimizeSpeed this rule would contribute no
+   valid value and the inline -webkit-optimize-contrast (blur) would still win.
+   Chrome accepts all of them and uses the last valid one (pixelated -> crisp). */
+.js-plotly-plot .heatmaplayer image {
+    image-rendering: optimizeSpeed !important;
+    image-rendering: -moz-crisp-edges !important;
+    image-rendering: crisp-edges !important;
+    image-rendering: pixelated !important;
+}

@@ -2,6 +2,20 @@ import plotly.express as px
 import pandas as pd
 from guanaco.data.loader import obs_col
 
+
+def _resolve_color_discrete_map(color_map, categories):
+    """Map each category to a color using the same palette as the other plots.
+
+    ``color_map`` may be a ready dict (category -> color, as resolved by the
+    callback from the discrete-colormap dropdown), ``None`` (fall back to
+    Plotly's qualitative palette), or a list of colors to cycle through.
+    """
+    if isinstance(color_map, dict):
+        return color_map
+    palette = px.colors.qualitative.Plotly if color_map is None else color_map
+    return {cat: palette[i % len(palette)] for i, cat in enumerate(categories)}
+
+
 def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, x_order=None):
     """Plot stacked bar chart."""
     # Check if x_meta and y_meta are the same - if so, create a histogram
@@ -34,13 +48,20 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
             count_df[x_meta] = pd.Categorical(count_df[x_meta], categories=x_order_str, ordered=True)
             count_df = count_df.sort_values(x_meta)
         
+        # Color each bar by its category using the same discrete palette as the
+        # embedding/other plots, so a category keeps a consistent color across
+        # plots instead of collapsing to a single flat blue.
+        bar_categories = [str(c) for c in count_df[x_meta].tolist()]
+        color_discrete_map = _resolve_color_discrete_map(color_map, bar_categories)
+
         # Create a simple bar plot (histogram)
         fig = px.bar(
             count_df,
             x=x_meta,
             y=y_value,
+            color=x_meta,
             labels={x_meta: f'{x_meta}', y_value: y_label},
-            color_discrete_sequence=['#1f77b4']  # Single color for histogram
+            color_discrete_map=color_discrete_map,
         )
 
     else:
@@ -59,16 +80,10 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
             y_value = 'count'
             y_label = 'Cell Count'
     
-        # Set up color mapping
-        if isinstance(color_map, dict):
-            color_discrete_map = color_map
-        elif color_map is None:
-            categories = sorted(count_df[y_meta].unique())
-            predefined_colors = px.colors.qualitative.Plotly
-            color_discrete_map = {cat: predefined_colors[i % len(predefined_colors)] for i, cat in enumerate(categories)}
-        else:
-            categories = sorted(count_df[y_meta].unique())
-            color_discrete_map = {cat: color_map[i % len(color_map)] for i, cat in enumerate(categories)}
+        # Set up color mapping (consistent with the histogram branch above)
+        color_discrete_map = _resolve_color_discrete_map(
+            color_map, sorted(count_df[y_meta].unique())
+        )
 
         # Apply x_order if specified (this comes from the draggable dropdown)
         if x_order is not None and len(x_order) > 0:

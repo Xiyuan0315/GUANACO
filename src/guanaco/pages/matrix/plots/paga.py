@@ -99,8 +99,6 @@ def _ordered_obs_categories(obs_values):
 def _prepare_paga_context(
     adata,
     *,
-    selected_annotation=None,
-    selected_labels=None,
     selected_cells=None,
 ):
     if "paga" not in adata.uns or "connectivities" not in adata.uns["paga"]:
@@ -127,8 +125,6 @@ def _prepare_paga_context(
     positions = _resolve_paga_positions(connectivities.tocsr(), paga_uns.get("pos"))
 
     selection_mask = np.ones(adata.n_obs, dtype=bool)
-    if selected_labels and selected_annotation in adata.obs.columns:
-        selection_mask &= obs_col(adata.obs, selected_annotation).isin(selected_labels).to_numpy()
     if selected_cells:
         selected_cells_set = set(selected_cells)
         selection_mask &= adata.obs_names.isin(selected_cells_set)
@@ -380,8 +376,6 @@ def paga_graph(
     continuous_color_map="Viridis",
     discrete_palette=None,
     edge_threshold=0.03,
-    selected_annotation=None,
-    selected_labels=None,
     selected_cells=None,
     node_font_size=11,
 ):
@@ -395,8 +389,6 @@ def paga_graph(
     """
     context = _prepare_paga_context(
         adata,
-        selected_annotation=selected_annotation,
-        selected_labels=selected_labels,
         selected_cells=selected_cells,
     )
     connectivities = context["connectivities"]
@@ -590,8 +582,6 @@ def build_paga_cytoscape(
     continuous_color_map="Viridis",
     discrete_palette=None,
     edge_threshold=0.03,
-    selected_annotation=None,
-    selected_labels=None,
     selected_cells=None,
 ):
     """Dash PAGA component (wraps :func:`paga_graph`)."""
@@ -609,8 +599,6 @@ def build_paga_cytoscape(
         continuous_color_map=continuous_color_map,
         discrete_palette=discrete_palette,
         edge_threshold=edge_threshold,
-        selected_annotation=selected_annotation,
-        selected_labels=selected_labels,
         selected_cells=selected_cells,
     )
     legend_items = graph["legend_items"]

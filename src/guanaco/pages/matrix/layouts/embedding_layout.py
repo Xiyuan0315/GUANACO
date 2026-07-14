@@ -2,7 +2,11 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from guanaco.data.loader import get_discrete_labels, obs_col
-from guanaco.utils.colors import continuous_colormap_options, discrete_palette_options
+from guanaco.utils.colors import (
+    DEFAULT_DISCRETE_COLORMAP,
+    continuous_colormap_options,
+    discrete_palette_options,
+)
 from guanaco.utils.plot_config import scatter_config, gene_scatter_config
 from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
 
@@ -87,7 +91,17 @@ def generate_scatter_gene_selection(combined_list, prefix, default_value=None):
     )
 
 
-def create_global_metadata_filter(adata, prefix):
+def build_global_filter_body(adata, prefix):
+    """Inner contents of the Global Data Filter panel: one multi-select per
+    categorical column (all values selected by default) plus the action buttons.
+
+    Built lazily on first open of the panel (see ``toggle_global_filter`` in
+    register.py) rather than at page load. Each dropdown renders a tag chip per
+    selected category, so with many high-cardinality columns the subtree is
+    expensive to lay out and paint. Deferring the build keeps page load and the
+    show/hide toggle fast; the cost is paid once, the first time the user opens
+    the panel.
+    """
     categorical_columns = get_discrete_labels(adata)
 
     filter_components = []
@@ -110,6 +124,26 @@ def create_global_metadata_filter(adata, prefix):
             )
         )
 
+    return [
+        html.Div(filter_components, style={"maxHeight": "300px", "overflowY": "auto"}),
+        html.Div(
+            [
+                dbc.Button("Select All", id=f"{prefix}-select-all-filters", color="success", size="sm", style={"marginRight": "10px"}),
+                dbc.Button("Clear All", id=f"{prefix}-clear-all-filters", color="warning", size="sm", style={"marginRight": "10px"}),
+                dbc.Button(
+                    "Apply Filter",
+                    id=f"{prefix}-apply-global-filter",
+                    color="primary",
+                    size="sm",
+                    style={"fontWeight": "bold", "minWidth": "100px"},
+                ),
+            ],
+            style={"textAlign": "center", "marginTop": "15px"},
+        ),
+    ]
+
+
+def create_global_metadata_filter(adata, prefix):
     return html.Div(
         [
             html.Div(
@@ -140,26 +174,13 @@ def create_global_metadata_filter(adata, prefix):
                 ],
                 style={"marginBottom": "15px"},
             ),
-            dbc.Collapse(
-                [
-                    html.Div(filter_components, style={"maxHeight": "300px", "overflowY": "auto"}),
-                    html.Div(
-                        [
-                            dbc.Button("Select All", id=f"{prefix}-select-all-filters", color="success", size="sm", style={"marginRight": "10px"}),
-                            dbc.Button("Clear All", id=f"{prefix}-clear-all-filters", color="warning", size="sm", style={"marginRight": "10px"}),
-                            dbc.Button(
-                                "Apply Filter",
-                                id=f"{prefix}-apply-global-filter",
-                                color="primary",
-                                size="sm",
-                                style={"fontWeight": "bold", "minWidth": "100px"},
-                            ),
-                        ],
-                        style={"textAlign": "center", "marginTop": "15px"},
-                    ),
-                ],
+            # Lazily-populated body. Empty at load; filled by toggle_global_filter
+            # the first time the panel is opened. Show/hide flips `display` (no
+            # height animation), so toggling is instant once the body exists.
+            html.Div(
+                children=[],
                 id=f"{prefix}-global-filter-collapse",
-                is_open=False,
+                style={"display": "none"},
             ),
             html.Div(
                 [
@@ -173,6 +194,9 @@ def create_global_metadata_filter(adata, prefix):
                 ],
                 style={"textAlign": "center", "marginTop": "10px"},
             ),
+            # Tracks whether the body has been built so we only pay the render
+            # cost once instead of on every open.
+            dcc.Store(id=f"{prefix}-global-filter-built", data=False),
             dcc.Store(id=f"{prefix}-global-filtered-data", data={"cell_indices": None, "n_cells": adata.n_obs}),
         ],
         style={
@@ -239,7 +263,7 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
     color_map_discrete_dropdown = dcc.Dropdown(
         id=f"{prefix}-discrete-color-map-dropdown",
         options=palette_options,
-        value="cc/glasbey",
+        value=DEFAULT_DISCRETE_COLORMAP,
         placeholder="Select discrete colormap",
         style={"marginBottom": "10px"},
         clearable=True,
@@ -347,6 +371,11 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
             dcc.Store(id=f"{prefix}-axis-reset-link"),
             # Dummy output for the clientside right-plot cross-highlight (side-effect only).
             dcc.Store(id=f"{prefix}-right-highlight-link"),
+            # Lightweight render metadata ({hasImage, nTraces}) for the right (gene)
+            # scatter, maintained client-side from its figure. The gene-switch callback
+            # reads this instead of State(figure) so it can decide to patch just the
+            # point trace without shipping the multi-MB base64 tissue image to the server.
+            dcc.Store(id=f"{prefix}-gene-scatter-meta"),
             create_global_metadata_filter(adata, prefix),
             dbc.Row(
                 [

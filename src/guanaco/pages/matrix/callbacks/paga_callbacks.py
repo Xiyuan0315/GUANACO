@@ -113,8 +113,6 @@ def register_paga_callbacks(
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-paga-threshold", "value"),
-            Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
-            Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-selected-cells-store", "data"),
             Input(f"{prefix}-single-cell-tabs", "value"),
         ],
@@ -129,8 +127,6 @@ def register_paga_callbacks(
         continuous_colormap,
         discrete_colormap,
         edge_threshold,
-        selected_annotation,
-        selected_labels,
         selected_cells,
         active_tab,
         rendered_key,
@@ -155,8 +151,6 @@ def register_paga_callbacks(
             continuous_colormap,
             discrete_colormap,
             edge_threshold,
-            selected_annotation,
-            selected_labels,
             selected_cells,
         )
         if cache_key == rendered_key:
@@ -179,8 +173,6 @@ def register_paga_callbacks(
             continuous_color_map=continuous_colormap or _DEFAULT_CONTINUOUS_COLORMAP,
             discrete_palette=discrete_palette,
             edge_threshold=edge_threshold,
-            selected_annotation=selected_annotation,
-            selected_labels=selected_labels,
             selected_cells=selected_cells,
         )
         return component, cache_key

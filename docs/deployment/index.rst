@@ -13,3 +13,4 @@ In this section, we describe how to create a configuration file and run GUANACO 
    installation
    configuring-json
    running-python
+   private-s3

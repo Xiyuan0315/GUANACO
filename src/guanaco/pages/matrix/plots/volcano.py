@@ -394,6 +394,184 @@ def volcano_degs_filename(
     )
 
 
+# Approximate plot-area pixel size used to lay out non-overlapping labels.
+# Height is fixed (figure height 620 minus top/bottom margins); width is a
+# heuristic since the figure is responsive. The de-overlap only needs a
+# consistent coordinate system, not the exact rendered size.
+LABEL_PLOT_WIDTH_PX = 640.0
+LABEL_PLOT_HEIGHT_PX = 515.0
+
+
+# ggrepel-style physics constants (operating in normalized [0, 1] plot space,
+# the same coordinate convention ggrepel's repel_boxes2 uses).
+_REPEL_MIN_D2 = 4e-4  # distance-squared floor, prevents force blow-up (ggrepel: 0.02^2)
+_FORCE_PUSH = 1e-6  # box-box / box-point repulsion strength
+_FORCE_PULL = 1e-2  # spring pull back toward the anchor point
+_POINT_PUSH_SCALE = 25.0  # markers repel labels harder than labels repel each other
+_FRICTION = 0.7  # velocity damping per iteration (ggrepel's 0.7 momentum factor)
+_MAX_ITER = 3000
+
+
+def _repel_force(dx: np.ndarray, dy: np.ndarray, force: float) -> tuple[np.ndarray, np.ndarray]:
+    """ggrepel repel_force: f = force * unit(d) / |d|^2  ==  force * d / |d|^3.
+
+    Inverse-square repulsion directed along the centroid-to-centroid vector,
+    so labels slide apart in the direction they actually overlap.
+    """
+    d2 = np.maximum(dx * dx + dy * dy, _REPEL_MIN_D2)
+    scale = force / (d2 * np.sqrt(d2))
+    return dx * scale, dy * scale
+
+
+def _label_offsets_px(
+    point_px: np.ndarray,
+    point_py: np.ndarray,
+    half_w: np.ndarray,
+    half_h: np.ndarray,
+    width_px: float,
+    height_px: float,
+    iterations: int = _MAX_ITER,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Force-directed label placement following ggrepel's repel_boxes2.
+
+    Runs in normalized [0, 1] coordinates (axis ranges mapped to the unit
+    square, like ggrepel). Each iteration accumulates inverse-square repulsion
+    between overlapping label boxes and between labels and data markers; an
+    overlap-free label is instead pulled by a linear spring back toward its
+    anchor so leader lines stay short. Movement is integrated through a damped
+    velocity with an overlap multiplier so congested labels can break free.
+    Returns the settled label-center coordinates in pixel space.
+    """
+    n = len(point_px)
+    if n == 0:
+        return point_px.astype(float), point_py.astype(float)
+
+    # Normalize everything to the unit square.
+    px = point_px.astype(float) / width_px
+    py = point_py.astype(float) / height_px
+    hw = half_w.astype(float) / width_px
+    hh = half_h.astype(float) / height_px
+
+    # Home position: each label sits just above its own point.
+    home_x = px
+    home_y = py + hh + 8.0 / height_px
+    cx = home_x.copy()
+    cy = home_y.copy()
+
+    vx = np.zeros(n)
+    vy = np.zeros(n)
+    force_push = _FORCE_PUSH
+    force_pull = _FORCE_PULL
+
+    # Pairwise sums of half-extents for overlap tests.
+    sum_hw = hw[:, None] + hw[None, :]
+    sum_hh = hh[:, None] + hh[None, :]
+    not_self = ~np.eye(n, dtype=bool)
+
+    for _ in range(iterations):
+        fx = np.zeros(n)
+        fy = np.zeros(n)
+
+        # --- Box vs box repulsion -------------------------------------------
+        dx = cx[:, None] - cx[None, :]
+        dy = cy[:, None] - cy[None, :]
+        box_overlap = (np.abs(dx) < sum_hw) & (np.abs(dy) < sum_hh) & not_self
+        rfx, rfy = _repel_force(dx, dy, force_push)
+        fx += np.sum(np.where(box_overlap, rfx, 0.0), axis=1)
+        fy += np.sum(np.where(box_overlap, rfy, 0.0), axis=1)
+        box_overlap_count = box_overlap.sum(axis=1)
+
+        # --- Box vs marker repulsion (each label vs every anchor point) ------
+        dpx = cx[:, None] - px[None, :]
+        dpy = cy[:, None] - py[None, :]
+        point_overlap = (np.abs(dpx) < hw[:, None]) & (np.abs(dpy) < hh[:, None])
+        pfx, pfy = _repel_force(dpx, dpy, force_push * _POINT_PUSH_SCALE)
+        fx += np.sum(np.where(point_overlap, pfx, 0.0), axis=1)
+        fy += np.sum(np.where(point_overlap, pfy, 0.0), axis=1)
+        point_overlap_count = point_overlap.sum(axis=1)
+
+        # --- Spring pull, only for labels that are currently overlap-free ----
+        overlap_free = (box_overlap_count == 0) & (point_overlap_count == 0)
+        fx += np.where(overlap_free, force_pull * (home_x - cx), 0.0)
+        fy += np.where(overlap_free, force_pull * (home_y - cy), 0.0)
+
+        # --- Damped velocity integration with overlap amplification ----------
+        total_overlaps = box_overlap_count + point_overlap_count
+        mult = 1.0 + np.minimum(0.5, 0.05 * total_overlaps)
+        vx = mult * vx * _FRICTION + fx
+        vy = mult * vy * _FRICTION + fy
+        cx += vx
+        cy += vy
+
+        # Keep boxes inside the unit square.
+        cx = np.clip(cx, hw, 1.0 - hw)
+        cy = np.clip(cy, hh, 1.0 - hh)
+
+        force_push *= 0.99999
+        force_pull *= 0.9999
+
+        if total_overlaps.sum() == 0:
+            break
+
+    return cx * width_px, cy * height_px
+
+
+def label_annotations(
+    label_x: np.ndarray,
+    label_y: np.ndarray,
+    texts: np.ndarray,
+    x_range: tuple[float, float],
+    y_range: tuple[float, float],
+    font_size: int = 14,
+    font_color: str = "#1f2933",
+) -> list[dict[str, Any]]:
+    """Build non-overlapping label annotations with leader lines.
+
+    Positions are computed in an approximate pixel space, then emitted as
+    Plotly annotations whose arrowheads point back to the data points.
+    """
+    n = len(texts)
+    if n == 0:
+        return []
+
+    xspan = (x_range[1] - x_range[0]) or 1.0
+    yspan = (y_range[1] - y_range[0]) or 1.0
+    point_px = (np.asarray(label_x, dtype=float) - x_range[0]) / xspan * LABEL_PLOT_WIDTH_PX
+    point_py = (np.asarray(label_y, dtype=float) - y_range[0]) / yspan * LABEL_PLOT_HEIGHT_PX
+
+    char_w = font_size * 0.55
+    half_w = np.array([max(len(str(t)), 1) * char_w / 2.0 for t in texts])
+    half_h = np.full(n, font_size * 1.2 / 2.0)
+
+    lx, ly = _label_offsets_px(
+        point_px, point_py, half_w, half_h, LABEL_PLOT_WIDTH_PX, LABEL_PLOT_HEIGHT_PX
+    )
+
+    annotations: list[dict[str, Any]] = []
+    for i in range(n):
+        annotations.append(
+            {
+                "x": float(label_x[i]),
+                "y": float(label_y[i]),
+                "ax": float(lx[i] - point_px[i]),
+                "ay": float(-(ly[i] - point_py[i])),
+                "axref": "pixel",
+                "ayref": "pixel",
+                "text": str(texts[i]),
+                "showarrow": True,
+                "arrowhead": 0,
+                "arrowwidth": 0.7,
+                "arrowcolor": "rgba(120,120,120,0.7)",
+                "font": {"size": font_size, "color": font_color},
+                "xanchor": "center",
+                "yanchor": "middle",
+                "bgcolor": "rgba(255,255,255,0.6)",
+                "borderpad": 1,
+            }
+        )
+    return annotations
+
+
 def finite_extent(values: np.ndarray) -> tuple[float, float]:
     values = np.asarray(values, dtype=float)
     finite = values[np.isfinite(values)]
@@ -461,25 +639,31 @@ def plot_volcano(
             )
         )
 
+    y_threshold = -np.log10(max(padj_threshold, np.nextafter(0.0, 1.0)))
+    xmin, xmax = finite_extent(x)
+    ymin, ymax = finite_extent(y)
+
     label_idx = pick_label_indices(entry, x_field, padj_threshold, x_threshold, top_n)
+    annotations: list[dict[str, Any]] = []
     if label_idx.size:
         fig.add_trace(
             go.Scattergl(
                 x=x[label_idx],
                 y=y[label_idx],
-                mode="markers+text",
-                text=gene[label_idx],
-                textposition="top center",
-                textfont={"size": 10, "color": "#1f2933"},
+                mode="markers",
                 marker={"size": 9, "color": "#111111"},
                 name=f"Top {label_idx.size} labels",
                 hoverinfo="skip",
             )
         )
+        annotations = label_annotations(
+            x[label_idx],
+            y[label_idx],
+            gene[label_idx],
+            (xmin, xmax),
+            (ymin, ymax),
+        )
 
-    y_threshold = -np.log10(max(padj_threshold, np.nextafter(0.0, 1.0)))
-    xmin, xmax = finite_extent(x)
-    ymin, ymax = finite_extent(y)
     shapes = [
         {
             "type": "line",
@@ -510,12 +694,16 @@ def plot_volcano(
     fig.update_layout(
         template="plotly_white",
         height=620,
-        title=f"Volcano Plot: {entry_name}",
-        xaxis_title=axis_labels[x_field],
-        yaxis_title=y_label,
+        title={"text": f"Volcano Plot: {entry_name}", "font": {"size": 18}},
+        xaxis_title={"text": axis_labels[x_field], "font": {"size": 18}},
+        yaxis_title={"text": y_label, "font": {"size": 18}},
+        xaxis={"tickfont": {"size": 13}},
+        yaxis={"tickfont": {"size": 13}},
         legend_title_text="Category",
+        legend={"font": {"size": 14}},
         margin={"l": 50, "r": 20, "t": 60, "b": 45},
         shapes=shapes,
+        annotations=annotations,
     )
     return fig
 

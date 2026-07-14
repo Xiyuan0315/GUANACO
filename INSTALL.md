@@ -100,7 +100,7 @@ small. Add them with `pip install "guanaco-viz[extra]"`:
 | `desktop` | pywebview | Running as a desktop window (`guanaco-desktop`) |
 | `notebook` | ipywidgets, ipycytoscape, marimo | Embedding GUANACO in Jupyter / marimo |
 | `share` | pycloudflared, flask-compress, brotli | Public sharing via a Cloudflare quick tunnel (`--share`) |
-| `server` | gunicorn | Production WSGI deployment (e.g. Plotly Cloud) |
+| `server` | gunicorn | Production WSGI deployment |
 | `all` | everything above | — |
 
 Examples:

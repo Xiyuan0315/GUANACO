@@ -62,7 +62,6 @@ The GUANACO configuration file is written in JSON format and has **two main sect
      - ``bucket_urls`` (required): List of URLs pointing to S3 buckets containing BigWig or other supported files. See example and instruction :ref:`Additional Information 1 <additional-info-tracks>`.  
      - ``genome`` (required): Reference genome build (e.g. ``hg38``, ``mm10``). All supported genome are :ref:`Additional Information 2 <additional-info-genomes>`.  
      - ``ATAC_name`` (optional): List of custom display names for ATAC tracks, aligned with ``bucket_urls``. Defaults to ``Track1``, ``Track2`` etc.  
-     - ``max_height`` (optional): List of maximum display heights for tracks, aligned with ``bucket_urls``. Defaults to autoscale.  
 
 2. **General customization**
 
@@ -92,8 +91,7 @@ Example Config File
        "markers": ["MS4A1", "LYZ"],
        "genome": "hg38",
        "bucket_urls": ["https://atac-bucket-1/"],
-       "ATAC_name": ["PBMC-ATAC"],
-       "max_height": [20]
+       "ATAC_name": ["PBMC-ATAC"]
      },
      "Study2": {
        "description": "Mouse skin study",

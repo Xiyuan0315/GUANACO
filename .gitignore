@@ -3,6 +3,9 @@
 .pixi
 *.egg-info
 
+# Claude Code local state / worktrees (large; never deploy or commit)
+.claude/
+
 # python artifacts
 __pycache__/
 *.py[cod]

@@ -404,6 +404,55 @@ def test_initialize_data_accepts_cloud_uri_lazily():
     assert bundle._adata is None
 
 
+def test_initialize_data_uses_default_colors_when_omitted():
+    cfg = {"Demo": {"sc_data": "s3://bucket/path/dataset.zarr"}}
+
+    datasets = loader.initialize_data(cfg=cfg, lazy_load=True)
+
+    assert datasets["Demo"].color_config == loader.DEFAULT_COLORS
+
+
+def test_load_tracks_from_s3_uses_default_colors_for_empty_palette():
+    paginator = mock.Mock()
+    paginator.paginate.return_value = [
+        {
+            "Contents": [
+                {"Key": "tracks/README.txt"},
+                {"Key": "tracks/accessibility.bw"},
+                {"Key": "tracks/accessibility_2.bigwig"},
+            ]
+        },
+    ]
+    s3 = mock.Mock()
+    s3.get_paginator.return_value = paginator
+
+    with mock.patch("boto3.client", return_value=s3):
+        tracks = loader.load_tracks_from_s3(
+            ["https://example.test/bucket"],
+            ["ATAC"],
+            [],
+        )
+
+    track_group = tracks["ATAC"]
+    assert track_group[0]["color"] == loader.DEFAULT_COLORS[0]
+    scale_keys = {"height", "max", "autoscale", "autoscaleGroup"}
+    assert all(scale_keys.isdisjoint(track) for track in track_group)
+    s3.get_object.assert_not_called()
+
+
+def test_igv_tracks_use_the_selected_discrete_colormap():
+    from guanaco.pages.track.callbacks import _tracks_with_discrete_palette
+    from guanaco.utils.colors import resolve_discrete_palette
+
+    tracks = [{"name": "a", "color": "#000000"}, {"name": "b", "color": "#000000"}]
+
+    recolored = _tracks_with_discrete_palette(tracks, "plotly/Plotly")
+    expected = resolve_discrete_palette("plotly/Plotly", len(tracks))
+
+    assert [track["color"] for track in recolored] == expected[:2]
+    assert [track["color"] for track in tracks] == ["#000000", "#000000"]
+
+
 def test_lazy_load_calls_load_adata_with_cloud_uri():
     cfg = {
         "Demo": {"sc_data": "s3://bucket/path/dataset.zarr", "description": "d"},

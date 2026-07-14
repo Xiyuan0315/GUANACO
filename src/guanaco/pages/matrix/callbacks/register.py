@@ -34,6 +34,7 @@ from guanaco.pages.matrix.layouts.atac_browser_layout import generate_atac_brows
 from guanaco.pages.matrix.layouts.embedding_layout import (
     generate_embedding_plots as build_embedding_plots,
     initialize_scatter_components as build_initialize_scatter_components,
+    build_global_filter_body,
 )
 from guanaco.pages.matrix.callbacks.scatter_callbacks import register_scatter_callbacks
 from guanaco.pages.matrix.callbacks.heatmap_callbacks import register_heatmap_callbacks
@@ -506,17 +507,30 @@ def matrix_callbacks(
     # ===== Global Filter Callbacks =====
 
     @app.callback(
-        [Output(f'{prefix}-global-filter-collapse', 'is_open'),
-         Output(f'{prefix}-toggle-global-filter', 'children')],
+        [Output(f'{prefix}-global-filter-collapse', 'style'),
+         Output(f'{prefix}-global-filter-collapse', 'children'),
+         Output(f'{prefix}-toggle-global-filter', 'children'),
+         Output(f'{prefix}-global-filter-built', 'data')],
         Input(f'{prefix}-toggle-global-filter', 'n_clicks'),
-        State(f'{prefix}-global-filter-collapse', 'is_open'),
+        [State(f'{prefix}-global-filter-collapse', 'style'),
+         State(f'{prefix}-global-filter-built', 'data')],
         prevent_initial_call=True
     )
-    def toggle_global_filter(n_clicks, is_open):
+    def toggle_global_filter(n_clicks, style, built):
+        # The filter body (one tag-heavy multi-select per categorical column) is
+        # built lazily so page load and toggling stay fast. On first open we
+        # build it once; afterwards we only flip `display` (no re-render, no
+        # height animation), keeping the already-mounted dropdowns in the DOM.
+        style = dict(style or {})
+        is_open = style.get('display') != 'none'
         if is_open:
-            return False, "▼ Show Filters"
-        else:
-            return True, "▲ Hide Filters"
+            style['display'] = 'none'
+            return style, no_update, "▼ Show Filters", no_update
+
+        style['display'] = 'block'
+        if not built:
+            return style, build_global_filter_body(adata, prefix), "▲ Hide Filters", True
+        return style, no_update, "▲ Hide Filters", no_update
     
     @app.callback(
         [Output({'type': f'{prefix}-global-metadata-filter', 'column': ALL}, 'value'),

@@ -912,8 +912,6 @@ def paga(
     color_map: str = "Viridis",
     palette=None,
     edge_threshold: float = 0.03,
-    annotation: str | None = None,
-    labels: Sequence | None = None,
     node_font_size: int = 18,
     renderer: str = "widget",
     show: bool = True,
@@ -934,8 +932,7 @@ def paga(
     (mean expression per group). With neither, nodes are colored by the column
     PAGA was computed on. ``palette`` overrides categorical colors (default: the
     dataset's stored colors, else GUANACO's palette); ``edge_threshold`` hides
-    weak connectivities; ``node_font_size`` sets the cluster-label size;
-    ``annotation``/``labels`` optionally restrict the cells.
+    weak connectivities; ``node_font_size`` sets the cluster-label size.
 
     The network is shown next to a **legend** mapping pie colors to categories
     (and, in widget mode, hovering a node reveals its exact composition).
@@ -950,8 +947,6 @@ def paga(
         continuous_color_map=color_map,
         discrete_palette=_palette_list(palette, 256) if palette is not None else None,
         edge_threshold=edge_threshold,
-        selected_annotation=annotation,
-        selected_labels=list(labels) if labels is not None else None,
         node_font_size=node_font_size,
     )
     return _render_cytoscape(graph, show=show, return_widget=return_widget, renderer=renderer)

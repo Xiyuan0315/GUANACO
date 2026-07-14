@@ -1,0 +1,28 @@
+{
+  "Dataset1": {
+    "sc_data": "/Users/xiyuanzhang/Downloads/human_immune_health_atlas_nk-ilc.h5ad",
+    "genome": "hg38",
+    "optional_plot_components": [
+      "heatmap",
+      "dotplot"
+    ],
+    "bucket_urls": [
+      "https://atacchloe.s3.eu-north-1.amazonaws.com"
+    ],
+    "ATAC_name": [
+      "pbmc"
+    ]
+  },
+  "title": "GUANACO",
+  "settings": {
+    "host": "0.0.0.0",
+    "port": 4399,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": true,
+    "embedding_render_backend": "scattergl",
+    "share": false,
+    "share_username": "guanaco",
+    "share_password": ""
+  }
+}

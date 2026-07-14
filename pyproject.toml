@@ -33,14 +33,16 @@ classifiers = [
 # statsmodels/networkx are pulled by scanpy too, but guanaco imports them directly so
 # they're declared here for a robust, self-contained dependency set.
 dependencies = [
-  # Web UI (Dash)
+  # Web UI (Dash). Pinned to dash 2.x: dash 3 changed how child components are
+  # rendered, which breaks dash_draggable 0.1.2 (plot resize / initial size). dbc
+  # 1.x and dash-ag-grid 32.x are the matching dash-2-compatible releases.
   "dash>=2.18,<3",
   "dash-bootstrap-components>=1.3,<2",
   "dash-ag-grid>=32,<33",
   "dash-draggable>=0.1.2,<0.2",
   "dash-cytoscape>=1.0.2,<2",
   # Plotting / colors
-  "plotly>=5.19,<6",
+  "plotly>=5.19,<7",
   "matplotlib>=3.7",
   "colorcet>=3.1",
   "cmcrameri>=1.9",
@@ -98,7 +100,7 @@ tracks = [
 datashader = [
   "datashader>=0.16"
 ]
-# Production WSGI server (Plotly Cloud / gunicorn deployments).
+# Production WSGI server (gunicorn deployments).
 server = [
   "gunicorn>=21,<23"
 ]

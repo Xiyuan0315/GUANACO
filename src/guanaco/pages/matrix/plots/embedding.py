@@ -24,6 +24,13 @@ def _resolve_spatial_context(
         return None, 1.0
 
     spatial = adata.uns.get("spatial", {})
+    # adata.uns["spatial"] can carry non-library scalar flags alongside the real
+    # per-library dicts -- e.g. squidpy writes {"is_single": True} (and may include
+    # it next to library entries). Keep only the dict-valued entries so library
+    # resolution and the spatial_lib.get(...) calls below never hit a bool/str. A
+    # spatial basis whose uns has only flags (coords but no tissue image) then
+    # resolves to None -> the points render on a plain background instead of crashing.
+    spatial = {k: v for k, v in spatial.items() if isinstance(v, dict)}
     if not spatial:
         return None, 1.0
 
@@ -127,6 +134,15 @@ def _resolve_embedding_coords(
             x_values = x_values * spatial_scale
         if y_axis == embedding_columns[0] or y_axis == embedding_columns[1]:
             y_values = y_values * spatial_scale
+        # Spatial coords live in image-pixel space (origin top-left, y increasing
+        # downward). Plot them as NEGATIVE y on a normal ascending axis instead of
+        # using a reversed axis: a reversed axis is flipped by Plotly's autorange on
+        # a double-click / home reset, which separates the points from the tissue
+        # image. With negated y both the points and the image (anchored top at y=0,
+        # see _apply_spatial_background) share the data-span [-img_h, 0], so they stay
+        # aligned through any autorange. This is visually identical to the old
+        # reversed-axis layout before a reset.
+        y_values = -y_values
 
     return x_values, y_values, x_axis, y_axis, embedding_columns, spatial_image
 
@@ -242,7 +258,12 @@ def _apply_spatial_background(fig, spatial_image, img_alpha=1.0):
         )]
     )
     fig.update_xaxes(range=[0, img_w])
-    fig.update_yaxes(range=[img_h, 0], scaleanchor="x", scaleratio=1)
+    # Ascending y-axis spanning [-img_h, 0]. The points carry NEGATED spatial-y (see
+    # _resolve_embedding_coords), and the image, anchored top at y=0, extends down to
+    # y=-img_h on this ascending axis -- so points and tissue share the exact data
+    # range. A reversed axis ([img_h, 0]) would look the same until a double-click /
+    # home reset autoranges and flips it, flinging the points off the image.
+    fig.update_yaxes(range=[-img_h, 0], scaleanchor="x", scaleratio=1)
 
 
 def _apply_embedding_layout(fig, *, title_text, x_axis, y_axis, axis_show, margin, legend=None):
@@ -313,7 +334,6 @@ def _build_datashader_continuous_figure(
     y_axis,
     color_map,
     axis_show,
-    colorbar_title,
     marker_size=5,
     spatial_image=None,
     img_alpha=1.0,
@@ -386,7 +406,9 @@ def _build_datashader_continuous_figure(
         marker=dict(
             colorscale=scale_list,
             cmin=cmin, cmax=cmax,
-            colorbar=dict(title=colorbar_title, len=0.8),
+            # No colorbar title: the value name is already the figure title above the
+            # plot, and a colorbar title steals horizontal width from the image.
+            colorbar=dict(len=0.8),
             color=[cmin],
             showscale=True,
             size=1,
@@ -559,7 +581,6 @@ def _build_continuous_embedding_figure(
     marker_size,
     opacity,
     axis_show,
-    colorbar_title,
     spatial_image=None,
     img_alpha=1.0,
     render_backend="scattergl",
@@ -567,7 +588,11 @@ def _build_continuous_embedding_figure(
 ):
     datashader_err = None
     has_highlight = highlighted_mask is not None
-    if render_backend == "datashader" and not has_highlight:
+    # A datashader render is itself stored as a Plotly layout image. Spatial
+    # plots already use a layout image for the tissue, and applying that
+    # background replaces the datashader image. Keep spatial points as a WebGL
+    # trace so they remain above the tissue and can be restyled independently.
+    if render_backend == "datashader" and not has_highlight and spatial_image is None:
         ds_fig, datashader_err = _build_datashader_continuous_figure(
             x_values,
             y_values,
@@ -577,7 +602,6 @@ def _build_continuous_embedding_figure(
             y_axis=y_axis,
             color_map=color_map,
             axis_show=axis_show,
-            colorbar_title=colorbar_title,
             marker_size=marker_size,
             spatial_image=spatial_image,
             img_alpha=img_alpha,
@@ -621,7 +645,9 @@ def _build_continuous_embedding_figure(
                 cmax=cmax,
                 size=marker_size,
                 opacity=opacity,
-                colorbar=dict(title=colorbar_title, len=0.8),
+                # No colorbar title: the value name is already the figure title above
+                # the plot, and a colorbar title steals horizontal width from the image.
+                colorbar=dict(len=0.8),
             ),
             customdata=cell_idx[plot_mask],
             hoverinfo="skip",
@@ -702,6 +728,7 @@ def plot_embedding(
     img_alpha=1.0,
     source_adata=None,
     cell_indices=None,
+    include_spatial_background=True,
 ):
     """
     Unified embedding plotter for both continuous and categorical coloring.
@@ -739,7 +766,6 @@ def plot_embedding(
             None,
             order,
         )
-        colorbar_title = transformation if transformation else color
         return _build_continuous_embedding_figure(
             x_values,
             y_values,
@@ -752,8 +778,7 @@ def plot_embedding(
             marker_size=marker_size,
             opacity=opacity,
             axis_show=axis_show,
-            colorbar_title=colorbar_title,
-            spatial_image=spatial_image,
+            spatial_image=spatial_image if include_spatial_background else None,
             img_alpha=img_alpha,
             render_backend=render_backend,
             highlighted_mask=None,

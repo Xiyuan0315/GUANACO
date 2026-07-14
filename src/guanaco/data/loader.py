@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 
 import muon as mu
+from guanaco.utils.colors import DEFAULT_DISCRETE_COLORMAP, resolve_discrete_palette
+
 mu.set_options(pull_on_update=False)
 
 
@@ -38,6 +40,11 @@ _register_anndata_null_reader_compat()
 JSON_PATH = Path(os.environ.get("GUANACO_CONFIG", "guanaco.json"))
 
 GLOBAL_CONFIG_KEYS = {"title", "color", "genome", "settings"}
+
+# Shared categorical palette used whenever neither the dataset nor the global
+# config provides one.  Keep this config-independent so loaders and notebook
+# helpers can use it without importing the runtime registry.
+DEFAULT_COLORS = list(resolve_discrete_palette(DEFAULT_DISCRETE_COLORMAP) or [])
 
 class DatasetBundle:
     def __init__(
@@ -809,12 +816,13 @@ def get_modality_variables(adata: ad.AnnData | None, modality: str = 'RNA', n_va
 
 def load_tracks_from_s3(
     bucket_urls: Sequence[str],
-    max_heights: Sequence[int | None],
     atac_names: Sequence[str],
     colors: Sequence[str] = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    if colors is None:
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]  # fallback default
+    # ``cycle([])`` is still empty, so handle an explicitly empty config in
+    # addition to the default ``None`` argument.
+    if not colors:
+        colors = DEFAULT_COLORS
 
     # boto3 is only needed to read genome-browser tracks from S3, so import it lazily:
     # the core install (local files / cloud .zarr via fsspec) shouldn't require the
@@ -832,7 +840,7 @@ def load_tracks_from_s3(
     tracks_dict: dict[str, list[dict[str, Any]]] = {}
     s3_clients: dict[str | None, Any] = {}
 
-    for bucket_url, height, atac in zip(bucket_urls, max_heights, atac_names):
+    for bucket_url, atac in zip(bucket_urls, atac_names):
         try:
             parsed = urllib.parse.urlparse(bucket_url.rstrip("/"))
 
@@ -881,7 +889,6 @@ def load_tracks_from_s3(
                 key = obj.get("Key")
                 if not key:
                     continue
-                colour = next(colors_iter)
 
                 # Avoid duplicating prefix in URLs when bucket_url already includes it.
                 relative_key = key
@@ -891,46 +898,31 @@ def load_tracks_from_s3(
                 lower_key = key.lower()
 
                 if lower_key.endswith((".bigwig", ".bw")):
-                    tracks.append(
-                        {
-                            "name": Path(key).stem,
-                            "type": "wig",
-                            "format": "bigwig",
-                            "url": f"{base_url}/{encoded}",
-                            "max": height,
-                            "color": colour,
-                        }
-                    )
+                    track_type = "wig"
+                    track_format = "bigwig"
                 elif lower_key.endswith(".bedpe"):
-                    tracks.append(
-                        {
-                            "name": Path(key).stem,
-                            "type": "interaction",
-                            "format": "bedpe",
-                            "url": f"{base_url}/{encoded}",
-                            "color": colour,
-                        }
-                    )
+                    track_type = "interaction"
+                    track_format = "bedpe"
                 elif lower_key.endswith(".bed"):
-                    tracks.append(
-                        {
-                            "name": Path(key).stem,
-                            "type": "annotation",
-                            "format": "bed",
-                            "url": f"{base_url}/{encoded}",
-                            "color": colour,
-                        }
-                    )
+                    track_type = "annotation"
+                    track_format = "bed"
                 elif lower_key.endswith((".bigbed", ".bb")):
-                    tracks.append(
-                        {
-                            "name": Path(key).stem,
-                            "type": "annotation",
-                            "format": "bigBed",
-                            "url": f"{base_url}/{encoded}",
-                            "color": colour,
-                        }
-                    )
+                    track_type = "annotation"
+                    track_format = "bigBed"
+                else:
+                    continue
+
+                # Use the same dataset palette as scatter and all other plots.
+                # Unsupported S3 objects do not consume a palette entry.
+                tracks.append(
+                    {
+                        "name": Path(key).stem,
+                        "type": track_type,
+                        "format": track_format,
+                        "url": f"{base_url}/{encoded}",
+                        "color": next(colors_iter),
+                    }
+                )
 
         tracks_dict[atac] = tracks
 
@@ -1012,7 +1004,7 @@ def initialize_data(
 
     if cfg is None:
         cfg = load_config(json_path)
-    global_colors = cfg.get("color", [])
+    global_colors = list(cfg.get("color") or DEFAULT_COLORS)
     genome = cfg.get("genome", "hg38")
     config_base_dir = Path(json_path).expanduser().resolve().parent
     datasets: dict[str, DatasetBundle] = {}
@@ -1062,7 +1054,7 @@ def initialize_data(
 
 
         # Per-dataset color palette; fall back to the global/default palette.
-        dataset_colors = dataset_cfg.get("color", global_colors)
+        dataset_colors = list(dataset_cfg.get("color") or global_colors)
         gene_annotation_path = _resolve_gene_annotation_config(
             dataset_cfg.get("gene_annotation")
             or dataset_cfg.get("gene_annotation_path")
@@ -1136,13 +1128,10 @@ def initialize_data(
         if "bucket_urls" in dataset_cfg and dataset_cfg["bucket_urls"]:
             # Use dataset-specific genome or global genome
             dataset_genome = dataset_cfg.get("genome", genome)
-            # Set defaults for optional genome browser parameters
-            max_heights = dataset_cfg.get("max_height", [None] * len(dataset_cfg["bucket_urls"]))
             atac_names = dataset_cfg.get("ATAC_name", [f"Track_{i}" for i in range(len(dataset_cfg["bucket_urls"]))])
 
             genome_tracks = load_tracks_from_s3(
                 dataset_cfg["bucket_urls"],
-                max_heights,
                 atac_names,
                 dataset_colors,
             )

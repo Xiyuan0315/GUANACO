@@ -102,16 +102,20 @@ def _is_continuous_annotation(adata, annotation, threshold=50):
 
 
 def _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=False):
+    # Keep obs lazy: never materialize the whole obs here. The heatmap only needs a
+    # couple of obs columns (groupby1/groupby2/continuous_key), and reading a single
+    # lazy column via obs_col is cheap. Slicing + .to_memory() on the full Dataset2D
+    # pulled *every* obs column from zarr on *every* render (~8 s on a 275k-cell
+    # cloud dataset, even when only adding/removing one gene). Consumers read the
+    # columns they need with _obs_column(ctx, col), which applies the row filter.
     is_backed = hasattr(adata, 'isbacked') and adata.isbacked
     original_adata = adata
-    filtered_obs = adata.obs
+    filtered_obs = adata.obs  # full, still lazy
     filtered_obs_names = adata.obs_names
     cell_indices_array = None
     if labels and not data_already_filtered:
         mask = obs_col(adata.obs, groupby1).isin(labels)
         cell_indices_array = np.where(mask.to_numpy())[0]
-        _obs_slice = adata.obs.iloc[cell_indices_array]
-        filtered_obs = _obs_slice.to_memory() if hasattr(_obs_slice, 'to_memory') else _obs_slice
         filtered_obs_names = adata.obs_names[cell_indices_array]
     return {
         'adata': adata,
@@ -121,6 +125,17 @@ def _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=False):
         'cell_indices_array': cell_indices_array,
         'is_backed': is_backed,
     }
+
+
+def _obs_column(ctx, col):
+    """One obs column as a 1D numpy array, row-filtered to the selected cells.
+
+    Reads just this column (cheap lazy single-column read) from the full obs, then
+    applies ctx's cell_indices_array. Replaces materializing the whole filtered obs.
+    """
+    values = obs_col(ctx['filtered_obs'], col).to_numpy()
+    idx = ctx['cell_indices_array']
+    return values if idx is None else values[idx]
 
 
 def _extract_gene_df_after_filter(ctx, valid_genes, layer=None):
@@ -418,8 +433,7 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
     row_indices = ctx['cell_indices_array']
     row_indices = None if row_indices is None else np.asarray(row_indices, dtype=np.int64)
 
-    group_series = obs_col(filtered_obs, groupby1)
-    groups_arr = group_series.to_numpy()
+    groups_arr = _obs_column(ctx, groupby1)
     order = _ordered_primary_groups(groups_arr, labels)
 
     # --- bin assignment (matches bin_cells_for_heatmap group-wise semantics) ---
@@ -522,7 +536,7 @@ def plot_unified_heatmap(
             annotation_columns.append(groupby2)
         heatmap_df = gene_df
         for annotation in annotation_columns:
-            heatmap_df[annotation] = obs_col(filtered_obs, annotation).to_numpy()
+            heatmap_df[annotation] = _obs_column(ctx, annotation)
 
         # Binning for large datasets (apply even when secondary categorical annotation is present)
         if len(heatmap_df) > max_cells:
@@ -654,13 +668,12 @@ def plot_heatmap2_continuous(
         return _no_valid_genes_figure()
 
     ctx = _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=data_already_filtered)
-    filtered_obs = ctx['filtered_obs']
 
     gene_df = _extract_gene_df_after_filter(ctx, valid_genes, layer=layer)
     gene_df = _apply_transformations(gene_df, valid_genes, log, standardization)
     heatmap_df = gene_df.copy()
-    heatmap_df[groupby1] = obs_col(filtered_obs, groupby1).to_numpy()
-    heatmap_df[continuous_key] = obs_col(filtered_obs, continuous_key).to_numpy()
+    heatmap_df[groupby1] = _obs_column(ctx, groupby1)
+    heatmap_df[continuous_key] = _obs_column(ctx, continuous_key)
 
     sorted_heatmap_df = heatmap_df.sort_values(continuous_key)
     use_binning = len(sorted_heatmap_df) > max_cells

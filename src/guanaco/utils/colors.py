@@ -32,6 +32,7 @@ import plotly.express as px
 
 COLORBLIND_PALETTE_PATH = Path(__file__).with_name("cvd_color.json")
 DEFAULT_CONTINUOUS_COLORMAP = "Viridis"
+DEFAULT_DISCRETE_COLORMAP = "cc/glasbey"
 COLORCET_PREFIX = "cc:"
 CMCRAMERI_PREFIX = "cmc:"
 DYNAMIC_DISCRETE_PALETTES = {

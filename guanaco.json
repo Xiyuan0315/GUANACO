@@ -1,0 +1,25 @@
+{
+  "Dataset1": {
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/volcano_test.h5ad",
+    "optional_plot_components": [
+      "heatmap",
+      "violin",
+      "split-violin",
+      "dotplot",
+      "stacked-bar",
+      "volcano"
+    ]
+  },
+  "title": "GUANACO",
+  "settings": {
+    "host": "0.0.0.0",
+    "port": 4399,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": true,
+    "embedding_render_backend": "scattergl",
+    "share": false,
+    "share_username": "guanaco",
+    "share_password": ""
+  }
+}

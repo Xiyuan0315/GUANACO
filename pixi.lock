@@ -81,9 +81,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cryptography-46.0.5-py312ha4b625e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cycler-0.12.1-pyhcf101f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cytoolz-1.1.0-py312h4c3975b_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-2.18.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-2.18.2-pyhd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-bio-1.0.2-pyhd8ed1ab_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-bootstrap-components-1.3.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-bootstrap-components-1.7.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-core-components-2.0.0-pyhd8ed1ab_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-html-components-2.0.0-pyhd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-table-5.0.0-pyhd8ed1ab_1.tar.bz2
@@ -430,7 +430,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.1-hb9d3cd8_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.3.3-hceb46e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: https://files.pythonhosted.org/packages/0d/10/646ccf7bbea83399965079f500ec719d821d19785372694fa9fe4db12182/dash_ag_grid-32.3.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/92/b2/86e672e8c6a351bfaf669faa564876072072861ecc399d884acc363662c1/dash_ag_grid-32.3.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ea/b7/0d511af853024241dc3192bea77e4753ea606187bd2dd777a8209a5b01bb/dash_cytoscape-1.0.2.tar.gz
       - pypi: https://files.pythonhosted.org/packages/42/37/a0c8799b51fad2174dc43a1e4cc4e6d2b0de75d4624f171f3d2f88aea618/dash_draggable-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5e/d5/adb7be6603d12ffbc6742c24b86ae203e04e67a7ca36895eee429552bf18/pyfaidx-0.7.2-py3-none-any.whl
@@ -509,9 +509,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cryptography-46.0.4-py312h3fef973_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cycler-0.12.1-pyhcf101f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cytoolz-1.1.0-py312h2bbb03f_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-2.18.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-2.18.2-pyhd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-bio-1.0.2-pyhd8ed1ab_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-bootstrap-components-1.3.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/dash-bootstrap-components-1.7.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-core-components-2.0.0-pyhd8ed1ab_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-html-components-2.0.0-pyhd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/dash-table-5.0.0-pyhd8ed1ab_1.tar.bz2
@@ -846,7 +846,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.1-h8359307_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-ng-2.3.3-hed4e4f5_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hbf9d68e_6.conda
-      - pypi: https://files.pythonhosted.org/packages/0d/10/646ccf7bbea83399965079f500ec719d821d19785372694fa9fe4db12182/dash_ag_grid-32.3.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/92/b2/86e672e8c6a351bfaf669faa564876072072861ecc399d884acc363662c1/dash_ag_grid-32.3.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ea/b7/0d511af853024241dc3192bea77e4753ea606187bd2dd777a8209a5b01bb/dash_cytoscape-1.0.2.tar.gz
       - pypi: https://files.pythonhosted.org/packages/42/37/a0c8799b51fad2174dc43a1e4cc4e6d2b0de75d4624f171f3d2f88aea618/dash_draggable-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5e/d5/adb7be6603d12ffbc6742c24b86ae203e04e67a7ca36895eee429552bf18/pyfaidx-0.7.2-py3-none-any.whl
@@ -2301,34 +2301,34 @@ packages:
   - pkg:pypi/cytoolz?source=hash-mapping
   size: 591797
   timestamp: 1771856474133
-- conda: https://conda.anaconda.org/conda-forge/noarch/dash-2.18.0-pyhd8ed1ab_0.conda
-  sha256: dc9d8b49035255033b1c92a35b5371037829827b83fbc648d1db1cd0e0571548
-  md5: 31ea89c5198697f632213df1e18a95f4
+- conda: https://conda.anaconda.org/conda-forge/noarch/dash-2.18.2-pyhd8ed1ab_2.conda
+  sha256: 3d6c1366f1f3cd1f0793dce70fca10650518ace162bb65fca640bd4b33ce8986
+  md5: 51bb5f6ac78530112942e17f262a36fb
   depends:
   - flask >=1.0.4
   - importlib-metadata
   - nest-asyncio
   - plotly >=5.0.0
-  - python >=3.6
+  - python >=3.9
   - requests
   - retrying
   - setuptools
-  - typing-extensions >=4.1.1
+  - typing_extensions >=4.1.1
   - werkzeug
   constrains:
-  - dash-core-components >=2.0.0
-  - dash-html-components >=2.0.0
   - dash_table >=5.0.0
+  - dash-html-components >=2.0.0
+  - dash-core-components >=2.0.0
   license: MIT
   license_family: MIT
   purls:
   - pkg:pypi/dash?source=hash-mapping
-  size: 5458765
-  timestamp: 1725511984079
-- pypi: https://files.pythonhosted.org/packages/0d/10/646ccf7bbea83399965079f500ec719d821d19785372694fa9fe4db12182/dash_ag_grid-32.3.2-py3-none-any.whl
+  size: 5444549
+  timestamp: 1737726641971
+- pypi: https://files.pythonhosted.org/packages/92/b2/86e672e8c6a351bfaf669faa564876072072861ecc399d884acc363662c1/dash_ag_grid-32.3.4-py3-none-any.whl
   name: dash-ag-grid
-  version: 32.3.2
-  sha256: a690d18a83ebba96e68e63d928f3e30f97d38a8a6418ddd479db4ce825c0de91
+  version: 32.3.4
+  sha256: aa722086c9076a4dbf36c9c7b0c779ce1a011e69d5b6eed760580dfa077cd2ae
   requires_dist:
   - dash>=2
   - dash[ci,dev,testing]>=2.0 ; extra == 'dev'
@@ -2374,19 +2374,19 @@ packages:
   - pkg:pypi/dash-bio?source=hash-mapping
   size: 8907944
   timestamp: 1647667391999
-- conda: https://conda.anaconda.org/conda-forge/noarch/dash-bootstrap-components-1.3.0-pyhd8ed1ab_0.conda
-  sha256: b22ac8e644d872749ea582027a9ca17d01e3f14c05e347fd207729324f417386
-  md5: b6b1bb963dbe3e209c5df74adb4817ea
+- conda: https://conda.anaconda.org/conda-forge/noarch/dash-bootstrap-components-1.7.1-pyhd8ed1ab_0.conda
+  sha256: d10ded8f1f53c5667d443dfb8c58e09c7562b4e7a6ebf96eda153733f45f9bad
+  md5: b12033da7032a55329fd2ee80ce99c3f
   depends:
   - dash >=2.0.0
-  - python >=3.6
-  - setuptools
+  - hatchling
+  - python >=3.9
   license: MIT
   license_family: Apache
   purls:
   - pkg:pypi/dash-bootstrap-components?source=hash-mapping
-  size: 117816
-  timestamp: 1672283307593
+  size: 121642
+  timestamp: 1737026640951
 - conda: https://conda.anaconda.org/conda-forge/noarch/dash-core-components-2.0.0-pyhd8ed1ab_1.tar.bz2
   sha256: 62b1ab5d1d8bd5e4f36e8120a7d2b9643c716aad27ae84de9bdd555fb008b34f
   md5: c8d6a25578f40106a36765e7932fda90
@@ -3154,14 +3154,14 @@ packages:
 - pypi: ./
   name: guanaco-viz
   version: '1.0'
-  sha256: f435dab5fad30dc24cd0f7da12ccce03b47e018af59264330256b310ffed8029
+  sha256: 5eb08309f8bb916ccb53f5a233a3509d9ee4337d38f9a9557e6450135ca7a23d
   requires_dist:
   - dash>=2.18,<3
   - dash-bootstrap-components>=1.3,<2
   - dash-ag-grid>=32,<33
   - dash-draggable>=0.1.2,<0.2
   - dash-cytoscape>=1.0.2,<2
-  - plotly>=5.19,<6
+  - plotly>=5.19,<7
   - matplotlib>=3.7
   - colorcet>=3.1
   - cmcrameri>=1.9

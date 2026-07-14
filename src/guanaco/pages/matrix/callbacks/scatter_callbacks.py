@@ -1,6 +1,6 @@
 import numpy as np
 import dash_bootstrap_components as dbc
-from dash import Input, Output, State, dcc, html, callback_context, exceptions, no_update
+from dash import Input, Output, Patch, State, dcc, html, callback_context, exceptions, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.data.loader import obs_col
@@ -123,6 +123,22 @@ function(highlightData, _rightFigure) {
     if (traceIdx.length === 0) return noUpdate;
     window.Plotly.restyle(gd, {selectedpoints: selected}, traceIdx);
     return noUpdate;
+}
+"""
+
+
+# Client-side render-metadata extractor for the right (gene) scatter. Reads the
+# figure that's already in the browser and stores only two booleans/counts --
+# whether a tissue image is present and how many traces there are. The gene-switch
+# server callback reads this tiny store (instead of State(figure)) to decide whether
+# it can patch just the point trace, so the multi-MB base64 image never round-trips
+# to the server on a spatial gene switch.
+_GENE_SCATTER_META_JS = """
+function(figure) {
+    if (!figure || !figure.layout) return {hasImage: false, nTraces: 0};
+    const imgs = figure.layout.images || [];
+    const data = figure.data || [];
+    return {hasImage: imgs.length > 0, nTraces: data.length};
 }
 """
 
@@ -304,6 +320,10 @@ def register_scatter_callbacks(
         spatial = adata.uns.get("spatial", {})
         image_keys = set()
         for lib_data in spatial.values():
+            # Skip non-library scalar flags (e.g. squidpy's "is_single" bool) that
+            # can sit alongside the real per-library dicts in adata.uns["spatial"].
+            if not isinstance(lib_data, dict):
+                continue
             image_keys.update(lib_data.get("images", {}).keys())
 
         image_keys = sorted(image_keys)
@@ -502,6 +522,10 @@ def register_scatter_callbacks(
         ],
         [
             State(f"{prefix}-gene-scatter", "relayoutData"),
+            # Lightweight render metadata ({hasImage, nTraces}) maintained client-side
+            # from the figure. Used instead of State(..., "figure") so a spatial gene
+            # switch doesn't ship the multi-MB base64 tissue image back to the server.
+            State(f"{prefix}-gene-scatter-meta", "data"),
             State(f"{prefix}-clustering-dropdown", "value"),
             State(f"{prefix}-x-axis", "value"),
             State(f"{prefix}-y-axis", "value"),
@@ -528,6 +552,7 @@ def register_scatter_callbacks(
         filtered_data,
         spatial_img_key,
         gene_relayout,
+        current_meta,
         left_clustering,
         left_x_axis,
         left_y_axis,
@@ -557,6 +582,15 @@ def register_scatter_callbacks(
         # The continuous colormap only feeds the continuous render (coexpression and
         # categorical ignore it), so don't rebuild those modes when it changes.
         if triggered_prop == f"{prefix}-scatter-color-map-dropdown.value" and right_mode != "continuous":
+            return no_update
+        if (
+            triggered_prop in {
+                f"{prefix}-scatter-gene2-selection.value",
+                f"{prefix}-gene1-threshold-slider.value",
+                f"{prefix}-gene2-threshold-slider.value",
+            }
+            and right_mode != "coexpression"
+        ):
             return no_update
 
         # A reset of the other plot is handled entirely by the clientside reset-link
@@ -592,6 +626,19 @@ def register_scatter_callbacks(
         # The left plot's selection no longer rebuilds this figure: the cross-highlight
         # (grey-out of deselected cells) is applied client-side via selectedpoints, so
         # the right plot always renders the full cell set and keeps every legend entry.
+
+        # A spatial single-gene switch changes only the WebGL point trace; the tissue
+        # image underneath is identical. When the right plot is already a spatial
+        # scatter with the image in place (per the lightweight meta store -- so we
+        # never ship the multi-MB figure back to the server), patch just the point
+        # trace instead of rebuilding/re-encoding/re-sending the static background.
+        patch_spatial_points = (
+            triggered_prop == f"{prefix}-scatter-gene-selection.value"
+            and right_clustering == "spatial"
+            and bool(current_meta)
+            and current_meta.get("hasImage")
+            and current_meta.get("nTraces") == 1
+        )
 
         if gene_name in adata.var_names:
             if coexpression_mode == "coexpression" and gene2_name:
@@ -632,13 +679,27 @@ def register_scatter_callbacks(
                     continuous_color_map=color_map or "Viridis",
                     marker_size=marker_size,
                     opacity=opacity,
-                    render_backend=render_backend,
+                    # Spatial points are always a WebGL trace over the tissue image;
+                    # never datashader. Forcing scattergl matters when the background
+                    # is suppressed for the patch below, because passing
+                    # spatial_image=None would otherwise let the datashader path turn
+                    # the points into a raster image (and drop the real trace).
+                    render_backend="scattergl" if right_clustering == "spatial" else render_backend,
                     annotation=None,
                     axis_show=axis_show,
                     img_key=spatial_img_key,
                     source_adata=adata,
                     cell_indices=filtered_cell_idx,
+                    include_spatial_background=not patch_spatial_points,
                 )
+                # A spatial gene switch changes only the WebGL point trace. Patch
+                # that trace in place so Dash does not resend/redecode the static
+                # tissue bitmap or recreate the Plotly image layer.
+                if patch_spatial_points:
+                    patch = Patch()
+                    patch["data"][0] = fig.data[0].to_plotly_json()
+                    patch["layout"]["title"] = fig.layout.title.to_plotly_json()
+                    return patch
         elif is_continuous_annotation(adata, gene_name):
             fig = plot_embedding(
                 adata=plot_adata,
@@ -784,6 +845,9 @@ def register_scatter_callbacks(
         ],
     )
     def update_threshold_ranges(gene1, gene2, coexpression_mode, data_layer, filtered_data):
+        if coexpression_mode != "coexpression":
+            raise exceptions.PreventUpdate
+
         filtered_cell_idx = _filtered_cell_indices(filtered_data)
         default_min, default_max, default_value = 0, 1, 0.5
         layer = _resolve_layer(data_layer)
@@ -927,6 +991,16 @@ def register_scatter_callbacks(
         Input(f"{prefix}-left-highlighted-cells-store", "data"),
         Input(f"{prefix}-gene-scatter", "figure"),
         prevent_initial_call=True,
+    )
+
+    # Render-metadata store (see _GENE_SCATTER_META_JS): keep a tiny {hasImage,
+    # nTraces} summary of the right-plot figure in sync, so the gene-switch callback
+    # can read it as State without shipping the full figure (and its base64 image).
+    app.clientside_callback(
+        _GENE_SCATTER_META_JS,
+        Output(f"{prefix}-gene-scatter-meta", "data"),
+        Input(f"{prefix}-gene-scatter", "figure"),
+        prevent_initial_call=False,
     )
 
     # Legend debounce (see _LEGEND_DEBOUNCE_JS): collapse a burst of legend clicks

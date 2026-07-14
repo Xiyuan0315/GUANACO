@@ -51,11 +51,15 @@ def _modality_config(dataset, mod: str) -> dict:
 # Register callbacks for scatter and other plots for each dataset
 for name, dataset in datasets.items():
     dataset_adata = dataset.adata
+    discrete_color_prefix = None
 
     # Register AnnData callbacks if adata exists
     if dataset_adata is not None:
         if isinstance(dataset_adata, mu.MuData):
-            for mod in dataset_adata.mod.keys():
+            modality_names = list(dataset_adata.mod.keys())
+            palette_modality = "atac" if "atac" in modality_names else modality_names[0]
+            discrete_color_prefix = f"{name}-{palette_modality}"
+            for mod in modality_names:
                 mod_adata = dataset_adata.mod[mod]
                 prefix = f"{name}-{mod}"
                 mod_cfg = _modality_config(dataset, mod)
@@ -72,6 +76,7 @@ for name, dataset in datasets.items():
                 )
         else:
             prefix = name
+            discrete_color_prefix = prefix
             mod_cfg = _modality_config(dataset, "rna")
             # Pre-load config marker genes into memory so the first access is instant.
             if dataset.backed_mode and mod_cfg["gene_markers"]:
@@ -90,7 +95,13 @@ for name, dataset in datasets.items():
         # are only required when a dataset actually configures genome tracks --
         # installed via the `guanaco-viz[tracks]` extra.
         from guanaco.pages.track.callbacks import gene_browser_callbacks
-        gene_browser_callbacks(app, dataset.genome_tracks, dataset.ref_track, dataset.title)
+        gene_browser_callbacks(
+            app,
+            dataset.genome_tracks,
+            dataset.ref_track,
+            dataset.title,
+            discrete_color_prefix=discrete_color_prefix,
+        )
 
 
 @app.callback(

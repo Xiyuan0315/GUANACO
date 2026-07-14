@@ -1,8 +1,9 @@
 from pyjaspar import jaspardb
 import dash_bio as dashbio
-from dash import dcc, html, Input, Output, State
+from dash import html, Input, Output, State
 
 from guanaco.pages.track.utils import plot_motif, MOTIF_INFO_LABELS
+from guanaco.utils.colors import DEFAULT_DISCRETE_COLORMAP, resolve_discrete_palette
 
 # Default genome locus shown when an IGV session is first loaded.
 DEFAULT_IGV_LOCUS = 'chr1:1-10000000'
@@ -10,7 +11,29 @@ DEFAULT_IGV_LOCUS = 'chr1:1-10000000'
 JASPAR_RELEASE = 'JASPAR2024'
 
 
-def gene_browser_callbacks(app, genome_tracks, ref_track, prefix):
+def _tracks_with_discrete_palette(tracks, palette_name):
+    """Copy IGV tracks and apply the shared matrix-plot discrete palette."""
+    fallback = [track.get("color") for track in tracks if track.get("color")]
+    palette = resolve_discrete_palette(
+        palette_name or DEFAULT_DISCRETE_COLORMAP,
+        len(tracks),
+        default=fallback,
+    )
+    if not palette:
+        return [dict(track) for track in tracks]
+    return [
+        {**track, "color": palette[index % len(palette)]}
+        for index, track in enumerate(tracks)
+    ]
+
+
+def gene_browser_callbacks(
+    app,
+    genome_tracks,
+    ref_track,
+    prefix,
+    discrete_color_prefix=None,
+):
     """
     Register genome browser callbacks for a specific dataset.
     Arguments:
@@ -18,15 +41,17 @@ def gene_browser_callbacks(app, genome_tracks, ref_track, prefix):
         genome_tracks: dict of genome tracks (from DatasetBundle)
         ref_track: reference genome (from DatasetBundle)
         prefix: dataset name (used to ensure unique IDs)
+        discrete_color_prefix: prefix of the shared Discrete ColorMap control
     """
     if genome_tracks is None or ref_track is None:
         return
 
-    @app.callback(
-        Output(f'{prefix}-igv-container', 'children'),
-        Input(f'{prefix}-igv-genome-select', 'value')
-    )
-    def return_igv(selected_atac):
+    igv_inputs = [Input(f'{prefix}-igv-genome-select', 'value')]
+    if discrete_color_prefix:
+        igv_inputs.append(Input(f'{discrete_color_prefix}-discrete-color-map-dropdown', 'value'))
+
+    @app.callback(Output(f'{prefix}-igv-container', 'children'), igv_inputs)
+    def return_igv(selected_atac, discrete_color_map=DEFAULT_DISCRETE_COLORMAP):
         if selected_atac is None:
             return html.Div(
                 [
@@ -53,7 +78,10 @@ def gene_browser_callbacks(app, genome_tracks, ref_track, prefix):
                 id=f'igv-{prefix}',
                 genome=ref_track['label'],
                 locus=DEFAULT_IGV_LOCUS,
-                tracks=genome_tracks[selected_atac]
+                tracks=_tracks_with_discrete_palette(
+                    genome_tracks[selected_atac],
+                    discrete_color_map,
+                )
             )
         ])
 
