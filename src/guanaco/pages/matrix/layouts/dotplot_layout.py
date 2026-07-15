@@ -25,7 +25,7 @@ def generate_dotplot_layout(prefix):
                 ]
             ),
         ],
-        style={"marginBottom": "15px", "paddingBottom": "10px", "borderBottom": "1px solid #eee"},
+        style={"marginBottom": "15px", "paddingBottom": "10px"},
     )
 
     row2 = dbc.Row(
@@ -120,7 +120,7 @@ def generate_dotplot_layout(prefix):
         id=f"{prefix}-dotplot-options-toggle",
         color="link",
         size="sm",
-        style={"padding": "2px 0", "textDecoration": "none", "fontWeight": "bold", "marginBottom": "10px"},
+        style={"padding": "2px 0", "textDecoration": "none", "fontWeight": "normal", "marginBottom": "10px"},
     )
 
     dotplot_advanced_panel = dbc.Collapse(

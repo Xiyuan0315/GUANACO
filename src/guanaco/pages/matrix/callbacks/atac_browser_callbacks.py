@@ -115,7 +115,9 @@ def register_atac_browser_callbacks(
             with _GTF_WARM_LOCK:
                 if not annotation_state["loaded"]:
                     try:
-                        annotation_state["index"] = load_gene_annotation(gene_annotation_path)
+                        annotation_state["index"] = load_gene_annotation(
+                            gene_annotation_path
+                        )
                     except Exception as exc:
                         annotation_state["error"] = str(exc)
                         annotation_state["index"] = None
@@ -129,6 +131,7 @@ def register_atac_browser_callbacks(
     # serving immediately); if the browser is opened before warm-up finishes,
     # _annotation_index() simply waits on the same lock rather than re-downloading.
     if gene_annotation_path:
+
         def _warm_annotation():
             print(
                 f"[guanaco] pre-warming gene annotation for '{prefix}' "
@@ -150,6 +153,17 @@ def register_atac_browser_callbacks(
             name=f"guanaco-gtf-warm-{prefix}",
             daemon=True,
         ).start()
+
+    @app.callback(
+        Output(f"{prefix}-atac-browser-labels", "options"),
+        Output(f"{prefix}-atac-browser-labels", "value"),
+        Input(f"{prefix}-atac-browser-groupby", "value"),
+    )
+    def update_atac_group_labels(annotation):
+        if not annotation:
+            return [], []
+        values = sorted_categories(adata, annotation)
+        return [{"label": str(value), "value": value} for value in values], list(values)
 
     @app.callback(
         Output(f"{prefix}-atac-browser-region-store", "data"),
@@ -219,13 +233,12 @@ def register_atac_browser_callbacks(
         Output(f"{prefix}-atac-browser-graph", "figure"),
         Output(f"{prefix}-atac-browser-message", "children", allow_duplicate=True),
         Input(f"{prefix}-atac-browser-region-store", "data"),
-        Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
-        Input(f"{prefix}-single-cell-label-selection", "value"),
+        Input(f"{prefix}-atac-browser-groupby", "value"),
+        Input(f"{prefix}-atac-browser-labels", "value"),
         Input(f"{prefix}-atac-browser-metric", "value"),
         Input(f"{prefix}-atac-browser-yscale", "value"),
         Input(f"{prefix}-discrete-color-map-dropdown", "value"),
-        Input(f"{prefix}-selected-cells-store", "data"),
-        Input(f"{prefix}-single-cell-tabs", "value"),
+        Input(f"{prefix}-exploratory-tabs", "value"),
         prevent_initial_call="initial_duplicate",
     )
     def render_atac_browser(
@@ -235,7 +248,6 @@ def register_atac_browser_callbacks(
         metric,
         y_mode,
         discrete_color_map,
-        selected_cells,
         active_tab,
     ):
         # Only build when the ATAC tab is showing -- switching to it fires this
@@ -248,8 +260,8 @@ def register_atac_browser_callbacks(
         metric = _resolve_atac_metric(metric)
         y_mode = _resolve_atac_y_mode(y_mode)
 
-        # Track grouping/order/colour all come from the left panel, so the ATAC
-        # tracks line up with the heatmap/violin/dotplot for the same dataset.
+        # Track grouping and labels are owned by this exploratory tab. Color is
+        # presentation state shared across the modality's plots.
         group_order, color_map = _track_style(
             adata, annotation, discrete_color_map, color_config
         )
@@ -257,7 +269,7 @@ def register_atac_browser_callbacks(
         payload = compute_atac_signal(
             adata,
             region,
-            selected_cells=selected_cells,
+            selected_cells=None,
             groupby=annotation,
             labels=labels,
             group_order=group_order,

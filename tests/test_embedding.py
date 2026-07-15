@@ -112,6 +112,25 @@ def test_spatial_categorical_embedding_keeps_original_image_extent():
     assert tuple(fig.layout.yaxis.range) == (12, 0)
 
 
+def test_categorical_embedding_accepts_mixed_labels_and_drops_missing_values():
+    adata = _embedding_adata()
+    adata.obs["mixed_label"] = pd.Series(
+        ["T", 2, np.nan],
+        index=adata.obs_names,
+        dtype=object,
+    )
+
+    fig = plot_embedding(
+        adata,
+        "X_umap",
+        "mixed_label",
+        mode="categorical",
+    )
+
+    assert {trace.name for trace in fig.data} == {"2", "T"}
+    assert sum(len(trace.x) for trace in fig.data) == 2
+
+
 def test_coexpression_embedding_customdata_uses_row_positions():
     fig = plot_coexpression_embedding(_embedding_adata(), "X_umap", "GeneA", "GeneB")
 

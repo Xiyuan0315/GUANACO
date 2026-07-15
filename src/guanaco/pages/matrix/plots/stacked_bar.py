@@ -1,5 +1,7 @@
-import plotly.express as px
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
 from guanaco.data.loader import obs_col
 
 
@@ -147,4 +149,203 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black')
     fig.update_yaxes(showline=True, linewidth=2, linecolor='black')
 
+    return fig
+
+
+def plot_composition_hierarchy(
+    parent_meta,
+    child_meta,
+    adata,
+    *,
+    parent_color_map=None,
+    child_color_map=None,
+    parent_order=None,
+):
+    """Plot a two-level composition hierarchy as an icicle chart."""
+    def string_values(key):
+        values = obs_col(adata.obs, key).astype(object)
+        return values.where(values.notna(), "Missing").astype(str)
+
+    frame = pd.DataFrame(
+        {
+            parent_meta: string_values(parent_meta),
+            child_meta: string_values(child_meta),
+        }
+    )
+    total_count = len(frame)
+
+    if total_count == 0:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No cells are available for this hierarchy.",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
+        return fig
+
+    observed_parents = frame[parent_meta].drop_duplicates().tolist()
+    requested_order = [str(value) for value in parent_order or []]
+    ordered_parents = [
+        value for value in requested_order if value in observed_parents
+    ] + [value for value in observed_parents if value not in requested_order]
+
+    parent_colors = _resolve_color_discrete_map(
+        parent_color_map, ordered_parents
+    )
+    child_categories = frame[child_meta].drop_duplicates().tolist()
+    child_colors = _resolve_color_discrete_map(child_color_map, child_categories)
+
+    ids = ["all-cells"]
+    labels = ["All cells"]
+    parents = [""]
+    counts = [total_count]
+    parent_counts = [total_count]
+    colors = ["#f1f3f5"]
+
+    same_level = parent_meta == child_meta
+    for parent_value in ordered_parents:
+        parent_frame = frame[frame[parent_meta] == parent_value]
+        parent_count = len(parent_frame)
+        parent_id = f"{parent_meta}::{parent_value}"
+        ids.append(parent_id)
+        labels.append(parent_value)
+        parents.append("all-cells")
+        counts.append(parent_count)
+        parent_counts.append(total_count)
+        colors.append(parent_colors.get(parent_value, "#adb5bd"))
+
+        if same_level:
+            continue
+
+        child_counts = parent_frame[child_meta].value_counts(sort=False)
+        for child_value, child_count in child_counts.items():
+            ids.append(f"{parent_id}/{child_meta}::{child_value}")
+            labels.append(str(child_value))
+            parents.append(parent_id)
+            counts.append(int(child_count))
+            parent_counts.append(parent_count)
+            colors.append(child_colors.get(str(child_value), "#adb5bd"))
+
+    customdata = [
+        [
+            count,
+            count / total_count,
+            count / containing_parent if containing_parent else 0,
+        ]
+        for count, containing_parent in zip(counts, parent_counts, strict=True)
+    ]
+
+    fig = go.Figure(
+        go.Icicle(
+            ids=ids,
+            labels=labels,
+            parents=parents,
+            values=counts,
+            branchvalues="total",
+            sort=False,
+            marker={"colors": colors, "line": {"color": "white", "width": 2}},
+            customdata=customdata,
+            textinfo="label+percent parent",
+            hovertemplate=(
+                "<b>%{label}</b><br>"
+                "Cells: %{value:,}<br>"
+                "Of all cells: %{customdata[1]:.1%}<br>"
+                "Of parent: %{customdata[2]:.1%}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin={"t": 20, "r": 20, "b": 20, "l": 20},
+    )
+    return fig
+
+
+def plot_composition_differential_abundance(
+    results,
+    *,
+    alpha=0.05,
+):
+    """Render pairwise ALR effects as a population-by-comparison heatmap."""
+    populations = results["population"].drop_duplicates().tolist()
+    comparisons = results["comparison"].drop_duplicates().tolist()
+    indexed = results.set_index(["population", "comparison"])
+
+    effects = []
+    significance = []
+    customdata = []
+    for population in populations:
+        effect_row = []
+        significance_row = []
+        custom_row = []
+        for comparison in comparisons:
+            row = indexed.loc[(population, comparison)]
+            effect_row.append(float(row["effect"]))
+            significance_row.append("*" if row["q_value"] < alpha else "")
+            custom_row.append(
+                [
+                    row["group_a"],
+                    row["group_b"],
+                    row["ci_low"],
+                    row["ci_high"],
+                    row["p_value"],
+                    row["q_value"],
+                    row["n_a"],
+                    row["n_b"],
+                    row["mean_proportion_a"],
+                    row["mean_proportion_b"],
+                ]
+            )
+        effects.append(effect_row)
+        significance.append(significance_row)
+        customdata.append(custom_row)
+
+    max_effect = max(abs(float(value)) for row in effects for value in row)
+    color_limit = max(max_effect, 1e-9)
+    fig = go.Figure(
+        go.Heatmap(
+            z=effects,
+            x=comparisons,
+            y=populations,
+            customdata=customdata,
+            text=significance,
+            texttemplate="%{text}",
+            textfont={"size": 18, "color": "black"},
+            colorscale="RdBu_r",
+            zmid=0,
+            zmin=-color_limit,
+            zmax=color_limit,
+            colorbar={"title": "ALR<br>difference"},
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "%{customdata[1]} − %{customdata[0]}<br>"
+                "ALR difference: %{z:.3f}<br>"
+                "95% CI: [%{customdata[2]:.3f}, %{customdata[3]:.3f}]<br>"
+                "p-value: %{customdata[4]:.3g}<br>"
+                "FDR: %{customdata[5]:.3g}<br>"
+                "%{customdata[0]} mean proportion: %{customdata[8]:.2%}<br>"
+                "%{customdata[1]} mean proportion: %{customdata[9]:.2%}<br>"
+                "Samples: %{customdata[6]} vs %{customdata[7]}"
+                "<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        title={
+            "text": (
+                "ALR + pairwise Welch t-tests"
+                f"<br><sup>* FDR &lt; {alpha:g}</sup>"
+            ),
+            "x": 0.01,
+            "xanchor": "left",
+        },
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        height=max(340, min(900, 34 * len(populations) + 190)),
+        margin={"t": 85, "r": 90, "b": 90, "l": 130},
+        xaxis={"title": "Pairwise x-axis comparison", "automargin": True},
+        yaxis={"title": "Population", "automargin": True},
+    )
     return fig

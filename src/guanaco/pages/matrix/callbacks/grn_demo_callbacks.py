@@ -21,7 +21,7 @@ def register_grn_demo_callbacks(app, adata, prefix):
         Input(f"{prefix}-grn-demo-context", "value"),
         Input(f"{prefix}-grn-demo-layout", "value"),
         Input(f"{prefix}-grn-demo-threshold", "value"),
-        Input(f"{prefix}-single-cell-tabs", "value"),
+        Input(f"{prefix}-exploratory-tabs", "value"),
         State(f"{prefix}-grn-demo-rendered-key", "data"),
     )
     def update_grn_demo(selected_context, layout_name, edge_threshold, active_tab, rendered_key):

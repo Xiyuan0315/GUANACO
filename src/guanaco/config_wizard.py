@@ -16,18 +16,23 @@ except Exception:
 LOGO_PATH = Path(__file__).parent / "assets" / "configguanaco.png"
 
 
-OPTIONAL_PLOTS = [
-    ("Heatmap", "heatmap"),
-    ("Violin", "violin"),
-    ("Comparative Violin", "split-violin"),
+MARKER_VISUALIZATION_PLOTS = (
     ("Dotplot", "dotplot"),
-    ("Stacked Bar", "stacked-bar"),
+    ("Heatmap", "heatmap"),
+    ("Violin Plot", "violin"),
     ("Expression Trend", "expression-trend"),
+)
+
+EXPLORATORY_VISUALIZATION_PLOTS = (
+    ("Comparative Violin", "split-violin"),
+    ("Composition", "stacked-bar"),
     ("PAGA", "paga"),
-    ("Volcano", "volcano"),
+    ("Volcano Plot", "volcano"),
     ("GRN", "grn"),
     ("Peak Browser", "peak-browser"),
-]
+)
+
+OPTIONAL_PLOTS = MARKER_VISUALIZATION_PLOTS + EXPLORATORY_VISUALIZATION_PLOTS
 
 DEFAULT_PLOTS = {"heatmap", "violin", "split-violin", "dotplot", "stacked-bar"}
 
@@ -180,12 +185,31 @@ class ViewBlock:
         self.frame.columnconfigure(1, weight=1)
 
         row = 0
-        _entry_row(self.frame, row, "Left embedding", self.embedding_left, example="e.g. X_umap"); row += 1
-        _entry_row(self.frame, row, "Left color by", self.color_left, example="e.g. cell_type"); row += 1
-        _entry_row(self.frame, row, "Right embedding", self.embedding_right, example="e.g. X_umap"); row += 1
-        _entry_row(self.frame, row, "Right color by", self.color_right, example="e.g. CD3D"); row += 1
+        _entry_row(
+            self.frame, row, "Left embedding", self.embedding_left, example="e.g. X_umap"
+        )
+        row += 1
+        _entry_row(
+            self.frame, row, "Left color by", self.color_left, example="e.g. cell_type"
+        )
+        row += 1
+        _entry_row(
+            self.frame, row, "Right embedding", self.embedding_right, example="e.g. X_umap"
+        )
+        row += 1
+        _entry_row(
+            self.frame, row, "Right color by", self.color_right, example="e.g. CD3D"
+        )
+        row += 1
         if modality_name is not None:
-            _entry_row(self.frame, row, "Gene annotation", self.gene_annotation, example="hg38 / URL / path"); row += 1
+            _entry_row(
+                self.frame,
+                row,
+                "Gene annotation",
+                self.gene_annotation,
+                example="hg38 / URL / path",
+            )
+            row += 1
         _hinted_label(self.frame, "Marker genes (comma or new line)").grid(
             row=row, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
@@ -260,16 +284,24 @@ class DatasetTab:
         self._genome_row.columnconfigure(1, weight=1)
         _entry_row(self._genome_row, 0, "Reference genome", self.genome, example="e.g. hg38 — for ATAC/peak data")
         self._genome_row.grid_remove()
-        ttk.Label(basics, text="Plot tabs to show").grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(basics, text="Visualizations to show").grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(6, 0)
+        )
         plot_box = ttk.Frame(basics)
         plot_box.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-        # 3 columns so longer labels (Comparative Violin, Expression Trend) fit.
-        for col in range(3):
-            plot_box.columnconfigure(col, weight=1, uniform="plots")
-        for i, (label, value) in enumerate(OPTIONAL_PLOTS):
-            ttk.Checkbutton(plot_box, text=label, variable=self.plot_vars[value]).grid(
-                row=i // 3, column=i % 3, sticky="w", padx=(0, 12), pady=4
-            )
+        plot_box.columnconfigure(0, weight=1)
+        self._build_plot_group(
+            plot_box,
+            0,
+            "Markers visualization",
+            MARKER_VISUALIZATION_PLOTS,
+        )
+        self._build_plot_group(
+            plot_box,
+            1,
+            "Exploratory visualization",
+            EXPLORATORY_VISUALIZATION_PLOTS,
+        )
         # Re-read the modality layout when the data file changes (MuData -> one
         # view block per modality; AnnData -> a single block).
         self.sc_data_entry.bind("<FocusOut>", self._detect_and_rebuild)
@@ -315,6 +347,29 @@ class DatasetTab:
         self.plot_vars["peak-browser"].trace_add("write", lambda *_: self._sync_genome_visibility())
         self.bucket_text.bind("<FocusOut>", lambda _e: self._sync_genome_visibility())
         self._sync_genome_visibility()
+
+    def _build_plot_group(self, parent, row, title, plots):
+        group = ttk.LabelFrame(parent, text=title, padding=(10, 6))
+        group.grid(
+            row=row,
+            column=0,
+            sticky="ew",
+            pady=(0, 8) if row == 0 else 0,
+        )
+        for column in range(3):
+            group.columnconfigure(column, weight=1, uniform=f"plots-{row}")
+        for index, (label, value) in enumerate(plots):
+            ttk.Checkbutton(
+                group,
+                text=label,
+                variable=self.plot_vars[value],
+            ).grid(
+                row=index // 3,
+                column=index % 3,
+                sticky="w",
+                padx=(0, 12),
+                pady=4,
+            )
 
     @staticmethod
     def _is_peak_modality(name: str) -> bool:

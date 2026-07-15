@@ -65,6 +65,69 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
+.visualization-section {
+    margin-top: 20px;
+    height: auto !important;
+    overflow: visible !important;
+}
+
+/* Plot tabs can reveal additional content after their initial render. Keep every
+   enclosing workspace/card in normal document flow so the card grows with it. */
+.visualization-section .card-elevated,
+.visualization-section .plot-section,
+.visualization-section .visualization-workspace-tabs,
+.visualization-section .visualization-workspace-content,
+.visualization-section .custom-tabs {
+    height: auto !important;
+    overflow: visible !important;
+}
+
+.composition-da-results {
+    position: relative;
+    overflow: visible;
+}
+
+.visualization-workspace-tabs > .tab-container {
+    border-bottom: 1px solid #e1e4e8;
+    display: flex;
+    gap: 8px;
+}
+
+.visualization-workspace-tab,
+.visualization-workspace-tab--selected {
+    flex: 0 0 auto !important;
+}
+
+.visualization-workspace-content {
+    padding-top: 12px;
+}
+
+.visualization-workspace-empty {
+    color: #6c757d;
+    padding: 24px 16px;
+}
+
+/* Keep shared feature controls balanced within their sidebar. */
+.feature-controls-sidebar {
+    border-right: 1px solid #ddd;
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+}
+
+.feature-controls-panel {
+    margin: 0 auto;
+    max-width: 420px;
+    width: 100%;
+}
+
+@media (max-width: 767.98px) {
+    .feature-controls-sidebar {
+        border-bottom: 1px solid #ddd;
+        border-right: 0;
+    }
+}
+
 /* Remove borders and shadows from draggable grid items */
 .grid-layout-no-border .react-grid-item {
     border: none !important;
@@ -262,6 +325,165 @@
 }
 
 .tab:hover {
+    color: #1a1a1a !important;
+}
+
+.update-other-plots-button,
+.update-other-plots-button:hover,
+.update-other-plots-button:focus,
+.update-other-plots-button:active {
+    background-color: #808080 !important;
+    border-color: #808080 !important;
+    color: #fff !important;
+}
+
+.update-other-plots-button:focus {
+    box-shadow: 0 0 0 0.2rem rgba(128, 128, 128, 0.3) !important;
+}
+
+/* Compact plot-type segmented control. Icon masks are isolated in the modifier
+   rules below, so they can be removed without changing tab layout or behavior. */
+.visualization-section .custom-tabs {
+    border: 1px solid #808080 !important;
+    border-radius: 4px !important;
+    display: flex !important;
+    overflow: hidden !important;
+    width: 100% !important;
+}
+
+.visualization-section .visualization-plot-tab {
+    align-items: center !important;
+    background-color: #f7f7f9 !important;
+    border: 0 !important;
+    border-right: 1px solid #d8dde3 !important;
+    box-sizing: border-box !important;
+    color: #6c757d !important;
+    display: flex !important;
+    flex: 1 1 0 !important;
+    font-size: 1rem !important;
+    font-weight: normal !important;
+    height: 44px !important;
+    justify-content: center !important;
+    line-height: 1.2 !important;
+    min-height: 44px !important;
+    min-width: 0 !important;
+    padding: 0 12px !important;
+    white-space: nowrap !important;
+    width: 0 !important;
+}
+
+.visualization-section .visualization-plot-tab:last-child {
+    border-right: 0 !important;
+}
+
+.visualization-section .visualization-plot-tab:hover {
+    background-color: #eef0f2 !important;
+    color: #343a40 !important;
+}
+
+.visualization-section .visualization-plot-tab--selected,
+.visualization-section .visualization-plot-tab--selected:hover {
+    background-color: #808080 !important;
+    color: #fff !important;
+    font-weight: 500 !important;
+}
+
+.visualization-section .visualization-plot-tab::before {
+    background-color: currentColor;
+    content: "";
+    display: inline-block;
+    flex: 0 0 18px;
+    height: 18px;
+    margin-right: 8px;
+    -webkit-mask-image: var(--plot-tab-icon);
+    mask-image: var(--plot-tab-icon);
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    width: 18px;
+}
+
+/* Plot-type icons: remove this modifier block to return to text-only tabs. */
+.visualization-plot-tab--dotplot {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='6' cy='7' r='2'/%3E%3Ccircle cx='15' cy='6' r='3'/%3E%3Ccircle cx='8' cy='16' r='3.5'/%3E%3Ccircle cx='18' cy='16' r='2'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--heatmap {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='3' y='3' width='5' height='5' rx='1'/%3E%3Crect x='10' y='3' width='5' height='5' rx='1'/%3E%3Crect x='17' y='3' width='4' height='5' rx='1'/%3E%3Crect x='3' y='10' width='5' height='5' rx='1'/%3E%3Crect x='10' y='10' width='5' height='5' rx='1'/%3E%3Crect x='17' y='10' width='4' height='5' rx='1'/%3E%3Crect x='3' y='17' width='5' height='4' rx='1'/%3E%3Crect x='10' y='17' width='5' height='4' rx='1'/%3E%3Crect x='17' y='17' width='4' height='4' rx='1'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--violin {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 2C8 5 9 8 6 12c3 4 2 7 6 10 4-3 3-6 6-10-3-4-2-7-6-10Z'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--pseudotime {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 18 9 12l4 3 8-10' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='3' cy='18' r='2'/%3E%3Ccircle cx='9' cy='12' r='2'/%3E%3Ccircle cx='13' cy='15' r='2'/%3E%3Ccircle cx='21' cy='5' r='2'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--split-violin {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M8 3C5 6 6 9 4 12c2 3 1 6 4 9 3-3 2-6 4-9-2-3-1-6-4-9Z'/%3E%3Cpath d='M16 3c-3 3-2 6-4 9 2 3 1 6 4 9 3-3 2-6 4-9-2-3-1-6-4-9Z'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--stacked-bar {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='3' y='4' width='5' height='16' rx='1'/%3E%3Crect x='10' y='8' width='5' height='12' rx='1'/%3E%3Crect x='17' y='2' width='4' height='18' rx='1'/%3E%3Cpath d='M3 11h5M10 14h5M17 8h4' stroke='white' stroke-width='1.5'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--paga {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m6 6 12 3M6 6l3 12m9-9-9 9' stroke='black' stroke-width='2'/%3E%3Ccircle cx='6' cy='6' r='3'/%3E%3Ccircle cx='18' cy='9' r='3'/%3E%3Ccircle cx='9' cy='18' r='3'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--volcano {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='3' cy='5' r='1.5'/%3E%3Ccircle cx='6' cy='9' r='1.5'/%3E%3Ccircle cx='9' cy='15' r='1.5'/%3E%3Ccircle cx='12' cy='19' r='1.5'/%3E%3Ccircle cx='15' cy='14' r='1.5'/%3E%3Ccircle cx='18' cy='8' r='1.5'/%3E%3Ccircle cx='21' cy='4' r='1.5'/%3E%3Ccircle cx='7' cy='4' r='1.5'/%3E%3Ccircle cx='17' cy='3' r='1.5'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--grn {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 6l7 5 7-6m-7 6-5 8m5-8 7 7' stroke='black' stroke-width='1.8'/%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Ccircle cx='19' cy='5' r='3'/%3E%3Ccircle cx='12' cy='11' r='3'/%3E%3Ccircle cx='7' cy='19' r='3'/%3E%3Ccircle cx='19' cy='18' r='3'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--peak-browser,
+.visualization-plot-tab--igv {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 6h20M2 18h20' stroke='black' stroke-width='1.5'/%3E%3Cpath d='M2 15h4l2-6 3 7 3-4 2 3h6v2H2Z'/%3E%3Crect x='3' y='3' width='5' height='2' rx='1'/%3E%3Crect x='11' y='3' width='9' height='2' rx='1'/%3E%3C/svg%3E");
+}
+
+@media (max-width: 991.98px) {
+    .visualization-section .custom-tabs {
+        justify-content: flex-start !important;
+        overflow-x: auto !important;
+    }
+
+    .visualization-section .visualization-plot-tab {
+        flex: 0 0 150px !important;
+        min-width: 150px !important;
+        width: 150px !important;
+    }
+}
+
+/* Only the workspace switch uses an underline; inner plot tabs keep LUX styling. */
+.visualization-section .visualization-workspace-tab,
+.visualization-section .visualization-workspace-tab--selected {
+    background-color: transparent !important;
+    border: 0 !important;
+    border-bottom: 3px solid transparent !important;
+    color: #6c757d !important;
+    font-size: 1.1rem !important;
+    font-weight: normal !important;
+    padding: 10px 16px !important;
+}
+
+.visualization-section .visualization-workspace-tab--selected {
+    background-color: transparent !important;
+    border: 0 !important;
+    border-bottom: 3px solid #4e5d6c !important;
+    color: #1a1a1a !important;
+    font-weight: bold !important;
+}
+
+.visualization-section .visualization-workspace-tab:hover,
+.visualization-section .visualization-workspace-tab--selected:hover {
+    background-color: transparent !important;
     color: #1a1a1a !important;
 }
 

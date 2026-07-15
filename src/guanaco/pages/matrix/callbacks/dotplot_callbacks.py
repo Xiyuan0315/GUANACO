@@ -62,7 +62,7 @@ def register_dotplot_callbacks(
             Input(f"{prefix}-dotplot-cluster-metric", "value"),
             Input(f"{prefix}-dotplot-transpose", "value"),
             Input(f"{prefix}-selected-cells-hash", "data"),
-            Input(f"{prefix}-single-cell-tabs", "value"),
+            Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
             State(f"{prefix}-dotplot", "figure"),

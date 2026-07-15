@@ -1,4 +1,5 @@
 import dash_bootstrap_components as dbc
+import pandas as pd
 from dash import dcc, html
 
 from guanaco.data.loader import get_discrete_labels, obs_col
@@ -140,6 +141,16 @@ def build_global_filter_body(adata, prefix):
             ],
             style={"textAlign": "center", "marginTop": "15px"},
         ),
+    ]
+
+
+def selectable_scatter_annotations(adata):
+    """Return continuous obs plus the Global Filter's categorical columns."""
+    discrete = set(get_discrete_labels(adata))
+    return [
+        col
+        for col in adata.obs.columns
+        if col in discrete or pd.api.types.is_numeric_dtype(adata.obs.dtypes[col])
     ]
 
 
@@ -316,16 +327,9 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
         style={"display": "none"},
     )
 
-    # Exclude high-cardinality categorical annotations from the scatter color
-    # dropdown: more than 50 categories means >50 colors, which is unreadable and
-    # slow. Continuous (numeric) columns are always kept (continuous colormap).
-    annotations = []
-    for col in adata.obs.columns:
-        if adata.obs.dtypes[col] == "category" or adata.obs.dtypes[col] == "object":
-            unique_vals = obs_col(adata.obs, col).unique()
-            if len(unique_vals) > 50:
-                continue
-        annotations.append(col)
+    # Use exactly the Global Data Filter rule for categorical annotations. Numeric
+    # observations remain available because scatter supports continuous coloring.
+    annotations = selectable_scatter_annotations(adata)
     sample_genes = adata.var_names[:20].tolist()
     combined_list = annotations + sample_genes
     # Surface configured genes even if they fall outside the sampled gene list.
@@ -424,6 +428,7 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                             "Update other Plots",
                                             id=f"{prefix}-update-plots-button",
                                             color="primary",
+                                            className="update-other-plots-button",
                                             n_clicks=0,
                                         ),
                                         dbc.DropdownMenu(

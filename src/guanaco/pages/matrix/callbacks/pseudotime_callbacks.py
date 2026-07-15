@@ -102,7 +102,7 @@ def register_pseudotime_callbacks(
             Output(f"{prefix}-pseudotime-rendered-key", "data"),
         ],
         [
-            Input(f"{prefix}-single-cell-tabs", "value"),
+            Input(f"{prefix}-marker-tabs", "value"),
             Input(f"{prefix}-single-cell-genes-selection", "value"),
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
@@ -199,7 +199,7 @@ def register_pseudotime_callbacks(
             Output(f"{prefix}-pseudotime-key-dropdown", "options"),
             Output(f"{prefix}-pseudotime-key-dropdown", "value"),
         ],
-        Input(f"{prefix}-single-cell-tabs", "value"),
+        Input(f"{prefix}-marker-tabs", "value"),
     )
     def update_pseudotime_key_options(active_tab):
         if active_tab == _PSEUDOTIME_TAB:

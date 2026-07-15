@@ -1,5 +1,6 @@
 from dash import dcc, html
 
+from guanaco.data.loader import get_discrete_labels
 from guanaco.utils.render_guard import rendered_key_store
 from guanaco.utils.colors import discrete_palette_options
 from guanaco.utils.plot_config import heatmap_config
@@ -12,7 +13,7 @@ from guanaco.utils.ui_helpers import (
 
 
 def generate_heatmap_layout(adata, prefix):
-    label_list = adata.obs.columns.to_list()
+    label_list = get_discrete_labels(adata)
     palette_options = discrete_palette_options()
 
     heatmap_transformation_selection = labeled_radioitems(

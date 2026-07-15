@@ -256,7 +256,7 @@ def register_heatmap_callbacks(
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-heatmap-secondary-colormap-dropdown", "value"),
             Input(f"{prefix}-selected-cells-hash", "data"),
-            Input(f"{prefix}-single-cell-tabs", "value"),
+            Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
             State(f"{prefix}-heatmap", "figure"),

@@ -412,6 +412,37 @@ def test_initialize_data_uses_default_colors_when_omitted():
     assert datasets["Demo"].color_config == loader.DEFAULT_COLORS
 
 
+def test_initialize_data_keeps_igv_tracks_with_their_modality():
+    cfg = {
+        "Demo": {
+            "sc_data": "s3://bucket/path/dataset.zarr",
+            "modalities": {
+                "rna": {},
+                "atac": {
+                    "bucket_urls": ["https://example.test/tracks"],
+                    "ATAC_name": ["ATAC sample"],
+                    "genome": "hg38",
+                },
+            },
+        }
+    }
+    tracks = {"ATAC sample": [{"name": "accessibility"}]}
+    reference = {"label": "hg38"}
+
+    with mock.patch.object(
+        loader, "load_tracks_from_s3", return_value=tracks
+    ) as load_tracks, mock.patch.object(
+        loader, "get_ref_track", return_value=reference
+    ) as get_reference:
+        bundle = loader.initialize_data(cfg=cfg, lazy_load=True)["Demo"]
+
+    assert bundle.modality_configs["rna"]["genome_tracks"] is None
+    assert bundle.modality_configs["atac"]["genome_tracks"] == tracks
+    assert bundle.modality_configs["atac"]["ref_track"] == reference
+    load_tracks.assert_called_once()
+    get_reference.assert_called_once_with("hg38")
+
+
 def test_load_tracks_from_s3_uses_default_colors_for_empty_palette():
     paginator = mock.Mock()
     paginator.paginate.return_value = [
@@ -441,7 +472,9 @@ def test_load_tracks_from_s3_uses_default_colors_for_empty_palette():
 
 
 def test_igv_tracks_use_the_selected_discrete_colormap():
-    from guanaco.pages.track.callbacks import _tracks_with_discrete_palette
+    from guanaco.pages.visualizations.plots.igv.callbacks import (
+        _tracks_with_discrete_palette,
+    )
     from guanaco.utils.colors import resolve_discrete_palette
 
     tracks = [{"name": "a", "color": "#000000"}, {"name": "b", "color": "#000000"}]

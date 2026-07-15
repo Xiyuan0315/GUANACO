@@ -81,7 +81,7 @@ def register_volcano_callbacks(app, adata, prefix):
         Input(f"{prefix}-volcano-padj-threshold", "value"),
         Input(f"{prefix}-volcano-x-threshold", "value"),
         Input(f"{prefix}-volcano-top-n", "value"),
-        Input(f"{prefix}-single-cell-tabs", "value"),
+        Input(f"{prefix}-exploratory-tabs", "value"),
         State(f"{prefix}-volcano-plot", "figure"),
         State(f"{prefix}-volcano-rendered-key", "data"),
     )

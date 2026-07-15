@@ -1,7 +1,7 @@
 """Helpers to avoid recomputing/redrawing a plot when nothing relevant changed.
 
-Tab-gated callbacks take ``{prefix}-single-cell-tabs`` as an Input, so they fire
-on every tab switch even when the plot's real parameters are unchanged. Pairing
+Tab-gated callbacks take their row's marker/exploratory tabs as an Input, so they
+fire on row-local tab switches even when the plot's real parameters are unchanged. Pairing
 ``rendered_key_store`` (a per-session dcc.Store) with ``signature`` lets a
 callback short-circuit with ``dash.no_update`` in that case — skipping both the
 expensive recompute and the browser redraw. Per-session (not server-global) so

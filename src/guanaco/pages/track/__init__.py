@@ -1,1 +1,0 @@
-"""Genome browser pages module."""

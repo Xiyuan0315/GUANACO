@@ -744,15 +744,28 @@ def get_discrete_labels(adata: ad.AnnData, *, max_unique: int = 50) -> list[str]
     if getattr(obs, "shape", (1,))[0] == 0:
         return []
 
-    # Only categorical columns, safe to call on a lazy Dataset2D.
+    # Categorical dtypes expose their declared cardinality without scanning the
+    # values. Plain string/object metadata is also commonly used for conditions
+    # and cell types, so include it when its observed cardinality is small. This
+    # deliberately excludes numeric measurements and high-cardinality IDs.
     dtypes = obs.dtypes
 
-    selected = [
-        (col, len(dtype.categories))
-        for col in obs.columns
-        if isinstance(dtype := dtypes[col], pd.CategoricalDtype)
-        and len(dtype.categories) < max_unique
-    ]
+    selected = []
+    for col in obs.columns:
+        dtype = dtypes[col]
+        if isinstance(dtype, pd.CategoricalDtype):
+            n_categories = len(dtype.categories)
+        elif (
+            pd.api.types.is_object_dtype(dtype)
+            or pd.api.types.is_string_dtype(dtype)
+            or pd.api.types.is_bool_dtype(dtype)
+        ):
+            n_categories = int(obs_col(obs, col).nunique(dropna=True))
+        else:
+            continue
+        if n_categories < max_unique:
+            selected.append((col, n_categories))
+
     selected.sort(key=lambda item: item[1])
     return [col for col, _ in selected]
 
@@ -1114,11 +1127,31 @@ def initialize_data(
                 if mod_opts is None:
                     mod_opts = dataset_cfg.get("optional_plot_components")
 
+                mod_genome_tracks = None
+                mod_ref_track = None
+                mod_bucket_urls = mod_cfg.get("bucket_urls")
+                if mod_bucket_urls:
+                    mod_genome = mod_cfg.get(
+                        "genome", dataset_cfg.get("genome", genome)
+                    )
+                    mod_track_names = mod_cfg.get(
+                        "ATAC_name",
+                        [f"Track_{i}" for i in range(len(mod_bucket_urls))],
+                    )
+                    mod_genome_tracks = load_tracks_from_s3(
+                        mod_bucket_urls,
+                        mod_track_names,
+                        dataset_colors,
+                    )
+                    mod_ref_track = get_ref_track(mod_genome)
+
                 modality_configs[mod_name] = {
                     "gene_markers": mod_markers,
                     "scatter_defaults": mod_scatter,
                     "optional_plot_components": mod_opts,
                     "gene_annotation_path": mod_ga,
+                    "genome_tracks": mod_genome_tracks,
+                    "ref_track": mod_ref_track,
                 }
 
         # Handle genome browser section (optional)
@@ -1138,7 +1171,10 @@ def initialize_data(
             ref_track = get_ref_track(dataset_genome)
 
         # Create dataset bundle only if at least one data type is present
-        if (adata is not None or genome_tracks is not None or
+        has_modality_tracks = any(
+            cfg.get("genome_tracks") for cfg in modality_configs.values()
+        )
+        if (adata is not None or genome_tracks is not None or has_modality_tracks or
             (lazy_load and "sc_data" in dataset_cfg and dataset_cfg["sc_data"])):
             dataset_bundle = DatasetBundle(
                 title=dataset_key,

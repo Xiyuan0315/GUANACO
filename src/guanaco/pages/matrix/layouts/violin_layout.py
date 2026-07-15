@@ -34,6 +34,7 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
             dcc.Graph(
                 id=f"{prefix}-violin-plot1",
                 config=common_config,
+                responsive=True,
                 style={"width": "100%", "minHeight": "400px"},
             ),
         ],
@@ -41,7 +42,9 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
     )
 
 
-def generate_split_violin_layout(default_gene_markers, discrete_label_list, prefix):
+def generate_split_violin_layout(
+    adata, default_gene_markers, discrete_label_list, prefix
+):
     """Comparative violin tab: one gene compared across obs1 (and optional obs2).
 
     Only the essentials -- gene + primary grouping -- are shown up front. The optional
@@ -49,12 +52,13 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
     collapsible "Grouping & statistics" panel so the default view stays uncluttered.
     """
     violin_show_box2 = switch_checklist(f"{prefix}-show-box2", "Show Box Plot")
+    default_meta = discrete_label_list[0] if discrete_label_list else None
 
     meta1_selection = labeled_dropdown(
         "Group by (Obs1):",
         f"{prefix}-meta1-selection",
         [{"label": meta, "value": meta} for meta in discrete_label_list],
-        value=discrete_label_list[0],
+        value=default_meta,
         clearable=False,
         placeholder="Select primary grouping",
         wrapper_style={"flex": "1"},
@@ -63,7 +67,8 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
     meta2_selection = labeled_dropdown(
         "Compare by (Obs2):",
         f"{prefix}-meta2-selection",
-        [{"label": "None", "value": "none"}] + [{"label": meta, "value": meta} for meta in discrete_label_list],
+        [{"label": "None", "value": "none"}]
+        + [{"label": meta, "value": meta} for meta in discrete_label_list],
         value="none",
         clearable=False,
         placeholder="Optional secondary grouping",
@@ -95,7 +100,10 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
             {"label": "Kruskal-Wallis", "value": "kw-test"},
             {"label": "ANOVA", "value": "anova"},
             {"label": "Linear Model", "value": "linear-model"},
-            {"label": "Linear Model with Interaction", "value": "linear-model-interaction"},
+            {
+                "label": "Linear Model with Interaction",
+                "value": "linear-model-interaction",
+            },
             {"label": "Mixed Model", "value": "mixed-model"},
         ],
         value="auto",
@@ -111,24 +119,49 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
         wrapper_style={"flex": "1"},
     )
 
+    data_layer_selection = labeled_dropdown(
+        "Data layer:",
+        f"{prefix}-violin2-data-layer",
+        [{"label": "X", "value": "X"}]
+        + [{"label": layer, "value": layer} for layer in adata.layers.keys()],
+        value="X",
+        clearable=False,
+        wrapper_style={"flex": "1"},
+    )
+
     advanced_toggle = dbc.Button(
         "▸ More options",
         id=f"{prefix}-split-violin-options-toggle",
         color="link",
         size="sm",
-        style={"padding": "2px 0", "textDecoration": "none", "fontWeight": "bold", "marginBottom": "10px"},
+        style={
+            "padding": "2px 0",
+            "textDecoration": "none",
+            "fontWeight": "normal",
+            "marginBottom": "10px",
+        },
     )
 
     advanced_panel = dbc.Collapse(
         html.Div(
             [
                 html.Div(
-                    [mode_selection, meta2_selection, test_method_selection],
+                    [
+                        mode_selection,
+                        meta2_selection,
+                        test_method_selection,
+                        data_layer_selection,
+                    ],
                     style={"display": "flex", "marginBottom": "10px", "gap": "10px"},
                 ),
                 html.Div(
                     id=f"{prefix}-mode-explanation",
-                    style={"fontSize": "12px", "color": "gray", "marginBottom": "10px", "fontStyle": "italic"},
+                    style={
+                        "fontSize": "12px",
+                        "color": "gray",
+                        "marginBottom": "10px",
+                        "fontStyle": "italic",
+                    },
                 ),
             ],
             style={
@@ -156,7 +189,7 @@ def generate_split_violin_layout(default_gene_markers, discrete_label_list, pref
             advanced_toggle,
             advanced_panel,
             dcc.Loading(
-                id="loading-violin2",
+                id=f"{prefix}-loading-violin2",
                 type="circle",
                 overlay_style=LOADING_OVERLAY_STYLE,
                 children=[

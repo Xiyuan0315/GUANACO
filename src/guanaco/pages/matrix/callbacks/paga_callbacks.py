@@ -32,7 +32,9 @@ def _resolve_edge_threshold(edge_threshold):
 
 
 def _paga_discrete_palette(adata, obs_key, discrete_colormap, color_config):
-    n_colors = obs_col(adata.obs, obs_key).nunique() if obs_key in adata.obs.columns else 0
+    n_colors = (
+        obs_col(adata.obs, obs_key).nunique() if obs_key in adata.obs.columns else 0
+    )
     return resolve_discrete_palette(
         discrete_colormap,
         n_colors,
@@ -113,8 +115,7 @@ def register_paga_callbacks(
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-paga-threshold", "value"),
-            Input(f"{prefix}-selected-cells-store", "data"),
-            Input(f"{prefix}-single-cell-tabs", "value"),
+            Input(f"{prefix}-exploratory-tabs", "value"),
         ],
         [
             State(f"{prefix}-paga-rendered-key", "data"),
@@ -127,7 +128,6 @@ def register_paga_callbacks(
         continuous_colormap,
         discrete_colormap,
         edge_threshold,
-        selected_cells,
         active_tab,
         rendered_key,
     ):
@@ -151,7 +151,6 @@ def register_paga_callbacks(
             continuous_colormap,
             discrete_colormap,
             edge_threshold,
-            selected_cells,
         )
         if cache_key == rendered_key:
             return no_update, no_update
@@ -173,7 +172,7 @@ def register_paga_callbacks(
             continuous_color_map=continuous_colormap or _DEFAULT_CONTINUOUS_COLORMAP,
             discrete_palette=discrete_palette,
             edge_threshold=edge_threshold,
-            selected_cells=selected_cells,
+            selected_cells=None,
         )
         return component, cache_key
 

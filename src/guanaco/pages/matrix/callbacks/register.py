@@ -4,7 +4,7 @@ import time
 from collections import OrderedDict
 import warnings
 import numpy as np
-from dash import dcc, html, Input, Output, State, callback_context, ALL, no_update
+from dash import Input, Output, State, callback_context, ALL, no_update
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
@@ -17,30 +17,29 @@ from guanaco.pages.matrix.plots.heatmap import (
 )
 from guanaco.pages.matrix.plots.violin1 import plot_violin1
 from guanaco.pages.matrix.plots.violin2 import plot_violin2_new
-from guanaco.pages.matrix.plots.stacked_bar import plot_stacked_bar
+from guanaco.pages.matrix.plots.stacked_bar import (
+    plot_composition_differential_abundance,
+    plot_composition_hierarchy,
+    plot_stacked_bar,
+)
+from guanaco.pages.matrix.analysis import calculate_alr_welch
 from guanaco.pages.matrix.plots.dotmatrix import plot_dot_matrix
 from guanaco.pages.matrix.plots.pseudotime import plot_genes_in_pseudotime
 from guanaco.pages.matrix.plots.paga import build_paga_cytoscape
-from guanaco.pages.matrix.plots.volcano import has_volcano_data
-from guanaco.pages.matrix.layouts.heatmap_layout import generate_heatmap_layout
-from guanaco.pages.matrix.layouts.violin_layout import generate_violin_layout, generate_split_violin_layout
-from guanaco.pages.matrix.layouts.dotplot_layout import generate_dotplot_layout
-from guanaco.pages.matrix.layouts.stacked_bar_layout import generate_stacked_bar_layout
-from guanaco.pages.matrix.layouts.pseudotime_layout import generate_pseudotime_layout
-from guanaco.pages.matrix.layouts.paga_layout import generate_paga_layout
-from guanaco.pages.matrix.layouts.volcano_layout import generate_volcano_layout
-from guanaco.pages.matrix.layouts.grn_demo_layout import generate_grn_demo_layout
-from guanaco.pages.matrix.layouts.atac_browser_layout import generate_atac_browser_layout
 from guanaco.pages.matrix.layouts.embedding_layout import (
     generate_embedding_plots as build_embedding_plots,
     initialize_scatter_components as build_initialize_scatter_components,
     build_global_filter_body,
+    selectable_scatter_annotations,
 )
 from guanaco.pages.matrix.callbacks.scatter_callbacks import register_scatter_callbacks
 from guanaco.pages.matrix.callbacks.heatmap_callbacks import register_heatmap_callbacks
 from guanaco.pages.matrix.callbacks.dotplot_callbacks import register_dotplot_callbacks
 from guanaco.pages.matrix.callbacks.pseudotime_callbacks import register_pseudotime_callbacks
-from guanaco.pages.matrix.callbacks.violin_callbacks import register_violin_callbacks
+from guanaco.pages.matrix.callbacks.violin_callbacks import (
+    register_comparative_violin_callbacks,
+    register_marker_violin_callbacks,
+)
 from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import register_stacked_bar_callbacks
 from guanaco.pages.matrix.callbacks.paga_callbacks import register_paga_callbacks
 from guanaco.pages.matrix.callbacks.volcano_callbacks import register_volcano_callbacks
@@ -217,223 +216,6 @@ def filter_data(adata, annotation, selected_labels, selected_cells=None):
     return _filter_data_cache.get_or_create(adata, annotation, selected_labels, selected_cells)
 
 
-def generate_left_control(default_gene_markers, label_list, prefix):
-    # Radio buttons for input mode selection
-    input_mode_radio = dbc.RadioItems(
-        id=f'{prefix}-gene-input-mode',
-        options=[
-            {'label': 'Dropdown', 'value': 'dropdown'},
-            {'label': 'Text', 'value': 'text'}
-        ],
-        value='dropdown',
-        inline=True,
-        style={'fontSize': '14px', 'marginBottom': '10px'}
-    )
-    
-    # Dropdown for gene selection
-    genes_dropdown = dcc.Dropdown(
-        id=f'{prefix}-single-cell-genes-selection',
-        options=[{'label': gene, 'value': gene} for gene in default_gene_markers],
-        value=default_gene_markers,
-        multi=True,
-        style={'marginBottom': '15px', 'font-size': '12px'},
-        className='custom-dropdown'
-    )
-    
-    # Text area for gene input (initially hidden)
-    genes_textarea = dcc.Textarea(
-        id=f'{prefix}-single-cell-genes-textarea',
-        placeholder='Enter genes separated by commas (e.g., Gene1, Gene2, Gene3)',
-        value=', '.join(default_gene_markers),
-        style={'width': '100%', 'height': '80px', 'marginBottom': '10px', 'display': 'none'},
-        className='custom-textarea'
-    )
-    
-    error_message = html.Div(
-        id=f'{prefix}-gene-input-error',
-        style={'color': 'red', 'fontSize': '12px', 'marginBottom': '10px'}
-    )
-    
-    genes_selection = html.Div([
-        input_mode_radio,
-        genes_dropdown,
-        genes_textarea,
-        error_message
-    ])
-    
-    annotation_filter = dcc.Dropdown(
-        id=f'{prefix}-single-cell-annotation-dropdown',
-        options=[{'label': label, 'value': label} for label in label_list],
-        value=label_list[len(label_list) // 2],
-        style={'marginBottom': '15px'},
-        clearable=False,
-        className='custom-dropdown'
-    )
-    
-    label_list_selection = dcc.Dropdown(
-        id=f'{prefix}-single-cell-label-selection',
-        multi=True,
-        style={'marginBottom': '15px', 'font-size': '12px'},
-        className='custom-dropdown'
-    )
-
-    
-    return html.Div([
-        html.Label('Select Variables:', style={'fontWeight': 'bold', 'marginBottom': '5px'}),
-        genes_selection,
-        html.Label('Select Annotation:', style={'fontWeight': 'bold', 'marginBottom': '5px'}),
-        annotation_filter,
-        html.Label('Select Labels:', style={'fontWeight': 'bold', 'marginBottom': '5px'}),
-        label_list_selection,
-    ])
-
-
-def generate_other_plots(
-    adata,
-    default_gene_markers,
-    discrete_label_list,
-    prefix,
-    optional_plot_components=None,
-    gene_annotation_path=None,
-):
-    component_aliases = {
-        'vocano': 'volcano',
-        'grn-demo': 'grn',
-        'expression-trend': 'pseudotime',
-        'expression_trend': 'pseudotime',
-        'stacked-violin': 'violin',
-        'violin2': 'split-violin',
-        'split_violin': 'split-violin',
-        'splitviolin': 'split-violin',
-        'grouped-violin': 'split-violin',
-        'group-violin': 'split-violin',
-        'trackplot': 'peak-browser',
-        'track-plot': 'peak-browser',
-        'genome-browser': 'peak-browser',
-        'atac_browser': 'peak-browser',
-        'atac-browser': 'peak-browser',  # legacy key
-    }
-    valid_optional_components = {
-        'heatmap', 'violin', 'split-violin', 'dotplot', 'stacked-bar',
-        'pseudotime', 'paga', 'volcano', 'grn', 'peak-browser',
-    }
-    if optional_plot_components is None:
-        selected_optional_components = ['heatmap', 'violin', 'split-violin', 'dotplot', 'stacked-bar']
-        if has_genomic_peak_features(adata):
-            selected_optional_components.append('peak-browser')
-    else:
-        selected_optional_components = [
-            component_aliases.get(comp, comp)
-            for comp in optional_plot_components
-            if component_aliases.get(comp, comp) in valid_optional_components
-        ]
-    if 'peak-browser' in selected_optional_components and not has_genomic_peak_features(adata):
-        selected_optional_components = [comp for comp in selected_optional_components if comp != 'peak-browser']
-    if 'paga' in selected_optional_components and not (
-        'paga' in adata.uns and 'connectivities' in adata.uns['paga']
-    ):
-        selected_optional_components = [comp for comp in selected_optional_components if comp != 'paga']
-    if 'volcano' in selected_optional_components and not has_volcano_data(adata):
-        selected_optional_components = [comp for comp in selected_optional_components if comp != 'volcano']
-    tab_order = [
-        ('dotplot', 'dotplot-tab'),
-        ('heatmap', 'heatmap-tab'),
-        ('violin', 'violin-tab'),
-        ('split-violin', 'split-violin-tab'),
-        ('stacked-bar', 'stacked-bar-tab'),
-        ('pseudotime', 'pseudotime-tab'),
-        ('paga', 'paga-tab'),
-        ('volcano', 'volcano-tab'),
-        ('grn', 'grn-tab'),
-        ('peak-browser', 'peak-browser-tab'),
-    ]
-    initial_tab_value = next(
-        (tab for key, tab in tab_order if key in selected_optional_components),
-        None,
-    )
-
-    tabs_children = []
-    if 'heatmap' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(label='Heatmap', value='heatmap-tab', children=[html.Div(generate_heatmap_layout(adata, prefix))])
-        )
-    if 'violin' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(
-                label='Violin Plot',
-                value='violin-tab',
-                children=[html.Div(generate_violin_layout(default_gene_markers, discrete_label_list, prefix))]
-            )
-        )
-    if 'split-violin' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(
-                label='Comparative Violin',
-                value='split-violin-tab',
-                children=[html.Div(generate_split_violin_layout(default_gene_markers, discrete_label_list, prefix))]
-            )
-        )
-    if 'dotplot' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(label='Dotplot', value='dotplot-tab', children=[html.Div(generate_dotplot_layout(prefix))])
-        )
-    if 'stacked-bar' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(
-                label='Stacked Bar',
-                value='stacked-bar-tab',
-                children=[html.Div(generate_stacked_bar_layout(discrete_label_list, prefix))]
-            )
-        )
-    if 'pseudotime' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(label='Expression Trend', value='pseudotime-tab', children=[html.Div(generate_pseudotime_layout(prefix))])
-        )
-    if 'paga' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(label='PAGA', value='paga-tab', children=[html.Div(generate_paga_layout(adata, prefix))])
-        )
-    if 'volcano' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(label='Volcano Plot', value='volcano-tab', children=[html.Div(generate_volcano_layout(adata, prefix))])
-        )
-    if 'grn' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(label='GRN', value='grn-tab', children=[html.Div(generate_grn_demo_layout(adata, prefix))])
-        )
-    if 'peak-browser' in selected_optional_components:
-        tabs_children.append(
-            dcc.Tab(
-                label='Peak Browser',
-                value='peak-browser-tab',
-                children=[html.Div(generate_atac_browser_layout(adata, prefix, gene_annotation_path=gene_annotation_path))]
-            )
-        )
-
-    tabs = dcc.Tabs(
-        tabs_children,
-        id=f'{prefix}-single-cell-tabs',
-        value=initial_tab_value,
-        className='custom-tabs'
-    )
-
-    no_optional_plots_msg = None
-    if not tabs_children:
-        no_optional_plots_msg = dbc.Alert(
-            "No optional plots enabled for this dataset. Set `optional_plot_components` in the config to enable them.",
-            color="secondary",
-            style={'marginTop': '10px'}
-        )
-
-    return dbc.Row([
-        dbc.Col(
-            generate_left_control(default_gene_markers, discrete_label_list, prefix),
-            xs=12, sm=12, md=4, lg=4, xl=2,
-            style={"borderRight": "1px solid #ddd", "padding": "10px"},
-        ),
-        dbc.Col([tabs, no_optional_plots_msg] if no_optional_plots_msg else [tabs], xs=12, sm=12, md=8, lg=8, xl=10)
-    ], style={'marginBottom': '50px'})
-
 # ============= Helper Functions =============
 
 def is_continuous_annotation(adata, annotation, threshold=50):
@@ -451,25 +233,144 @@ def is_continuous_annotation(adata, annotation, threshold=50):
         return n_unique >= threshold
     return False
 
+
+def register_marker_plot_callbacks(app, adata, prefix, enabled, color_config):
+    """Register plots driven by the shared feature/annotation/label controls."""
+    if "heatmap" in enabled:
+        register_heatmap_callbacks(
+            app,
+            adata,
+            prefix,
+            filter_data=filter_data,
+            plot_unified_heatmap=plot_unified_heatmap,
+            palette_json=palette_json,
+            color_config=color_config,
+            make_cache_key=_make_cache_key,
+            hash_list_signature=_hash_list_signature,
+            cached_figure_get=_cached_figure_get,
+            cached_figure_set=_cached_figure_set,
+        )
+    if "dotplot" in enabled:
+        register_dotplot_callbacks(
+            app,
+            adata,
+            prefix,
+            filter_data=filter_data,
+            plot_dot_matrix=plot_dot_matrix,
+            make_cache_key=_make_cache_key,
+            hash_list_signature=_hash_list_signature,
+            cached_figure_get=_cached_figure_get,
+            cached_figure_set=_cached_figure_set,
+        )
+    if "pseudotime" in enabled:
+        register_pseudotime_callbacks(
+            app,
+            adata,
+            prefix,
+            filter_data=filter_data,
+            plot_genes_in_pseudotime=plot_genes_in_pseudotime,
+            palette_json=palette_json,
+            color_config=color_config,
+            make_cache_key=_make_cache_key,
+            hash_list_signature=_hash_list_signature,
+            cached_figure_get=_cached_figure_get,
+            cached_figure_set=_cached_figure_set,
+        )
+    if "violin" in enabled:
+        register_marker_violin_callbacks(
+            app,
+            adata,
+            prefix,
+            filter_data=filter_data,
+            plot_violin1=plot_violin1,
+        )
+
+
+def register_exploratory_plot_callbacks(
+    app,
+    adata,
+    prefix,
+    enabled,
+    color_config,
+    *,
+    gene_annotation_path,
+    var_names,
+    var_names_lower,
+    resolve_plot_adata_from_filter,
+    hash_list_signature,
+):
+    """Register plots whose data selections are owned by their own tab."""
+    if "split-violin" in enabled:
+        register_comparative_violin_callbacks(
+            app,
+            adata,
+            prefix,
+            plot_violin2_new=plot_violin2_new,
+            var_names=var_names,
+            var_names_lower=var_names_lower,
+            color_config=color_config,
+        )
+    if "stacked-bar" in enabled:
+        register_stacked_bar_callbacks(
+            app,
+            adata,
+            prefix,
+            calculate_alr_welch=calculate_alr_welch,
+            plot_composition_differential_abundance=(
+                plot_composition_differential_abundance
+            ),
+            plot_composition_hierarchy=plot_composition_hierarchy,
+            plot_stacked_bar=plot_stacked_bar,
+            palette_json=palette_json,
+            color_config=color_config,
+            resolve_plot_adata_from_filter=resolve_plot_adata_from_filter,
+            hash_list_signature=hash_list_signature,
+        )
+    if "paga" in enabled:
+        register_paga_callbacks(
+            app,
+            adata,
+            prefix,
+            build_paga_cytoscape=build_paga_cytoscape,
+            color_config=color_config,
+        )
+    if "volcano" in enabled:
+        register_volcano_callbacks(app, adata, prefix)
+    if "grn" in enabled:
+        register_grn_demo_callbacks(app, adata, prefix)
+    if "peak-browser" in enabled and has_genomic_peak_features(adata):
+        register_atac_browser_callbacks(
+            app,
+            adata,
+            prefix,
+            gene_annotation_path=gene_annotation_path,
+            color_config=color_config,
+        )
+
+
 # ============= Main Callback Functions =============
 
 def matrix_callbacks(
     app,
     adata,
     prefix,
+    enabled_components,
     embedding_render_backend="scattergl",
     color_config=None,
     gene_annotation_path=None,
 ):
-    """Combined callback registration for both scatter and other plots"""
+    """Compose shared, marker-driven, and exploratory callback registrars."""
     embedding_render_backend = str(embedding_render_backend).lower()
     if embedding_render_backend not in {"scattergl", "datashader"}:
         embedding_render_backend = "scattergl"
 
     # Use the dataset's palette when provided; otherwise fall back to the global default.
     color_config = color_config or _default_color_config
+    enabled_components = set(enabled_components)
 
-    obs_columns = adata.obs.columns.to_list()
+    # Scatter accepts continuous observations plus the same bounded categorical
+    # columns exposed by Global Data Filter. This keeps IDs/barcodes out of search.
+    obs_columns = selectable_scatter_annotations(adata)
     obs_columns_lower = [c.lower() for c in obs_columns]
     var_names = adata.var_names.to_list()
     var_names_lower = [g.lower() for g in var_names]
@@ -763,97 +664,21 @@ def matrix_callbacks(
         label_options = [{'label': label, 'value': label} for label in unique_labels]
         return label_options, list(unique_labels)
 
-    register_heatmap_callbacks(
-        app,
-        adata,
-        prefix,
-        filter_data=filter_data,
-        plot_unified_heatmap=plot_unified_heatmap,
-        palette_json=palette_json,
-        color_config=color_config,
-        make_cache_key=_make_cache_key,
-        hash_list_signature=_hash_list_signature,
-        cached_figure_get=_cached_figure_get,
-        cached_figure_set=_cached_figure_set,
+    register_marker_plot_callbacks(
+        app, adata, prefix, enabled_components, color_config
     )
-
-    register_dotplot_callbacks(
+    register_exploratory_plot_callbacks(
         app,
         adata,
         prefix,
-        filter_data=filter_data,
-        plot_dot_matrix=plot_dot_matrix,
-        make_cache_key=_make_cache_key,
-        hash_list_signature=_hash_list_signature,
-        cached_figure_get=_cached_figure_get,
-        cached_figure_set=_cached_figure_set,
-    )
-
-    register_pseudotime_callbacks(
-        app,
-        adata,
-        prefix,
-        filter_data=filter_data,
-        plot_genes_in_pseudotime=plot_genes_in_pseudotime,
-        palette_json=palette_json,
-        color_config=color_config,
-        make_cache_key=_make_cache_key,
-        hash_list_signature=_hash_list_signature,
-        cached_figure_get=_cached_figure_get,
-        cached_figure_set=_cached_figure_set,
-    )
-
-    register_violin_callbacks(
-        app,
-        adata,
-        prefix,
-        filter_data=filter_data,
-        plot_violin1=plot_violin1,
-        plot_violin2_new=plot_violin2_new,
-        palette_json=palette_json,
+        enabled_components,
+        color_config,
+        gene_annotation_path=gene_annotation_path,
         var_names=var_names,
         var_names_lower=var_names_lower,
-        color_config=color_config,
+        resolve_plot_adata_from_filter=_resolve_plot_adata_from_filter,
+        hash_list_signature=_hash_list_signature,
     )
-
-    register_stacked_bar_callbacks(
-        app,
-        adata,
-        prefix,
-        filter_data=filter_data,
-        plot_stacked_bar=plot_stacked_bar,
-        palette_json=palette_json,
-        color_config=color_config,
-    )
-
-    register_paga_callbacks(
-        app,
-        adata,
-        prefix,
-        build_paga_cytoscape=build_paga_cytoscape,
-        color_config=color_config,
-    )
-
-    register_volcano_callbacks(
-        app,
-        adata,
-        prefix,
-    )
-
-    register_grn_demo_callbacks(
-        app,
-        adata,
-        prefix,
-    )
-
-    if has_genomic_peak_features(adata):
-        register_atac_browser_callbacks(
-            app,
-            adata,
-            prefix,
-            gene_annotation_path=gene_annotation_path,
-            color_config=color_config,
-        )
 
     # Add callback to update filter status
     @app.callback(

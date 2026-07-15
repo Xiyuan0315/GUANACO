@@ -5,6 +5,7 @@ import plotly.express as px
 from PIL import Image
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
+from guanaco.utils.obs_utils import sorted_categories
 from guanaco.data.loader import obs_col
 
 EMBEDDING_PREFIXES = {
@@ -785,7 +786,10 @@ def plot_embedding(
         )
 
     adata_full = adata if adata_full is None else adata_full
-    all_unique_labels = sorted(obs_col(adata_full.obs, color).unique())
+    # Metadata can contain mixed Python types or missing values. A plain sorted()
+    # raises for combinations such as strings and floats; use the shared category
+    # resolver so every categorical plot gets the same safe ordering and drops NaN.
+    all_unique_labels = sorted_categories(adata_full, color)
     palette = discrete_color_map or px.colors.qualitative.Plotly
     label_to_color_dict = {
         label: palette[i % len(palette)]
@@ -814,7 +818,7 @@ def plot_embedding(
         if ds_fig is not None:
             return ds_fig
 
-    unique_labels_filtered = sorted(pd.unique(color_values))
+    unique_labels_filtered = sorted_categories(adata, color)
     all_indices = np.arange(color_values.size)
     label_to_indices = {}
     for label in unique_labels_filtered:

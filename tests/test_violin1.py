@@ -7,6 +7,7 @@ from dash.exceptions import PreventUpdate
 
 from guanaco.pages.matrix.plots import violin1 as violin1_module
 from guanaco.pages.matrix.plots.violin1 import plot_violin1
+from guanaco.pages.matrix.callbacks.violin_callbacks import _violin1_graph_style
 from guanaco.utils.gene_extraction_utils import clear_gene_cache
 
 
@@ -79,6 +80,9 @@ def test_violin_filters_labels_and_keeps_gene_labels():
     gene_labels = [ax.ticktext[0] for ax in fig.select_yaxes() if ax.ticktext]
     assert gene_labels == ["GeneA", "GeneB"]
     np.testing.assert_allclose(np.asarray(violins[0].y), [2.0, 4.0])
+    assert fig.layout.autosize is True
+    assert fig.layout.width is None
+    assert fig.layout.height == 400
 
 
 def test_violin_log_transform_is_applied_before_plotting():
@@ -111,3 +115,11 @@ def test_violin_cache_limit_keeps_most_recent_fifty_entries():
     assert len(violin1_module._violin_data_cache) == 50
     assert "k0" not in violin1_module._violin_data_cache
     assert violin1_module._violin_data_cache["k50"] == {"i": 50}
+
+
+def test_violin_graph_container_preserves_dynamic_height():
+    assert _violin1_graph_style({"layout": {"height": 840}}) == {
+        "width": "100%",
+        "height": "840px",
+        "minHeight": "400px",
+    }

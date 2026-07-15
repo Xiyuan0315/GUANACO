@@ -1,9 +1,7 @@
 import dash_bootstrap_components as dbc
-from dash import html, dcc
-from guanaco.pages.track.layout import gene_browser_layout
+from dash import html
 from guanaco.pages.matrix.layouts.embedding_layout import generate_embedding_plots
-from guanaco.pages.matrix.callbacks import generate_other_plots
-from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
+from guanaco.pages.visualizations import generate_visualization_sections
 import muon as mu
 
 # tip
@@ -164,11 +162,27 @@ def description_layout(dataset):
         )
     
     # Add genome browser information if available
-    if dataset.genome_tracks is not None:
-        track_count = sum(len(tracks) for tracks in dataset.genome_tracks.values())
-        summary_items.append(
-            html.P([html.B("Genome Browser Tracks: "), f"{track_count}"], className="summary-item")
+    modality_track_sets = [
+        cfg.get("genome_tracks")
+        for cfg in (dataset.modality_configs or {}).values()
+        if cfg.get("genome_tracks")
+    ]
+    configured_track_sets = modality_track_sets or (
+        [dataset.genome_tracks] if dataset.genome_tracks else []
+    )
+    if configured_track_sets:
+        track_count = sum(
+            len(tracks)
+            for genome_tracks in configured_track_sets
+            for tracks in genome_tracks.values()
         )
+        summary_items.append(
+            html.P(
+                [html.B("Genome Browser Tracks: "), f"{track_count}"],
+                className="summary-item",
+            )
+        )
+
 
     # Final layout
     return html.Div(
@@ -180,29 +194,41 @@ def description_layout(dataset):
 
 def create_modality_tabs(dataset, tab):
     if dataset.adata is None:
-        return html.Div()  # Return empty div if no adata
-    
-    modalities = dataset.adata.mod.keys() if isinstance(dataset.adata, mu.MuData) else ["rna"]
-    tabs = [
-        dbc.Tab(label=mod.upper(), tab_id=mod) for mod in modalities
-    ]
+        track_modalities = [
+            name
+            for name, cfg in (dataset.modality_configs or {}).items()
+            if cfg.get("genome_tracks")
+        ]
+        if track_modalities:
+            modalities = track_modalities
+        elif dataset.genome_tracks:
+            modalities = ["genome"]
+        else:
+            return html.Div()
+    else:
+        modalities = (
+            dataset.adata.mod.keys()
+            if isinstance(dataset.adata, mu.MuData)
+            else ["rna"]
+        )
+    tabs = [dbc.Tab(label=mod.upper(), tab_id=mod) for mod in modalities]
 
     # Wrap the tabs in a Card to match style
     return dbc.Container(
         fluid=True,
         children=[
-                dbc.CardHeader(
-                    dbc.Tabs(
-                        id={"type": "modality-tabs", "index": tab},
-                        active_tab=list(modalities)[0],
-                        children=tabs,
-                        class_name="modality-tabs"
-                    ),
-                    style={'padding': '0px'}  # remove default padding
+            dbc.CardHeader(
+                dbc.Tabs(
+                    id={"type": "modality-tabs", "index": tab},
+                    active_tab=list(modalities)[0],
+                    children=tabs,
+                    class_name="modality-tabs",
                 ),
-            
-        ]
+                style={"padding": "0px"},  # remove default padding
+            ),
+        ],
     )
+
 
 # AnnData layout (scatter and other plots)
 def anndata_layout(
@@ -213,65 +239,51 @@ def anndata_layout(
     optional_plot_components=None,
     scatter_defaults=None,
     gene_annotation_path=None,
+    genome_tracks=None,
+    ref_track=None,
 ):
-    return dbc.Container(
-        fluid=True,
-        children=[
+    sections = generate_visualization_sections(
+        adata,
+        default_gene_markers,
+        discrete_label_list,
+        prefix,
+        optional_plot_components=optional_plot_components,
+        gene_annotation_path=gene_annotation_path,
+        genome_tracks=genome_tracks,
+        ref_track=ref_track,
+    )
+    children = []
+    if adata is not None:
+        children.append(
             dbc.Card(
-                [
-                    html.Div(generate_embedding_plots(adata, prefix, scatter_defaults=scatter_defaults), className="plot-section"),
-                    html.Hr(style={'border': '1px solid #ddd'}),
-                    html.Div(
-                        generate_other_plots(
-                            adata,
-                            default_gene_markers,
-                            discrete_label_list,
-                            prefix,
-                            optional_plot_components=optional_plot_components,
-                            gene_annotation_path=gene_annotation_path,
-                        ),
-                        className="dbc plot-section",
+                html.Div(
+                    generate_embedding_plots(
+                        adata,
+                        prefix,
+                        scatter_defaults=scatter_defaults,
                     ),
-                ],
+                    className="plot-section",
+                ),
                 className="card-elevated",
             )
-        ]
+        )
+    children.extend(sections)
+    return dbc.Container(
+        fluid=True,
+        children=children,
     )
 
-# IGV layout
-def igv_layout(session_names, prefix):
-    if not session_names:
-        # No genome browser sessions for this dataset, so render nothing.
-        return html.Div()
-    
-    return dbc.Container(
-        fluid=True,
-        children=[
-            dbc.Card(
-                html.Div(gene_browser_layout(prefix, session_names), className="plot-section"),
-                className="card-elevated",
-                style={'marginTop': '20px'},
-            )
-        ]
-    )
 
 # Entire tab content
 def tab_content(dataset, tab):
-    return html.Div([
-        html.Div(id={"type": "description-layout-div", "index": tab}),
-        html.Div([
-            create_modality_tabs(dataset, tab),
-            html.Div(id={"type": "ann-layout-div", "index": tab})
-        ]),
-        # Wrap IGV in loading component with delay
-        dcc.Loading(
-            id=f"loading-igv-{tab}",
-            type="circle",
-            overlay_style=LOADING_OVERLAY_STYLE,
-            children=[
-                html.Div(id={"type": "igv-layout-div", "index": tab}),
-            ],
-            style={"marginTop": "20px"},
-            delay_show=1000,  # Wait 1 second before showing loading spinner
-        )
-    ])
+    return html.Div(
+        [
+            html.Div(id={"type": "description-layout-div", "index": tab}),
+            html.Div(
+                [
+                    create_modality_tabs(dataset, tab),
+                    html.Div(id={"type": "ann-layout-div", "index": tab}),
+                ]
+            ),
+        ]
+    )

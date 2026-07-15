@@ -370,6 +370,7 @@ def plot_violin1(
         paper_bgcolor='white',
         font=dict(size=10),
         showlegend=False,
+        autosize=True,
         height=fig_height,
         # Small base margins; automargin on the gene-name (left) axes grows the
         # left side to fit the longest name on its own.
