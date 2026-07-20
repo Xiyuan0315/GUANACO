@@ -8,6 +8,23 @@ common_config = {
     'modeBarButtonsToRemove': ['select', 'lasso2d', 'pan2d', 'zoom2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d', 'pan', 'zoom', 'resetScale2d']
 }
 
+# Cross-modal linked views keep lasso/box selection available. Selection is
+# synchronized client-side, so it does not rebuild either Plotly figure.
+concordance_scatter_config = {
+    'responsive': True,
+    'toImageButtonOptions': {
+        'format': 'svg',
+        'scale': 1,
+        'filename': 'cross_modal_concordance'
+    },
+    'displaylogo': False,
+    'scrollZoom': False,
+    'doubleClick': 'reset',
+    'modeBarButtonsToRemove': [
+        'pan2d', 'zoom2d', 'autoScale2d', 'zoomIn2d', 'zoomOut2d'
+    ],
+}
+
 # Heatmap: same as common, but double-click does a plain 'reset' (back to the
 # configured ranges) rather than the default 'reset+autosize'. The autosize step
 # misbehaves on the heatmap's constrain='domain' axes, leaving the view partly

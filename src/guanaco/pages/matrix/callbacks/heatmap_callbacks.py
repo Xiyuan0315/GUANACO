@@ -194,7 +194,13 @@ def _build_heatmap_figure(
     make_cache_key,
     hash_list_signature,
     color_config,
+    multiomics_source=None,
 ):
+    source_adata = (
+        multiomics_source.materialize(request.selected_genes)
+        if multiomics_source is not None
+        else adata
+    )
     plan_sig = _heatmap_plan_signature(
         make_cache_key,
         hash_list_signature,
@@ -204,14 +210,14 @@ def _build_heatmap_figure(
     # Keep the source AnnData stable when possible so gene-vector cache hits are maximized.
     # filter_data returns the same cached view for the same selected_cells, avoiding
     # repeated obs/var DataFrame slicing for purely cosmetic parameter changes.
-    plot_adata = filter_data(adata, None, None, request.selected_cells)
+    plot_adata = filter_data(source_adata, None, None, request.selected_cells)
     common_kwargs = _heatmap_kwargs(
         request,
         plot_adata=plot_adata,
         layer=_resolve_layer(request.data_layer),
-        label_color_maps=_heatmap_label_color_maps(adata, request),
+        label_color_maps=_heatmap_label_color_maps(source_adata, request),
         plan_sig=plan_sig,
-        adata_obs=adata.obs,
+        adata_obs=source_adata.obs,
         color_config=color_config,
     )
     return plot_unified_heatmap(**common_kwargs)
@@ -230,6 +236,7 @@ def register_heatmap_callbacks(
     hash_list_signature,
     cached_figure_get,
     cached_figure_set,
+    multiomics_source=None,
 ):
     @app.callback(
         Output(f"{prefix}-heatmap-secondary-colormap-wrapper", "style"),
@@ -309,6 +316,7 @@ def register_heatmap_callbacks(
             make_cache_key=make_cache_key,
             hash_list_signature=hash_list_signature,
             color_config=color_config,
+            multiomics_source=multiomics_source,
         )
         cached_figure_set(cache_key, fig)
         return fig, cache_key

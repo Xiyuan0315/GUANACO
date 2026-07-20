@@ -43,6 +43,7 @@ def register_dotplot_callbacks(
     hash_list_signature,
     cached_figure_get,
     cached_figure_set,
+    multiomics_source=None,
 ):
     @app.callback(
         [
@@ -122,8 +123,13 @@ def register_dotplot_callbacks(
         if cached_fig is not None:
             return cached_fig, cache_key
 
+        plot_adata = (
+            multiomics_source.materialize(selected_genes)
+            if multiomics_source is not None
+            else adata
+        )
         fig = plot_dot_matrix(
-            adata,
+            plot_adata,
             selected_genes,
             selected_annotation,
             selected_labels,

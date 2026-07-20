@@ -95,6 +95,7 @@ def register_pseudotime_callbacks(
     hash_list_signature,
     cached_figure_get,
     cached_figure_set,
+    multiomics_source=None,
 ):
     @app.callback(
         [
@@ -166,12 +167,17 @@ def register_pseudotime_callbacks(
         if cached_fig is not None:
             return cached_fig, cache_key
 
+        source_adata = (
+            multiomics_source.materialize(selected_genes)
+            if multiomics_source is not None
+            else adata
+        )
         filtered_adata = filter_data(
-            adata, selected_annotation, selected_labels, selected_cells
+            source_adata, selected_annotation, selected_labels, selected_cells
         )
 
         color_map = _pseudotime_color_map(
-            adata, selected_annotation, discrete_color_map, color_config
+            source_adata, selected_annotation, discrete_color_map, color_config
         )
 
         if not pseudotime_key:

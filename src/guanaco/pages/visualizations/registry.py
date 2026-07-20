@@ -37,6 +37,11 @@ PLOT_SPECS = (
     PlotSpec("grn", "GRN", EXPLORATION_WORKSPACE),
     PlotSpec("peak-browser", "Peak Browser", EXPLORATION_WORKSPACE, True),
     PlotSpec("igv", "IGV", EXPLORATION_WORKSPACE),
+    PlotSpec(
+        "cross-modal-concordance",
+        "Cross-modal concordance",
+        EXPLORATION_WORKSPACE,
+    ),
 )
 
 PLOT_SPECS_BY_KEY = {spec.key: spec for spec in PLOT_SPECS}

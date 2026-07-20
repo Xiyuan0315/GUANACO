@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 from PIL import Image
 from guanaco.utils.colors import resolve_continuous_colorscale
+from guanaco.utils.embeddings import embedding_to_numpy
 from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
 from guanaco.utils.obs_utils import sorted_categories
 from guanaco.data.loader import obs_col
@@ -106,7 +107,7 @@ def _resolve_embedding_coords(
     auto_select_spatial=False,
 ):
     """Return (x_values, y_values, x_axis, y_axis, embedding_columns, spatial_image)."""
-    embedding_data = adata.obsm[embedding_key]
+    embedding_data = embedding_to_numpy(adata.obsm[embedding_key])
     embedding_prefix = EMBEDDING_PREFIXES.get(embedding_key, embedding_key.removeprefix("X_"))
     embedding_columns = [f"{embedding_prefix}{i + 1}" for i in range(embedding_data.shape[1])]
     col_to_idx = {name: i for i, name in enumerate(embedding_columns)}

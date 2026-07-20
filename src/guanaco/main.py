@@ -12,6 +12,11 @@ from guanaco.layouts import (
 )
 from guanaco.pages.visualizations.callbacks import register_visualization_callbacks
 from guanaco.data.loader import get_discrete_labels
+from guanaco.data.multiomics import (
+    JOINT_TAB_ID,
+    expose_global_obs_to_modalities,
+    try_build_multiomics_source,
+)
 from guanaco.data.registry import datasets, embedding_render_backend
 from guanaco.utils.gene_extraction_utils import pin_genes
 import muon as mu
@@ -22,6 +27,7 @@ warnings.filterwarnings(
 mu.set_options(pull_on_update=False)
 
 _label_cache: dict[tuple[int, int, int], list[str]] = {}
+_multiomics_sources = {}
 
 
 def _cached_discrete_labels(adata):
@@ -89,6 +95,12 @@ for name, dataset in datasets.items():
     if dataset_adata is not None:
         if isinstance(dataset_adata, mu.MuData):
             modality_names = list(dataset_adata.mod.keys())
+            multiomics_source, unavailable_reason = try_build_multiomics_source(
+                dataset_adata
+            )
+            # Shared metadata stays stored once in mdata.obs. The existing
+            # single-modality callbacks receive aligned, in-memory views of it.
+            expose_global_obs_to_modalities(dataset_adata)
             for mod in modality_names:
                 mod_adata = dataset_adata.mod[mod]
                 prefix = f"{name}-{mod}"
@@ -106,6 +118,22 @@ for name, dataset in datasets.items():
                     optional_plot_components=mod_cfg["optional_plot_components"],
                     genome_tracks=mod_cfg["genome_tracks"],
                     ref_track=mod_cfg["ref_track"],
+                )
+            if multiomics_source is not None:
+                _multiomics_sources[name] = multiomics_source
+                register_visualization_callbacks(
+                    app,
+                    multiomics_source.base_adata,
+                    f"{name}-{JOINT_TAB_ID}",
+                    embedding_render_backend=embedding_render_backend,
+                    color_config=dataset.color_config,
+                    optional_plot_components=None,
+                    multiomics_source=multiomics_source,
+                )
+            elif unavailable_reason:
+                print(
+                    f"[guanaco] Multi-omics view unavailable for {name}: "
+                    f"{unavailable_reason}"
                 )
         else:
             prefix = name
@@ -149,7 +177,7 @@ for name, dataset in datasets.items():
 @app.callback(Output("tabs-content", "children"), Input("tabs-dataset", "active_tab"))
 def update_tab_content(tab):
     dataset = datasets[tab]
-    return tab_content(dataset, tab)
+    return tab_content(dataset, tab, multiomics_source=_multiomics_sources.get(tab))
 
 
 # Update description layout
@@ -173,7 +201,15 @@ def update_anndata_layout(selected_modality, active_tab):
     dataset = datasets[active_tab]
     dataset_adata = dataset.adata
     is_multimodal = isinstance(dataset_adata, mu.MuData)
-    adata = dataset_adata.mod[selected_modality] if is_multimodal else dataset_adata
+    multiomics_source = (
+        _multiomics_sources.get(active_tab)
+        if selected_modality == JOINT_TAB_ID
+        else None
+    )
+    if multiomics_source is not None:
+        adata = multiomics_source.base_adata
+    else:
+        adata = dataset_adata.mod[selected_modality] if is_multimodal else dataset_adata
     label_list = _cached_discrete_labels(adata) if adata is not None else []
     has_explicit_track_modality = (
         dataset_adata is None and selected_modality != "genome"
@@ -187,7 +223,34 @@ def update_anndata_layout(selected_modality, active_tab):
     # Per-modality config (falls back to dataset-level for single-modality / legacy configs).
     mod_cfg = _modality_config(dataset, selected_modality)
 
-    if mod_cfg["gene_markers"] is not None:
+    if multiomics_source is not None:
+        markers_by_modality = {
+            modality: _modality_config(dataset, modality).get("gene_markers")
+            for modality in multiomics_source.modalities
+        }
+        modality_markers = multiomics_source.default_features(markers_by_modality)
+        label_list = multiomics_source.discrete_obs_names
+        left_embedding = multiomics_source.preferred_embedding(
+            multiomics_source.modalities[0]
+        )
+        right_embedding = multiomics_source.preferred_embedding(
+            multiomics_source.modalities[1]
+        )
+        default_color = label_list[0] if label_list else None
+        mod_cfg = {
+            **mod_cfg,
+            "scatter_defaults": {
+                "embedding_left": left_embedding,
+                "embedding_right": right_embedding,
+                "color_left": default_color,
+                "color_right": default_color,
+            },
+            "optional_plot_components": None,
+            "gene_annotation_path": None,
+            "genome_tracks": None,
+            "ref_track": None,
+        }
+    elif mod_cfg["gene_markers"] is not None:
         modality_markers = mod_cfg["gene_markers"]
     else:
         modality_markers = adata.var_names[:6].tolist() if adata is not None else []
@@ -202,6 +265,7 @@ def update_anndata_layout(selected_modality, active_tab):
         gene_annotation_path=mod_cfg["gene_annotation_path"],
         genome_tracks=mod_cfg["genome_tracks"],
         ref_track=mod_cfg["ref_track"],
+        multiomics_source=multiomics_source,
     )
 
 

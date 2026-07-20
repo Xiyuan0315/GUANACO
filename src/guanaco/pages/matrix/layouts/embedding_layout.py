@@ -8,6 +8,7 @@ from guanaco.utils.colors import (
     continuous_colormap_options,
     discrete_palette_options,
 )
+from guanaco.utils.embeddings import is_embedding_obsm
 from guanaco.utils.plot_config import scatter_config, gene_scatter_config
 from guanaco.utils.ui_helpers import LOADING_OVERLAY_STYLE
 
@@ -23,9 +24,18 @@ EMBEDDING_PREFIXES = {
 
 
 def initialize_scatter_components(adata):
-    obsm_list = list(adata.obsm.keys())
+    obsm_list = [
+        key
+        for key in adata.obsm.keys()
+        if is_embedding_obsm(key, adata.obsm[key])
+    ]
+    if not obsm_list:
+        raise ValueError("No supported embedding coordinates were found in obsm.")
     embedding_columns = {
-        key: [f"{EMBEDDING_PREFIXES.get(key, key.removeprefix('X_'))}{i+1}" for i in range(adata.obsm[key].shape[1])]
+        key: [
+            f"{EMBEDDING_PREFIXES.get(key, key.removeprefix('X_'))}{i+1}"
+            for i in range(adata.obsm[key].shape[1])
+        ]
         for key in obsm_list
     }
     default_embedding = obsm_list[-1]
@@ -44,7 +54,13 @@ def create_control_components(adata, prefix, *, role="left", default_embedding=N
     default_columns = embedding_columns[initial_embedding]
     clustering_dropdown = dcc.Dropdown(
         id=f"{id_prefix}-clustering-dropdown",
-        options=[{"label": key.replace("X_", "").upper(), "value": key} for key in obsm_list],
+        options=[
+            {
+                "label": key if " · " in key else key.replace("X_", "").upper(),
+                "value": key,
+            }
+            for key in obsm_list
+        ],
         value=initial_embedding,
         placeholder="Select Clustering Method",
         style={"marginBottom": "15px", "fontSize": "14px"},
@@ -221,7 +237,12 @@ def create_global_metadata_filter(adata, prefix):
     )
 
 
-def generate_embedding_plots(adata, prefix, scatter_defaults=None):
+def generate_embedding_plots(
+    adata,
+    prefix,
+    scatter_defaults=None,
+    multiomics_source=None,
+):
     scatter_defaults = scatter_defaults or {}
     # Independent defaults for the left and right scatter panels.
     cfg_embedding_left = scatter_defaults.get("embedding_left")
@@ -330,11 +351,20 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
     # Use exactly the Global Data Filter rule for categorical annotations. Numeric
     # observations remain available because scatter supports continuous coloring.
     annotations = selectable_scatter_annotations(adata)
-    sample_genes = adata.var_names[:20].tolist()
+    sample_genes = (
+        multiomics_source.feature_preview(per_modality=10)
+        if multiomics_source is not None
+        else adata.var_names[:20].tolist()
+    )
     combined_list = annotations + sample_genes
     # Surface configured genes even if they fall outside the sampled gene list.
     for cfg_color in (cfg_color_left, cfg_color_right):
-        if cfg_color and cfg_color not in combined_list and cfg_color in adata.var_names:
+        is_feature = (
+            multiomics_source.is_feature(cfg_color)
+            if multiomics_source is not None
+            else cfg_color in adata.var_names
+        ) if cfg_color else False
+        if cfg_color and cfg_color not in combined_list and is_feature:
             combined_list = combined_list + [cfg_color]
 
     default_annotation = cfg_color_left if cfg_color_left in combined_list else (annotations[0] if annotations else None)
@@ -391,7 +421,18 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                 html.Div([html.Label("Dimension Reduction Right:", className="control-label"), right_clustering_dropdown], className="dbc", style={"marginBottom": "15px"}),
                                 html.Div([html.Div(right_coordinates_dropdowns, id=f"{prefix}-right-coordinates-dropdowns")], className="dbc", style={"marginBottom": "15px"}),
                                 spatial_imgkey_control,
-                                html.Div([html.Label("Data layer:", className="control-label"), data_layer_selection], className="dbc", style={"marginBottom": "15px"}),
+                                html.Div(
+                                    [
+                                        html.Label("Data layer:", className="control-label"),
+                                        data_layer_selection,
+                                    ],
+                                    className="dbc",
+                                    style=(
+                                        {"display": "none"}
+                                        if multiomics_source is not None
+                                        else {"marginBottom": "15px"}
+                                    ),
+                                ),
                                 html.Button("More controls", id=f"{prefix}-toggle-button", n_clicks=0, style={"marginBottom": "10px", "border": "1px solid", "borderRadius": "5px"}),
                                 graphic_control,
                             ]
@@ -470,8 +511,15 @@ def generate_embedding_plots(adata, prefix, scatter_defaults=None):
                                         html.Label("Second Gene:", style={"fontWeight": "bold", "marginBottom": "5px"}),
                                         dcc.Dropdown(
                                             id=f"{prefix}-scatter-gene2-selection",
-                                            options=[{"label": label, "value": label} for label in adata.var_names.to_list()[:10]],
-                                            value=adata.var_names.to_list()[1],
+                                            options=[
+                                                {"label": label, "value": label}
+                                                for label in sample_genes[:10]
+                                            ],
+                                            value=(
+                                                sample_genes[1]
+                                                if len(sample_genes) > 1
+                                                else (sample_genes[0] if sample_genes else None)
+                                            ),
                                             placeholder="Search and select second gene...",
                                             style={"marginBottom": "10px"},
                                         ),

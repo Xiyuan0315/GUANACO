@@ -199,7 +199,22 @@ def register_scatter_callbacks(
     color_config,
     plot_embedding,
     plot_coexpression_embedding,
+    multiomics_source=None,
 ):
+    def _is_feature(value):
+        if multiomics_source is not None:
+            return multiomics_source.is_feature(value)
+        return value in adata.var_names if value else False
+
+    def _materialize(features, embedding):
+        if multiomics_source is None:
+            return adata
+        return multiomics_source.materialize(features, embedding=embedding)
+
+    def _filtered_adata(source_adata, filtered_data):
+        indices = _filtered_cell_indices(filtered_data)
+        return source_adata[indices] if indices is not None else source_adata
+
     def _filtered_cell_indices(filtered_data):
         if (
             filtered_data
@@ -365,8 +380,13 @@ def register_scatter_callbacks(
         if not search_value:
             raise exceptions.PreventUpdate
         q = search_value.lower()
-        matching_genes = [gene for gene, gene_l in zip(var_names, var_names_lower) if q in gene_l]
-        return [{"label": gene, "value": gene} for gene in matching_genes[:20]]
+        matching_genes = []
+        for gene, gene_lower in zip(var_names, var_names_lower):
+            if q in gene_lower:
+                matching_genes.append(gene)
+                if len(matching_genes) >= 20:
+                    break
+        return [{"label": gene, "value": gene} for gene in matching_genes]
 
     @app.callback(
         [Output(f"{prefix}-gene2-container", "style"), Output(f"{prefix}-threshold-container", "style")],
@@ -434,7 +454,7 @@ def register_scatter_callbacks(
         # Continuous renders ignore the discrete colormap and legend toggle, so a
         # change to either control produces an identical figure -- skip the rebuild
         # those shared controls would otherwise force when this panel is continuous.
-        is_continuous = annotation in adata.var_names or is_continuous_annotation(adata, annotation)
+        is_continuous = _is_feature(annotation) or is_continuous_annotation(adata, annotation)
         if is_continuous and triggered_prop in {
             f"{prefix}-discrete-color-map-dropdown.value",
             f"{prefix}-scatter-legend-toggle.value",
@@ -469,14 +489,17 @@ def register_scatter_callbacks(
             self_relayout = annotation_relayout
         effective_relayout = cross_relayout if cross_relayout is not None else self_relayout
 
-        plot_adata = resolve_plot_adata_from_filter(filtered_data)
+        source_adata = _materialize(
+            [annotation] if _is_feature(annotation) else [], clustering_method
+        )
+        plot_adata = _filtered_adata(source_adata, filtered_data)
         filtered_cell_idx = _filtered_cell_indices(filtered_data)
 
         render_backend = embedding_render_backend
         discrete_palette = _resolve_discrete_palette_for(annotation, discrete_color_map)
         fig = plot_embedding(
             adata=plot_adata,
-            adata_full=adata,
+            adata_full=source_adata,
             embedding_key=clustering_method,
             color=annotation,
             x_axis=x_axis,
@@ -492,7 +515,7 @@ def register_scatter_callbacks(
             legend_show=legend_show,
             axis_show=axis_show,
             img_key=spatial_img_key,
-            source_adata=adata,
+            source_adata=source_adata,
             cell_indices=filtered_cell_idx,
         )
         return apply_relayout(fig, effective_relayout)
@@ -569,7 +592,7 @@ def register_scatter_callbacks(
         # When the right plot is showing a continuous gene/annotation, a change to
         # either control yields an identical figure -- skip the full rebuild it would
         # otherwise force (these are shared controls the left plot legitimately uses).
-        if gene_name in adata.var_names:
+        if _is_feature(gene_name):
             right_mode = "coexpression" if (coexpression_mode == "coexpression" and gene2_name) else "continuous"
         elif is_continuous_annotation(adata, gene_name):
             right_mode = "continuous"
@@ -621,7 +644,11 @@ def register_scatter_callbacks(
         effective_relayout = cross_relayout if cross_relayout is not None else self_relayout
 
         render_backend = embedding_render_backend
-        plot_adata = resolve_plot_adata_from_filter(filtered_data)
+        requested_features = [gene_name] if _is_feature(gene_name) else []
+        if coexpression_mode == "coexpression" and _is_feature(gene2_name):
+            requested_features.append(gene2_name)
+        source_adata = _materialize(requested_features, right_clustering)
+        plot_adata = _filtered_adata(source_adata, filtered_data)
         filtered_cell_idx = _filtered_cell_indices(filtered_data)
         # The left plot's selection no longer rebuilds this figure: the cross-highlight
         # (grey-out of deselected cells) is applied client-side via selectedpoints, so
@@ -640,7 +667,7 @@ def register_scatter_callbacks(
             and current_meta.get("nTraces") == 1
         )
 
-        if gene_name in adata.var_names:
+        if _is_feature(gene_name):
             if coexpression_mode == "coexpression" and gene2_name:
                 fig = plot_coexpression_embedding(
                     adata=plot_adata,
@@ -663,7 +690,7 @@ def register_scatter_callbacks(
                     # regardless of the dropdown, so the two panels' coordinate ranges
                     # diverged and zoom no longer lined up.
                     img_key=spatial_img_key,
-                    source_adata=adata,
+                    source_adata=source_adata,
                     cell_indices=filtered_cell_idx,
                 )
             else:
@@ -688,7 +715,7 @@ def register_scatter_callbacks(
                     annotation=None,
                     axis_show=axis_show,
                     img_key=spatial_img_key,
-                    source_adata=adata,
+                    source_adata=source_adata,
                     cell_indices=filtered_cell_idx,
                     include_spatial_background=not patch_spatial_points,
                 )
@@ -715,14 +742,14 @@ def register_scatter_callbacks(
                 render_backend=render_backend,
                 axis_show=axis_show,
                 img_key=spatial_img_key,
-                source_adata=adata,
+                source_adata=source_adata,
                 cell_indices=filtered_cell_idx,
             )
         else:
             discrete_color_map_value = _resolve_discrete_palette_for(gene_name, discrete_color_map)
             fig = plot_embedding(
                 adata=plot_adata,
-                adata_full=adata,
+                adata_full=source_adata,
                 embedding_key=right_clustering,
                 color=gene_name,
                 x_axis=right_x_axis,
@@ -735,7 +762,7 @@ def register_scatter_callbacks(
                 legend_show=legend_show,
                 axis_show=axis_show,
                 img_key=spatial_img_key,
-                source_adata=adata,
+                source_adata=source_adata,
                 cell_indices=filtered_cell_idx,
             )
         return apply_relayout(fig, effective_relayout)
@@ -853,8 +880,9 @@ def register_scatter_callbacks(
         layer = _resolve_layer(data_layer)
         from guanaco.utils.gene_extraction_utils import extract_gene_expression
 
-        if gene1 and gene1 in adata.var_names:
-            gene1_expr = extract_gene_expression(adata, gene1, layer=layer)
+        if gene1 and _is_feature(gene1):
+            threshold_adata = _materialize([gene1], None)
+            gene1_expr = extract_gene_expression(threshold_adata, gene1, layer=layer)
             if filtered_cell_idx is not None:
                 gene1_expr = gene1_expr[filtered_cell_idx]
             if gene1_expr.max() > gene1_expr.min():
@@ -866,8 +894,9 @@ def register_scatter_callbacks(
         else:
             gene1_min, gene1_max, gene1_value = default_min, default_max, default_value
 
-        if coexpression_mode == "coexpression" and gene2 and gene2 in adata.var_names:
-            gene2_expr = extract_gene_expression(adata, gene2, layer=layer)
+        if coexpression_mode == "coexpression" and gene2 and _is_feature(gene2):
+            threshold_adata = _materialize([gene2], None)
+            gene2_expr = extract_gene_expression(threshold_adata, gene2, layer=layer)
             if filtered_cell_idx is not None:
                 gene2_expr = gene2_expr[filtered_cell_idx]
             if gene2_expr.max() > gene2_expr.min():
@@ -912,7 +941,7 @@ def register_scatter_callbacks(
         selected_points = selected_data["points"]
         selected_indices = []
 
-        if current_annotation in adata.var_names or is_continuous_annotation(plot_adata, current_annotation):
+        if _is_feature(current_annotation) or is_continuous_annotation(plot_adata, current_annotation):
             for point in selected_points:
                 if "customdata" in point:
                     customdata = point["customdata"]

@@ -131,6 +131,11 @@ def test_visualizations_share_one_workspace_with_feature_analysis_as_default():
     ).value is None
     assert _by_id(sections, f"{prefix}-stacked-bar-x-group").value == "cell_type"
     assert _by_id(sections, f"{prefix}-stacked-bar-stack-by").value == "condition"
+    composition_grid = _by_id(sections, f"{prefix}-stacked-bar-grid")
+    assert all(
+        breakpoint_layout[0]["minW"] == 3
+        for breakpoint_layout in composition_grid.layouts.values()
+    )
     assert _by_id(sections, f"{prefix}-composition-alr-reference") is not None
     differential_abundance = _by_id(
         sections, f"{prefix}-composition-da-panel"

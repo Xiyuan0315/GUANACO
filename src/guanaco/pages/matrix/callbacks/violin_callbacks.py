@@ -130,6 +130,7 @@ def register_marker_violin_callbacks(
     *,
     filter_data,
     plot_violin1,
+    multiomics_source=None,
 ):
     @app.callback(
         Output(f"{prefix}-violin-plot-cache-store", "data"),
@@ -174,11 +175,16 @@ def register_marker_violin_callbacks(
         if current_cache.get(_CURRENT_CACHE_KEY) == cache_key:
             return current_cache
 
+        source_adata = (
+            multiomics_source.materialize(selected_genes)
+            if multiomics_source is not None
+            else adata
+        )
         color_map = _resolve_violin1_color_map(
-            adata, selected_annotation, discrete_color_map
+            source_adata, selected_annotation, discrete_color_map
         )
         filtered_adata = filter_data(
-            adata, selected_annotation, selected_labels, selected_cells
+            source_adata, selected_annotation, selected_labels, selected_cells
         )
 
         fig = plot_violin1(
@@ -189,7 +195,7 @@ def register_marker_violin_callbacks(
             layer=layer,
             show_box=_has_checklist_value(show_box_plot, "show"),
             groupby_label_color_map=color_map,
-            adata_obs=adata.obs,
+            adata_obs=source_adata.obs,
             data_already_filtered=True,
         )
 

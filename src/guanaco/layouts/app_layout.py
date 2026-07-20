@@ -192,7 +192,7 @@ def description_layout(dataset):
 
 
 
-def create_modality_tabs(dataset, tab):
+def create_modality_tabs(dataset, tab, multiomics_source=None):
     if dataset.adata is None:
         track_modalities = [
             name
@@ -211,7 +211,12 @@ def create_modality_tabs(dataset, tab):
             if isinstance(dataset.adata, mu.MuData)
             else ["rna"]
         )
+    modalities = list(modalities)
     tabs = [dbc.Tab(label=mod.upper(), tab_id=mod) for mod in modalities]
+    if multiomics_source is not None:
+        tabs.append(
+            dbc.Tab(label=multiomics_source.label, tab_id="multiomics")
+        )
 
     # Wrap the tabs in a Card to match style
     return dbc.Container(
@@ -241,6 +246,7 @@ def anndata_layout(
     gene_annotation_path=None,
     genome_tracks=None,
     ref_track=None,
+    multiomics_source=None,
 ):
     sections = generate_visualization_sections(
         adata,
@@ -251,6 +257,7 @@ def anndata_layout(
         gene_annotation_path=gene_annotation_path,
         genome_tracks=genome_tracks,
         ref_track=ref_track,
+        multiomics_source=multiomics_source,
     )
     children = []
     if adata is not None:
@@ -261,6 +268,7 @@ def anndata_layout(
                         adata,
                         prefix,
                         scatter_defaults=scatter_defaults,
+                        multiomics_source=multiomics_source,
                     ),
                     className="plot-section",
                 ),
@@ -275,13 +283,15 @@ def anndata_layout(
 
 
 # Entire tab content
-def tab_content(dataset, tab):
+def tab_content(dataset, tab, multiomics_source=None):
     return html.Div(
         [
             html.Div(id={"type": "description-layout-div", "index": tab}),
             html.Div(
                 [
-                    create_modality_tabs(dataset, tab),
+                    create_modality_tabs(
+                        dataset, tab, multiomics_source=multiomics_source
+                    ),
                     html.Div(id={"type": "ann-layout-div", "index": tab}),
                 ]
             ),

@@ -16,6 +16,7 @@ def register_visualization_callbacks(
     genome_tracks=None,
     ref_track=None,
     has_palette_control=None,
+    multiomics_source=None,
 ):
     """Register all available plots for one modality through one lifecycle."""
     has_igv = bool(genome_tracks) and bool(ref_track)
@@ -24,6 +25,12 @@ def register_visualization_callbacks(
         optional_plot_components,
         has_igv=has_igv,
     )
+    if multiomics_source is not None:
+        enabled = tuple(
+            key
+            for key in enabled
+            if key in {"dotplot", "heatmap", "violin", "pseudotime"}
+        ) + ("cross-modal-concordance",)
 
     if adata is not None:
         matrix_enabled = tuple(key for key in enabled if key != "igv")
@@ -35,6 +42,7 @@ def register_visualization_callbacks(
             embedding_render_backend=embedding_render_backend,
             color_config=color_config,
             gene_annotation_path=gene_annotation_path,
+            multiomics_source=multiomics_source,
         )
 
     if "igv" in enabled:

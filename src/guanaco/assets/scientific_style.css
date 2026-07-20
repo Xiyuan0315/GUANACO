@@ -443,6 +443,10 @@
     --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 6l7 5 7-6m-7 6-5 8m5-8 7 7' stroke='black' stroke-width='1.8'/%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Ccircle cx='19' cy='5' r='3'/%3E%3Ccircle cx='12' cy='11' r='3'/%3E%3Ccircle cx='7' cy='19' r='3'/%3E%3Ccircle cx='19' cy='18' r='3'/%3E%3C/svg%3E");
 }
 
+.visualization-plot-tab--cross-modal-concordance {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7h5l3 5 3-5h7M3 17h5l3-5 3 5h7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='3' cy='7' r='2'/%3E%3Ccircle cx='21' cy='7' r='2'/%3E%3Ccircle cx='3' cy='17' r='2'/%3E%3Ccircle cx='21' cy='17' r='2'/%3E%3C/svg%3E");
+}
+
 .visualization-plot-tab--peak-browser,
 .visualization-plot-tab--igv {
     --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 6h20M2 18h20' stroke='black' stroke-width='1.5'/%3E%3Cpath d='M2 15h4l2-6 3 7 3-4 2 3h6v2H2Z'/%3E%3Crect x='3' y='3' width='5' height='2' rx='1'/%3E%3Crect x='11' y='3' width='9' height='2' rx='1'/%3E%3C/svg%3E");
@@ -485,6 +489,123 @@
 .visualization-section .visualization-workspace-tab--selected:hover {
     background-color: transparent !important;
     color: #1a1a1a !important;
+}
+
+.cross-modal-concordance {
+    padding: 20px;
+}
+
+.concordance-controls {
+    margin-bottom: 14px;
+}
+
+.concordance-analysis-controls {
+    margin-bottom: 12px;
+}
+
+.concordance-control-row {
+    align-items: flex-end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: flex-start;
+    width: 100%;
+}
+
+.concordance-control {
+    flex: 0 0 auto;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.concordance-control--feature {
+    width: 390px;
+}
+
+.concordance-control--feature .Select-control {
+    height: 38px;
+    max-height: 38px;
+}
+
+.concordance-control--feature .Select-multi-value-wrapper {
+    display: block;
+    height: 36px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    white-space: nowrap;
+}
+
+.concordance-control--feature .Select--multi .Select-value,
+.concordance-control--feature .Select--multi .Select-input {
+    float: none;
+    vertical-align: top;
+}
+
+.concordance-control--view {
+    width: 180px;
+}
+
+.concordance-control--embedding {
+    width: 260px;
+}
+
+.concordance-control--group {
+    width: 300px;
+}
+
+.concordance-control--action {
+    padding-bottom: 1px;
+}
+
+.concordance-update-button {
+    min-width: 172px;
+}
+
+.concordance-update-status {
+    color: #6c757d;
+    font-size: 13px;
+}
+
+.concordance-main-row {
+    align-items: flex-start;
+    display: grid;
+    gap: 24px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.concordance-main-row--with-summary {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(210px, 0.55fr);
+}
+
+.concordance-summary-panel {
+    display: block;
+}
+
+.concordance-panel {
+    min-width: 0;
+    width: 100%;
+}
+
+.concordance-main-plot {
+    height: 520px;
+    margin-top: 14px;
+    min-height: 520px;
+    position: relative;
+    width: 100%;
+}
+
+@media (max-width: 991.98px) {
+    .concordance-main-row,
+    .concordance-main-row--with-summary {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 575.98px) {
+    .concordance-control {
+        width: 100%;
+    }
 }
 
 /* Fix navbar height to match logo */

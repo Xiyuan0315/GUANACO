@@ -118,6 +118,7 @@ def generate_stacked_bar_layout(adata, discrete_label_list, prefix):
                 "flex-grow": "0",
             },
         ),
+        min_w=3,
     )
 
     x_axis_order_title_id = f"{prefix}-x-axis-order-title"

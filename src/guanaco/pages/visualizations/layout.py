@@ -12,6 +12,9 @@ from dash import dcc, html
 from guanaco.pages.matrix.layouts.atac_browser_layout import (
     generate_atac_browser_layout,
 )
+from guanaco.pages.matrix.layouts.cross_modal_concordance_layout import (
+    generate_cross_modal_concordance_layout,
+)
 from guanaco.pages.matrix.layouts.dotplot_layout import generate_dotplot_layout
 from guanaco.pages.matrix.layouts.grn_demo_layout import generate_grn_demo_layout
 from guanaco.pages.matrix.layouts.heatmap_layout import generate_heatmap_layout
@@ -160,6 +163,7 @@ def _exploratory_tabs(
     enabled,
     gene_annotation_path,
     genome_tracks,
+    multiomics_source=None,
 ):
     factories = {
         "split-violin": lambda: generate_split_violin_layout(
@@ -179,6 +183,10 @@ def _exploratory_tabs(
             discrete_label_list=labels,
         ),
         "igv": lambda: build_igv_layout(prefix, genome_tracks or {}),
+        "cross-modal-concordance": lambda: generate_cross_modal_concordance_layout(
+            multiomics_source,
+            prefix,
+        ),
     }
     children = []
     for key in EXPLORATORY_PLOTS:
@@ -238,6 +246,7 @@ def generate_visualization_sections(
     gene_annotation_path=None,
     genome_tracks=None,
     ref_track=None,
+    multiomics_source=None,
 ):
     """Build one modality-scoped workspace with two control models."""
     has_igv = bool(genome_tracks) and bool(ref_track)
@@ -246,6 +255,10 @@ def generate_visualization_sections(
         optional_plot_components,
         has_igv=has_igv,
     )
+    if multiomics_source is not None:
+        enabled = tuple(key for key in enabled if key in MARKER_PLOTS) + (
+            "cross-modal-concordance",
+        )
     marker_tabs = _marker_tabs(
         adata, default_gene_markers, discrete_label_list, prefix, enabled
     )
@@ -257,6 +270,7 @@ def generate_visualization_sections(
         enabled,
         gene_annotation_path,
         genome_tracks,
+        multiomics_source,
     )
 
     if marker_tabs is None and exploratory_tabs is None:

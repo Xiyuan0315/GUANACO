@@ -45,6 +45,9 @@ from guanaco.pages.matrix.callbacks.paga_callbacks import register_paga_callback
 from guanaco.pages.matrix.callbacks.volcano_callbacks import register_volcano_callbacks
 from guanaco.pages.matrix.callbacks.grn_demo_callbacks import register_grn_demo_callbacks
 from guanaco.pages.matrix.callbacks.atac_browser_callbacks import register_atac_browser_callbacks
+from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
+    register_cross_modal_concordance_callbacks,
+)
 from guanaco.pages.matrix.plots.atac_browser import has_genomic_peak_features
 from guanaco.utils.colors import discrete_palette_config
 from guanaco.utils.obs_utils import sorted_categories
@@ -234,7 +237,9 @@ def is_continuous_annotation(adata, annotation, threshold=50):
     return False
 
 
-def register_marker_plot_callbacks(app, adata, prefix, enabled, color_config):
+def register_marker_plot_callbacks(
+    app, adata, prefix, enabled, color_config, *, multiomics_source=None
+):
     """Register plots driven by the shared feature/annotation/label controls."""
     if "heatmap" in enabled:
         register_heatmap_callbacks(
@@ -249,6 +254,7 @@ def register_marker_plot_callbacks(app, adata, prefix, enabled, color_config):
             hash_list_signature=_hash_list_signature,
             cached_figure_get=_cached_figure_get,
             cached_figure_set=_cached_figure_set,
+            multiomics_source=multiomics_source,
         )
     if "dotplot" in enabled:
         register_dotplot_callbacks(
@@ -261,6 +267,7 @@ def register_marker_plot_callbacks(app, adata, prefix, enabled, color_config):
             hash_list_signature=_hash_list_signature,
             cached_figure_get=_cached_figure_get,
             cached_figure_set=_cached_figure_set,
+            multiomics_source=multiomics_source,
         )
     if "pseudotime" in enabled:
         register_pseudotime_callbacks(
@@ -275,6 +282,7 @@ def register_marker_plot_callbacks(app, adata, prefix, enabled, color_config):
             hash_list_signature=_hash_list_signature,
             cached_figure_get=_cached_figure_get,
             cached_figure_set=_cached_figure_set,
+            multiomics_source=multiomics_source,
         )
     if "violin" in enabled:
         register_marker_violin_callbacks(
@@ -283,6 +291,7 @@ def register_marker_plot_callbacks(app, adata, prefix, enabled, color_config):
             prefix,
             filter_data=filter_data,
             plot_violin1=plot_violin1,
+            multiomics_source=multiomics_source,
         )
 
 
@@ -298,6 +307,7 @@ def register_exploratory_plot_callbacks(
     var_names_lower,
     resolve_plot_adata_from_filter,
     hash_list_signature,
+    multiomics_source=None,
 ):
     """Register plots whose data selections are owned by their own tab."""
     if "split-violin" in enabled:
@@ -346,6 +356,16 @@ def register_exploratory_plot_callbacks(
             gene_annotation_path=gene_annotation_path,
             color_config=color_config,
         )
+    if "cross-modal-concordance" in enabled and multiomics_source is not None:
+        register_cross_modal_concordance_callbacks(
+            app,
+            multiomics_source,
+            prefix,
+            make_cache_key=_make_cache_key,
+            hash_list_signature=_hash_list_signature,
+            cached_figure_get=_cached_figure_get,
+            cached_figure_set=_cached_figure_set,
+        )
 
 
 # ============= Main Callback Functions =============
@@ -358,6 +378,7 @@ def matrix_callbacks(
     embedding_render_backend="scattergl",
     color_config=None,
     gene_annotation_path=None,
+    multiomics_source=None,
 ):
     """Compose shared, marker-driven, and exploratory callback registrars."""
     embedding_render_backend = str(embedding_render_backend).lower()
@@ -372,7 +393,11 @@ def matrix_callbacks(
     # columns exposed by Global Data Filter. This keeps IDs/barcodes out of search.
     obs_columns = selectable_scatter_annotations(adata)
     obs_columns_lower = [c.lower() for c in obs_columns]
-    var_names = adata.var_names.to_list()
+    var_names = (
+        multiomics_source.feature_names
+        if multiomics_source is not None
+        else adata.var_names.to_list()
+    )
     var_names_lower = [g.lower() for g in var_names]
 
     def _resolve_plot_adata_from_filter(filtered_data):
@@ -386,9 +411,17 @@ def matrix_callbacks(
 
     def _search_combined(primary, primary_lower, secondary, secondary_lower, query, limit=10):
         q = query.lower()
-        primary_hits = [item for item, item_l in zip(primary, primary_lower) if q in item_l]
-        secondary_hits = [item for item, item_l in zip(secondary, secondary_lower) if q in item_l]
-        return (primary_hits + secondary_hits)[:limit]
+        hits = []
+        for values, lowered in (
+            (primary, primary_lower),
+            (secondary, secondary_lower),
+        ):
+            for item, item_lower in zip(values, lowered):
+                if q in item_lower:
+                    hits.append(item)
+                    if len(hits) >= limit:
+                        return hits
+        return hits
 
     # ===== Cell Selection Hash =====
     # Pre-compute a compact hash of selected_cells once, so downstream plot
@@ -520,6 +553,7 @@ def matrix_callbacks(
         
         return {
             'cell_indices': filtered_indices,
+            'cell_indices_hash': _hash_list_signature(filtered_indices),
             'n_cells': n_filtered
         }, cell_count_text, preview_text
     
@@ -572,7 +606,7 @@ def matrix_callbacks(
                 input_genes.append(gene)
         
         # Get all available genes (case-insensitive mapping)
-        available_genes = list(adata.var_names)
+        available_genes = var_names
         gene_map = {gene.upper(): gene for gene in available_genes}
         
         valid_genes = []
@@ -582,8 +616,11 @@ def matrix_callbacks(
         
         for gene in input_genes:
             gene_upper = gene.upper()
-            if gene_upper in gene_map:
-                actual_gene = gene_map[gene_upper]
+            if multiomics_source is not None:
+                actual_gene = multiomics_source.resolve_text_feature(gene)
+            else:
+                actual_gene = gene_map.get(gene_upper)
+            if actual_gene is not None:
                 if actual_gene not in seen_genes:
                     valid_genes.append(actual_gene)
                     seen_genes.add(actual_gene)
@@ -632,6 +669,7 @@ def matrix_callbacks(
         color_config=color_config,
         plot_embedding=plot_embedding,
         plot_coexpression_embedding=plot_coexpression_embedding,
+        multiomics_source=multiomics_source,
     )
 
     # ===== Other Plots Callbacks =====
@@ -645,10 +683,16 @@ def matrix_callbacks(
     def update_genes_dropdown(search_value, value):
         if not search_value:
             raise PreventUpdate
-        label_list = adata.var_names.to_list()
-        matching_labels = [label for label in label_list if search_value.lower() in label.lower()]
+        label_list = var_names
+        query = search_value.lower()
+        matching_labels = []
+        for label in label_list:
+            if query in label.lower():
+                matching_labels.append(label)
+                if len(matching_labels) >= 10:
+                    break
         selected_labels = value if value else []
-        all_labels = list(set(selected_labels + matching_labels[:10]))
+        all_labels = list(dict.fromkeys(selected_labels + matching_labels))
         return [{'label': label, 'value': label} for label in all_labels]
     
     @app.callback(
@@ -665,7 +709,12 @@ def matrix_callbacks(
         return label_options, list(unique_labels)
 
     register_marker_plot_callbacks(
-        app, adata, prefix, enabled_components, color_config
+        app,
+        adata,
+        prefix,
+        enabled_components,
+        color_config,
+        multiomics_source=multiomics_source,
     )
     register_exploratory_plot_callbacks(
         app,
@@ -678,6 +727,7 @@ def matrix_callbacks(
         var_names_lower=var_names_lower,
         resolve_plot_adata_from_filter=_resolve_plot_adata_from_filter,
         hash_list_signature=_hash_list_signature,
+        multiomics_source=multiomics_source,
     )
 
     # Add callback to update filter status
