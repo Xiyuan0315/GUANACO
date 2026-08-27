@@ -61,8 +61,7 @@
       "stacked-bar",
       "volcano",
       "network",
-      "cross-modal-concordance",
-      "ai-explorer"
+      "cross-modal-concordance"
     ]
   },
   "title": "GUANACO clinical multi-omics example",

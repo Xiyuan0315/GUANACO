@@ -8,10 +8,6 @@ from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
     register_cross_modal_concordance_callbacks,
 )
 from guanaco.pages.visualizations.registry import resolve_plot_components
-from guanaco.pages.ai_explorer import (
-    is_ai_explorer_requested,
-    register_ai_explorer_callbacks,
-)
 
 
 def register_visualization_callbacks(
@@ -29,17 +25,8 @@ def register_visualization_callbacks(
     multiomics_source=None,
     modality_name=None,
     organism="human",
-    default_features=None,
 ):
     """Register all available plots for one modality through one lifecycle."""
-    if adata is not None and is_ai_explorer_requested(optional_plot_components):
-        register_ai_explorer_callbacks(
-            app,
-            adata,
-            prefix,
-            default_features=default_features,
-        )
-
     if multiomics_source is not None and not multiomics_source.is_paired:
         register_unpaired_multiomics_callbacks(
             app,

@@ -120,7 +120,6 @@ for name, dataset in datasets.items():
                     ref_track=mod_cfg["ref_track"],
                     modality_name=mod,
                     organism=dataset.organism,
-                    default_features=mod_cfg["gene_markers"],
                 )
             if multiomics_source is not None:
                 _multiomics_sources[name] = multiomics_source
@@ -158,7 +157,6 @@ for name, dataset in datasets.items():
                 ref_track=mod_cfg["ref_track"],
                 modality_name="rna",
                 organism=dataset.organism,
-                default_features=mod_cfg["gene_markers"],
             )
     else:
         # Legacy tracks-only datasets use a synthetic genome modality. Explicit

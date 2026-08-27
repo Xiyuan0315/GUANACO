@@ -9,10 +9,6 @@ from __future__ import annotations
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from guanaco.pages.ai_explorer import (
-    generate_ai_explorer_layout,
-    is_ai_explorer_requested,
-)
 from guanaco.pages.matrix.layouts.atac_browser_layout import (
     generate_atac_browser_layout,
 )
@@ -175,7 +171,6 @@ def _exploratory_tabs(
     genome_tracks,
     multiomics_source=None,
     organism="human",
-    ai_explorer_enabled=False,
 ):
     factories = {
         "split-violin": lambda: generate_split_violin_layout(
@@ -215,19 +210,6 @@ def _exploratory_tabs(
                 label=PLOT_SPECS_BY_KEY[key].label,
                 value=f"{key}-tab",
                 children=[factories[key]()],
-                className=class_name,
-                selected_className=selected_class_name,
-            )
-        )
-
-    # Removable demo: deliberately outside PLOT_SPECS and capability scanning.
-    if ai_explorer_enabled and adata is not None:
-        class_name, selected_class_name = _plot_tab_classes("ai-explorer")
-        children.append(
-            dcc.Tab(
-                label="Ask your data (demo)",
-                value="ai-explorer-tab",
-                children=[generate_ai_explorer_layout(prefix, markers)],
                 className=class_name,
                 selected_className=selected_class_name,
             )
@@ -281,7 +263,6 @@ def generate_visualization_sections(
     organism="human",
 ):
     """Build one modality-scoped workspace with two control models."""
-    ai_explorer_enabled = is_ai_explorer_requested(optional_plot_components)
     has_igv = bool(genome_tracks) and bool(ref_track)
     paired_multiomics = (
         multiomics_source
@@ -319,7 +300,6 @@ def generate_visualization_sections(
         genome_tracks,
         multiomics_source,
         organism,
-        ai_explorer_enabled,
     )
 
     if marker_tabs is None and exploratory_tabs is None:

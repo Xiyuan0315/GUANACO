@@ -13,6 +13,12 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 
+# Local datasets and generated working artifacts
+/data/
+/src/guanaco/.codex_tmp/
+/src/guanaco/GUANACO_background_revised.pptx*
+/src/guanaco/guanaco.json
+
 # build artifacts
 build/
 dist/
