@@ -2,7 +2,15 @@ from dash import Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
 from guanaco.utils.colors import resolve_discrete_palette
-from guanaco.utils.obs_utils import sorted_categories
+from guanaco.utils.obs_utils import (
+    SELECTION_GROUP,
+    SELECTION_GROUP_LABEL,
+    SELECTION_LABELS,
+    selected_cell_view,
+    selection_group_context,
+    sorted_categories,
+)
+from guanaco.utils.search import ranked_substring_matches
 from guanaco.data.loader import obs_col
 
 
@@ -40,8 +48,12 @@ def _has_checklist_value(values, value):
     return value in values if values else False
 
 
-def _annotation_level_count(adata, annotation):
-    if not annotation or annotation not in adata.obs:
+def _annotation_level_count(adata, annotation, group_values=None):
+    if not annotation:
+        return 0
+    if group_values and annotation in group_values:
+        return group_values[annotation].nunique()
+    if annotation not in adata.obs:
         return 0
     return obs_col(adata.obs, annotation).nunique()
 
@@ -70,7 +82,11 @@ def _test_options_for_mode(adata, mode, meta1, meta2):
 def _resolve_violin1_color_map(adata, annotation, palette_name):
     if not palette_name or not annotation:
         return None
-    unique_labels = sorted_categories(adata, annotation)
+    unique_labels = (
+        SELECTION_LABELS
+        if annotation == SELECTION_GROUP
+        else sorted_categories(adata, annotation)
+    )
     discrete_palette = resolve_discrete_palette(palette_name, len(unique_labels))
     return {
         label: discrete_palette[i % len(discrete_palette)]
@@ -84,10 +100,17 @@ def _resolve_violin2_meta2(mode, meta2):
     return meta2
 
 
-def _resolve_violin2_palette(filtered_adata, meta1, meta2, palette_name, color_config):
+def _resolve_violin2_palette(
+    filtered_adata,
+    meta1,
+    meta2,
+    palette_name,
+    color_config,
+    group_values=None,
+):
     n_colors = max(
         (
-            _annotation_level_count(filtered_adata, annotation)
+            _annotation_level_count(filtered_adata, annotation, group_values)
             for annotation in (meta1, meta2)
             if annotation
         ),
@@ -138,15 +161,17 @@ def register_marker_violin_callbacks(
             Input(f"{prefix}-single-cell-genes-selection", "value"),
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
-            Input(f"{prefix}-data-layer", "value"),
+            Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-show-box1", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
             Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
             State(f"{prefix}-violin-plot-cache-store", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
+            State(f"{prefix}-selection-group-store", "data"),
         ],
     )
     def update_violin_cache(
@@ -157,9 +182,11 @@ def register_marker_violin_callbacks(
         show_box_plot,
         discrete_color_map,
         cells_hash,
+        selection_group_hash,
         active_tab,
         current_cache,
         selected_cells,
+        highlighted_cells,
     ):
         # Lazy: only build the violin figure when its tab is active, so the default
         # (e.g. dot plot) view doesn't also pay to compute violins it shares inputs
@@ -167,7 +194,10 @@ def register_marker_violin_callbacks(
         if active_tab != "violin-tab":
             return no_update
         layer = _resolve_layer(data_layer)
-        cache_key = f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_{show_box_plot}_{discrete_color_map}_{cells_hash}"
+        cache_key = (
+            f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_"
+            f"{show_box_plot}_{discrete_color_map}_{cells_hash}_{selection_group_hash}"
+        )
 
         if current_cache is None:
             current_cache = {}
@@ -183,8 +213,17 @@ def register_marker_violin_callbacks(
         color_map = _resolve_violin1_color_map(
             source_adata, selected_annotation, discrete_color_map
         )
+        filtering_by_selection_group = selected_annotation == SELECTION_GROUP
+        group_values = None
+        if filtering_by_selection_group and highlighted_cells:
+            source_adata, group_values = selection_group_context(
+                source_adata, highlighted_cells
+            )
         filtered_adata = filter_data(
-            source_adata, selected_annotation, selected_labels, selected_cells
+            source_adata,
+            None if filtering_by_selection_group else selected_annotation,
+            None if filtering_by_selection_group else selected_labels,
+            selected_cells,
         )
 
         fig = plot_violin1(
@@ -197,6 +236,7 @@ def register_marker_violin_callbacks(
             groupby_label_color_map=color_map,
             adata_obs=source_adata.obs,
             data_already_filtered=True,
+            group_values=group_values,
         )
 
         return _store_current_violin_figure(current_cache, cache_key, fig)
@@ -242,7 +282,12 @@ def register_comparative_violin_callbacks(
     var_names,
     var_names_lower,
     color_config=None,
+    resolve_plot_adata_from_filter=None,
 ):
+    if resolve_plot_adata_from_filter is None:
+        def resolve_plot_adata_from_filter(_filtered):
+            return adata
+
     @app.callback(
         Output(f"{prefix}-mode-explanation", "children"),
         Input(f"{prefix}-mode-selection", "value"),
@@ -269,23 +314,68 @@ def register_comparative_violin_callbacks(
     def update_violin_genes_dropdown(search_value):
         if not search_value:
             raise PreventUpdate
-        q = search_value.lower()
-        matching_labels = [
-            label for label, label_l in zip(var_names, var_names_lower) if q in label_l
-        ]
-        return [{"label": label, "value": label} for label in matching_labels[:10]]
+        matching_labels = ranked_substring_matches(
+            var_names,
+            search_value,
+            limit=10,
+            match_values=var_names_lower,
+        )
+        return [{"label": label, "value": label} for label in matching_labels]
 
     @app.callback(
-        [
-            Output(f"{prefix}-meta2-selection", "disabled"),
-            Output(f"{prefix}-meta2-selection", "value"),
-        ],
+        Output(f"{prefix}-meta2-selection", "disabled"),
         Input(f"{prefix}-mode-selection", "value"),
     )
     def toggle_meta2_dropdown(mode):
-        if mode == "mode1":
-            return True, "none"
-        return False, no_update
+        return mode == "mode1"
+
+    @app.callback(
+        Output(f"{prefix}-meta1-selection", "options"),
+        Output(f"{prefix}-meta1-selection", "value"),
+        Output(f"{prefix}-meta2-selection", "options"),
+        Output(f"{prefix}-meta2-selection", "value"),
+        Input(f"{prefix}-selection-group-hash", "data"),
+        State(f"{prefix}-meta1-selection", "options"),
+        State(f"{prefix}-meta1-selection", "value"),
+        State(f"{prefix}-meta2-selection", "options"),
+        State(f"{prefix}-meta2-selection", "value"),
+    )
+    def sync_lasso_grouping(
+        selection_group_hash,
+        meta1_options,
+        meta1_value,
+        meta2_options,
+        meta2_value,
+    ):
+        selection_option = {
+            "label": SELECTION_GROUP_LABEL,
+            "value": SELECTION_GROUP,
+        }
+        base_meta1 = [
+            option
+            for option in (meta1_options or [])
+            if option.get("value") != SELECTION_GROUP
+        ]
+        base_meta2 = [
+            option
+            for option in (meta2_options or [])
+            if option.get("value") != SELECTION_GROUP
+        ]
+        if selection_group_hash:
+            return (
+                [selection_option, *base_meta1],
+                SELECTION_GROUP,
+                [*base_meta2[:1], selection_option, *base_meta2[1:]],
+                meta2_value,
+            )
+
+        next_meta1 = (
+            base_meta1[0]["value"]
+            if meta1_value == SELECTION_GROUP and base_meta1
+            else meta1_value
+        )
+        next_meta2 = "none" if meta2_value == SELECTION_GROUP else meta2_value
+        return base_meta1, next_meta1, base_meta2, next_meta2
 
     @app.callback(
         Output(f"{prefix}-split-violin-options-collapse", "is_open"),
@@ -308,9 +398,16 @@ def register_comparative_violin_callbacks(
             Input(f"{prefix}-mode-selection", "value"),
             Input(f"{prefix}-test-method-selection", "value"),
             Input(f"{prefix}-show-box2", "value"),
-            Input(f"{prefix}-violin2-data-layer", "value"),
+            Input(f"{prefix}-violin2-data-layer", "data"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
+            Input(f"{prefix}-global-filtered-data", "data"),
+            Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
             Input(f"{prefix}-exploratory-tabs", "value"),
+        ],
+        [
+            State(f"{prefix}-selected-cells-store", "data"),
+            State(f"{prefix}-selection-group-store", "data"),
         ],
     )
     def update_violin2(
@@ -322,12 +419,26 @@ def register_comparative_violin_callbacks(
         show_box2,
         data_layer,
         selected_palette_name,
+        filtered_data,
+        _selected_cells_hash,
+        _selection_group_hash,
         active_tab,
+        selected_cells,
+        highlighted_cells,
     ):
         if active_tab != "split-violin-tab":
             raise PreventUpdate
         layer = _resolve_layer(data_layer)
-        filtered_adata = adata
+        filtered_adata = resolve_plot_adata_from_filter(filtered_data)
+        group_values = None
+        if selected_cells:
+            filtered_adata = selected_cell_view(filtered_adata, selected_cells)
+        elif highlighted_cells:
+            filtered_adata, selection_values = selection_group_context(
+                filtered_adata,
+                highlighted_cells,
+            )
+            group_values = {SELECTION_GROUP: selection_values}
 
         meta2 = _resolve_violin2_meta2(mode, meta2)
 
@@ -338,7 +449,12 @@ def register_comparative_violin_callbacks(
         # selected discrete colormap, falling back to the dataset color_config -- so
         # the violins share the app's default colors instead of a private palette.
         palette = _resolve_violin2_palette(
-            filtered_adata, meta1, meta2, selected_palette_name, color_config
+            filtered_adata,
+            meta1,
+            meta2,
+            selected_palette_name,
+            color_config,
+            group_values,
         )
 
         fig = plot_violin2_new(
@@ -353,6 +469,7 @@ def register_comparative_violin_callbacks(
             labels=None,
             color_map=None,
             palette=palette,
+            group_values=group_values,
         )
         return fig
 
@@ -369,8 +486,13 @@ def register_violin_callbacks(
     var_names,
     var_names_lower,
     color_config=None,
+    resolve_plot_adata_from_filter=None,
 ):
     """Compatibility wrapper registering both violin control models."""
+    if resolve_plot_adata_from_filter is None:
+        def resolve_plot_adata_from_filter(_filtered):
+            return adata
+
     register_marker_violin_callbacks(
         app,
         adata,
@@ -386,4 +508,5 @@ def register_violin_callbacks(
         var_names=var_names,
         var_names_lower=var_names_lower,
         color_config=color_config,
+        resolve_plot_adata_from_filter=resolve_plot_adata_from_filter,
     )

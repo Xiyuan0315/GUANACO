@@ -48,6 +48,7 @@ def plot_genes_in_pseudotime(
     color_map=None,
     marker_size=3,
     opacity=0.6,
+    group_values=None,
 ):
     """Plot gene expression across a continuous observation variable with smoothed curves."""
     
@@ -80,7 +81,9 @@ def plot_genes_in_pseudotime(
     expr_df['pseudotime'] = pd.to_numeric(obs_col(adata.obs, pseudotime_key).values, errors='coerce')
     expr_df['pseudotime'] = expr_df['pseudotime'].replace([np.inf, -np.inf], np.nan)
 
-    if groupby and groupby in adata.obs.columns:
+    if groupby and group_values is not None:
+        expr_df[groupby] = np.asarray(group_values)
+    elif groupby and groupby in adata.obs.columns:
         expr_df[groupby] = obs_col(adata.obs, groupby).values
 
     # Filter cells based on minimum expression (per-cell: keep if any gene passes)

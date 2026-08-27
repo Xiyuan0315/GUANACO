@@ -101,7 +101,13 @@ def _is_continuous_annotation(adata, annotation, threshold=50):
     return False
 
 
-def _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=False):
+def _filter_cells_and_obs(
+    adata,
+    groupby1,
+    labels,
+    data_already_filtered=False,
+    obs_overrides=None,
+):
     # Keep obs lazy: never materialize the whole obs here. The heatmap only needs a
     # couple of obs columns (groupby1/groupby2/continuous_key), and reading a single
     # lazy column via obs_col is cheap. Slicing + .to_memory() on the full Dataset2D
@@ -114,7 +120,10 @@ def _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=False):
     filtered_obs_names = adata.obs_names
     cell_indices_array = None
     if labels and not data_already_filtered:
-        mask = obs_col(adata.obs, groupby1).isin(labels)
+        values = (obs_overrides or {}).get(groupby1)
+        if values is None:
+            values = obs_col(adata.obs, groupby1)
+        mask = values.isin(labels)
         cell_indices_array = np.where(mask.to_numpy())[0]
         filtered_obs_names = adata.obs_names[cell_indices_array]
     return {
@@ -124,6 +133,7 @@ def _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=False):
         'filtered_obs_names': filtered_obs_names,
         'cell_indices_array': cell_indices_array,
         'is_backed': is_backed,
+        'obs_overrides': obs_overrides or {},
     }
 
 
@@ -133,7 +143,12 @@ def _obs_column(ctx, col):
     Reads just this column (cheap lazy single-column read) from the full obs, then
     applies ctx's cell_indices_array. Replaces materializing the whole filtered obs.
     """
-    values = obs_col(ctx['filtered_obs'], col).to_numpy()
+    override = ctx['obs_overrides'].get(col)
+    values = (
+        override.to_numpy()
+        if override is not None
+        else obs_col(ctx['filtered_obs'], col).to_numpy()
+    )
     idx = ctx['cell_indices_array']
     return values if idx is None else values[idx]
 
@@ -486,7 +501,8 @@ def plot_unified_heatmap(
     boundary=False, color_map='Viridis', groupby1_label_color_map=None,
     groupby2_label_color_map=None, max_cells=10000, n_bins=4000, transformation=None,
     standardization=None, layer=None, cache_sig=None,
-    adata_obs=None, data_already_filtered=False, color_config=None
+    adata_obs=None, data_already_filtered=False, color_config=None,
+    obs_overrides=None,
 ):
     log, z_score = _map_transformation_args(transformation, log, z_score)
     # Legacy z_score (notebook API) maps onto z-score standardization.
@@ -505,7 +521,13 @@ def plot_unified_heatmap(
     if not valid_genes:
         return _no_valid_genes_figure()
 
-    ctx = _filter_cells_and_obs(adata, groupby1, labels, data_already_filtered=data_already_filtered)
+    ctx = _filter_cells_and_obs(
+        adata,
+        groupby1,
+        labels,
+        data_already_filtered=data_already_filtered,
+        obs_overrides=obs_overrides,
+    )
     original_adata = ctx['original_adata']
     filtered_obs = ctx['filtered_obs']
 

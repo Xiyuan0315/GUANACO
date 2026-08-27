@@ -6,13 +6,17 @@ from threading import Lock
 import numpy as np
 from dash import Input, Output, State, no_update
 
+from guanaco.data.loader import obs_col
 from guanaco.pages.matrix.plots.cross_modal_concordance import (
     GROUP_CORRELATION,
     RELATIVE_SKEW,
     analyze_concordance,
+    analyze_unpaired_group_comparison,
     build_concordance_embedding,
     build_feature_scatter,
     build_group_summary_heatmap,
+    build_unpaired_group_heatmap,
+    build_unpaired_group_scatter,
     calculate_group_correlations,
     empty_concordance_figure,
 )
@@ -176,6 +180,112 @@ def _pair_data(source, feature_a, feature_b, filtered_data, selected_cells):
     return source.base_adata, positions, analysis
 
 
+def register_unpaired_group_comparison_callbacks(app, source, prefix):
+    """Register metadata-aggregated comparison for independent cell sets."""
+    modality_a, modality_b = source.modalities[:2]
+
+    def register_feature_search(role, modality):
+        @app.callback(
+            Output(f"{prefix}-concordance-feature-{role}", "options"),
+            Input(f"{prefix}-concordance-feature-{role}", "search_value"),
+            State(f"{prefix}-concordance-feature-{role}", "value"),
+        )
+        def update_feature_options(query, current):
+            current_values = [
+                value
+                for value in _feature_list(current)
+                if source.feature_modality(value) == modality
+            ]
+            matches = source.search_features(modality, query, limit=20)
+            values = list(dict.fromkeys([*current_values, *matches]))
+            return [{"label": value, "value": value} for value in values]
+
+    register_feature_search("a", modality_a)
+    register_feature_search("b", modality_b)
+
+    app.clientside_callback(
+        """
+        function(featureA, featureB) {
+            return !(Array.isArray(featureA) && featureA.length > 0 &&
+                     Array.isArray(featureB) && featureB.length > 0);
+        }
+        """,
+        Output(f"{prefix}-concordance-update-comparison", "disabled"),
+        Input(f"{prefix}-concordance-feature-a", "value"),
+        Input(f"{prefix}-concordance-feature-b", "value"),
+    )
+
+    @app.callback(
+        Output(f"{prefix}-concordance-committed-features", "data"),
+        Output(f"{prefix}-concordance-update-status", "children"),
+        Input(f"{prefix}-concordance-update-comparison", "n_clicks"),
+        State(f"{prefix}-concordance-feature-a", "value"),
+        State(f"{prefix}-concordance-feature-b", "value"),
+        prevent_initial_call=True,
+    )
+    def commit_feature_sets(_n_clicks, feature_a, feature_b):
+        feature_a = _feature_list(feature_a)
+        feature_b = _feature_list(feature_b)
+        try:
+            if not feature_a or not feature_b:
+                raise ValueError("Select at least one feature in both sets.")
+            if any(source.feature_modality(item) != modality_a for item in feature_a):
+                raise ValueError(
+                    f"Feature A must come from {modality_a.upper()}."
+                )
+            if any(source.feature_modality(item) != modality_b for item in feature_b):
+                raise ValueError(
+                    f"Feature B must come from {modality_b.upper()}."
+                )
+            source.score_modality_features(feature_a)
+            source.score_modality_features(feature_b)
+        except ValueError as exc:
+            return no_update, f"Could not update: {exc}"
+        return {"feature_a": feature_a, "feature_b": feature_b}, ""
+
+    @app.callback(
+        Output(f"{prefix}-concordance-unpaired-scatter", "figure"),
+        Output(f"{prefix}-concordance-unpaired-heatmap", "figure"),
+        Input(f"{prefix}-concordance-committed-features", "data"),
+        Input(f"{prefix}-concordance-group-a", "value"),
+        Input(f"{prefix}-concordance-group-b", "value"),
+        Input(f"{prefix}-visualization-workspace-tabs", "value"),
+        Input(f"{prefix}-exploratory-tabs", "value"),
+    )
+    def update_group_comparison(
+        comparison,
+        group_a,
+        group_b,
+        active_workspace,
+        active_tab,
+    ):
+        if active_workspace != EXPLORATION_WORKSPACE or active_tab != _ACTIVE_TAB:
+            return no_update, no_update
+        try:
+            feature_a, feature_b = _committed_feature_sets(comparison)
+            adata_a = source.modality_adata(modality_a)
+            adata_b = source.modality_adata(modality_b)
+            if group_a not in adata_a.obs.columns:
+                raise ValueError(f"Select {modality_a.upper()} metadata.")
+            if group_b not in adata_b.obs.columns:
+                raise ValueError(f"Select {modality_b.upper()} metadata.")
+            result = analyze_unpaired_group_comparison(
+                source.score_modality_features(feature_a),
+                obs_col(adata_a.obs, group_a).to_numpy(),
+                source.score_modality_features(feature_b),
+                obs_col(adata_b.obs, group_b).to_numpy(),
+            )
+            label_a = _feature_set_label(feature_a, "A")
+            label_b = _feature_set_label(feature_b, "B")
+            return (
+                build_unpaired_group_scatter(result, label_a, label_b),
+                build_unpaired_group_heatmap(result, label_a, label_b),
+            )
+        except ValueError as exc:
+            empty = empty_concordance_figure(str(exc))
+            return empty, empty_concordance_figure(str(exc))
+
+
 def register_cross_modal_concordance_callbacks(
     app,
     source,
@@ -187,6 +297,8 @@ def register_cross_modal_concordance_callbacks(
     cached_figure_set=None,
 ):
     """Register the paired-feature concordance callbacks."""
+    if not getattr(source, "is_paired", True):
+        return register_unpaired_group_comparison_callbacks(app, source, prefix)
 
     pair_cache = OrderedDict()
     group_score_cache = OrderedDict()

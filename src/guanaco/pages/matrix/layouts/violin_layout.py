@@ -13,8 +13,8 @@ from guanaco.utils.ui_helpers import (
 def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
     """Stacked violin tab: one violin per selected gene, stacked as subplot rows.
 
-    Driven by the shared left-panel controls (genes / annotation / labels) plus the
-    global "Data layer:" dropdown; the only local option is "Show Box Plot".
+    Driven by the shared left-panel controls (genes / annotation / labels); the only
+    local option is "Show Box Plot".
     """
     violin_show_box1 = switch_checklist(f"{prefix}-show-box1", "Show Box Plot")
 
@@ -119,14 +119,9 @@ def generate_split_violin_layout(
         wrapper_style={"flex": "1"},
     )
 
-    data_layer_selection = labeled_dropdown(
-        "Data layer:",
-        f"{prefix}-violin2-data-layer",
-        [{"label": "X", "value": "X"}]
-        + [{"label": layer, "value": layer} for layer in adata.layers.keys()],
-        value="X",
-        clearable=False,
-        wrapper_style={"flex": "1"},
+    data_layer_selection = dcc.Store(
+        id=f"{prefix}-violin2-data-layer",
+        data="X",
     )
 
     advanced_toggle = dbc.Button(
@@ -150,7 +145,6 @@ def generate_split_violin_layout(
                         mode_selection,
                         meta2_selection,
                         test_method_selection,
-                        data_layer_selection,
                     ],
                     style={"display": "flex", "marginBottom": "10px", "gap": "10px"},
                 ),
@@ -178,6 +172,7 @@ def generate_split_violin_layout(
 
     return html.Div(
         [
+            data_layer_selection,
             html.Div(
                 [violin2_gene_selection, meta1_selection],
                 style={"display": "flex", "gap": "10px", "marginBottom": "10px"},

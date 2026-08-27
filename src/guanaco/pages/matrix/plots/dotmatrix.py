@@ -322,7 +322,7 @@ def plot_dot_matrix(
     transformation=None, standardization=None, layer=None,
     color_map='Viridis', plot_type='dotplot',
     cluster='none', method='average', metric='correlation',
-    transpose=False, selected_cells=None
+    transpose=False, selected_cells=None, group_values=None,
 ):
     color_map = resolve_continuous_colorscale(color_map)
 
@@ -331,7 +331,11 @@ def plot_dot_matrix(
         raise PreventUpdate
 
     # Scanpy-like flow: cached gene vectors + vectorized grouped aggregations.
-    group_series = obs_col(adata.obs, groupby)
+    group_series = (
+        group_values
+        if group_values is not None
+        else obs_col(adata.obs, groupby)
+    )
     row_indices, use_selected_cells = _selected_row_indices(
         adata,
         group_series,

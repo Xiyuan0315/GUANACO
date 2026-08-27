@@ -62,6 +62,7 @@ dependencies = [
   "h5py>=3.8",
   # System
   "psutil>=5.9",
+  "requests>=2.31",
 ]
 
 [project.urls]

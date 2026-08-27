@@ -2,7 +2,12 @@ from dash import Input, Output, State, no_update
 import plotly.graph_objects as go
 
 from guanaco.utils.colors import resolve_discrete_palette
-from guanaco.utils.obs_utils import sorted_categories
+from guanaco.utils.obs_utils import (
+    SELECTION_GROUP,
+    SELECTION_LABELS,
+    selection_group_context,
+    sorted_categories,
+)
 from guanaco.data.loader import obs_col
 
 
@@ -72,7 +77,11 @@ def _default_pseudotime_key(adata):
 
 
 def _pseudotime_color_map(adata, annotation, discrete_color_map, color_config):
-    all_categories = sorted_categories(adata, annotation)
+    all_categories = (
+        SELECTION_LABELS
+        if annotation == SELECTION_GROUP
+        else sorted_categories(adata, annotation)
+    )
     if discrete_color_map:
         palette = resolve_discrete_palette(discrete_color_map, len(all_categories))
     else:
@@ -108,17 +117,19 @@ def register_pseudotime_callbacks(
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-pseudotime-min-expr-slider", "value"),
-            Input(f"{prefix}-data-layer", "value"),
+            Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-pseudotime-key-dropdown", "value"),
             Input(f"{prefix}-marker-size-slider", "value"),
             Input(f"{prefix}-opacity-slider", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
         ],
         [
             State(f"{prefix}-pseudotime-plot", "figure"),
             State(f"{prefix}-pseudotime-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
+            State(f"{prefix}-selection-group-store", "data"),
         ],
     )
     def update_pseudotime_plot(
@@ -133,9 +144,11 @@ def register_pseudotime_callbacks(
         opacity,
         discrete_color_map,
         cells_hash,
+        selection_group_hash,
         current_figure,
         rendered_key,
         selected_cells,
+        highlighted_cells,
     ):
         if selected_tab != _PSEUDOTIME_TAB:
             # Not the active tab: leave whatever is there untouched.
@@ -157,6 +170,7 @@ def register_pseudotime_callbacks(
             opacity=opacity,
             discrete_color_map=discrete_color_map,
             selected_cells=cells_hash,
+            selection_group=selection_group_hash,
         )
         # Already showing the figure for these exact parameters: do nothing,
         # so a plain tab switch neither recomputes nor redraws.
@@ -172,8 +186,17 @@ def register_pseudotime_callbacks(
             if multiomics_source is not None
             else adata
         )
+        filtering_by_selection_group = selected_annotation == SELECTION_GROUP
+        group_values = None
+        if filtering_by_selection_group and highlighted_cells:
+            source_adata, group_values = selection_group_context(
+                source_adata, highlighted_cells
+            )
         filtered_adata = filter_data(
-            source_adata, selected_annotation, selected_labels, selected_cells
+            source_adata,
+            None if filtering_by_selection_group else selected_annotation,
+            None if filtering_by_selection_group else selected_labels,
+            selected_cells,
         )
 
         color_map = _pseudotime_color_map(
@@ -196,6 +219,7 @@ def register_pseudotime_callbacks(
             color_map=color_map,
             marker_size=marker_size,
             opacity=opacity,
+            group_values=group_values,
         )
         cached_figure_set(cache_key, fig)
         return fig, cache_key

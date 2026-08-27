@@ -16,6 +16,7 @@ from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import (
 )
 from guanaco.pages.matrix.callbacks.violin_callbacks import register_violin_callbacks
 from guanaco.pages.visualizations.plots.igv.callbacks import register_igv_callbacks
+from guanaco.utils.obs_utils import SELECTION_GROUP
 
 
 FORBIDDEN_EXPLORATORY_INPUTS = {
@@ -72,6 +73,7 @@ def test_stacked_bar_owns_its_grouping_inputs():
 
     def plot_stacked_bar(**kwargs):
         rendered["bar_n_obs"] = kwargs["adata"].n_obs
+        rendered["bar_group_values"] = kwargs.get("group_values")
 
     register_stacked_bar_callbacks(
         app,
@@ -91,8 +93,10 @@ def test_stacked_bar_owns_its_grouping_inputs():
     _assert_exploratory_boundary(inputs)
     assert "p-stacked-bar-x-group" in inputs
     assert "p-composition-view" in inputs
+    assert "p-composition-swap-axes" in inputs
     assert "p-visualization-workspace-tabs" in inputs
     assert "p-global-filtered-data" in inputs
+    assert {"p-selected-cells-hash", "p-selection-group-hash"} <= inputs
     assert "p-stacked-bar-x-labels" not in inputs
 
     analysis_inputs = _inputs_for(app, "p-composition-da-plot.figure")
@@ -135,6 +139,10 @@ def test_stacked_bar_owns_its_grouping_inputs():
         {"cell_indices": [0, 1], "n_cells": 2},
         None,
         None,
+        None,
+        None,
+        None,
+        None,
     )
     assert figure is None
     assert rendered_key
@@ -153,6 +161,7 @@ def test_stacked_bar_owns_its_grouping_inputs():
     )["callback"].__wrapped__
     _figure, bar_key = bar_callback(
         "bars",
+        [],
         "prop",
         "Plotly",
         "dataset-exploration",
@@ -163,10 +172,66 @@ def test_stacked_bar_owns_its_grouping_inputs():
         {"cell_indices": [0, 1], "n_cells": 2},
         None,
         None,
+        None,
+        None,
+        None,
+        None,
     )
     assert bar_key
     assert rendered["bar_n_obs"] == 2
     assert "p-discrete-color-map-dropdown" not in analysis_inputs
+
+    _figure, lasso_key = bar_callback(
+        "bars",
+        [],
+        "prop",
+        "Plotly",
+        "dataset-exploration",
+        "stacked-bar-tab",
+        "condition",
+        "cell_type",
+        [],
+        {"cell_indices": None, "n_cells": 4},
+        {"len": 1, "hash": "filtered"},
+        None,
+        ["cell-1"],
+        None,
+        None,
+        None,
+    )
+    assert lasso_key
+    assert rendered["bar_n_obs"] == 1
+    assert rendered["bar_group_values"] is None
+
+    _figure, highlight_key = bar_callback(
+        "bars",
+        [],
+        "prop",
+        "Plotly",
+        "dataset-exploration",
+        "stacked-bar-tab",
+        "condition",
+        SELECTION_GROUP,
+        [],
+        {"cell_indices": None, "n_cells": 4},
+        None,
+        {"selected": {"len": 1, "hash": "highlighted"}},
+        None,
+        {
+            "selected_cells": ["cell-1"],
+            "universe_cells": None,
+        },
+        None,
+        None,
+    )
+    assert highlight_key
+    assert rendered["bar_n_obs"] == 4
+    assert rendered["bar_group_values"][SELECTION_GROUP].tolist() == [
+        "Others",
+        "Selected",
+        "Others",
+        "Others",
+    ]
 
 
 def test_peak_browser_owns_its_grouping_inputs():
@@ -191,26 +256,95 @@ def test_paga_does_not_inherit_scatter_selection():
     _assert_exploratory_boundary(_inputs_for(app, "p-paga.children"))
 
 
-def test_comparative_violin_uses_local_layer_and_no_scatter_selection():
+def test_comparative_violin_uses_local_layer_and_lasso_selection():
     adata = _adata()
     app = Dash(__name__)
+    rendered = {}
+
+    def plot_violin2(source, **kwargs):
+        rendered["n_obs"] = source.n_obs
+        rendered["meta1"] = kwargs["meta1"]
+        rendered["group_values"] = kwargs["group_values"]
+
     register_violin_callbacks(
         app,
         adata,
         "p",
         filter_data=lambda source, *_args: source,
         plot_violin1=lambda *_args, **_kwargs: None,
-        plot_violin2_new=lambda *_args, **_kwargs: None,
+        plot_violin2_new=plot_violin2,
         palette_json={},
         var_names=list(adata.var_names),
         var_names_lower=[name.lower() for name in adata.var_names],
         color_config=["red", "blue"],
+        resolve_plot_adata_from_filter=lambda filtered: (
+            adata
+            if not (filtered or {}).get("cell_indices")
+            else adata[(filtered or {})["cell_indices"]]
+        ),
     )
 
     inputs = _inputs_for(app, "p-violin-plot2.figure")
     _assert_exploratory_boundary(inputs)
     assert "p-violin2-data-layer" in inputs
     assert "p-data-layer" not in inputs
+    assert {
+        "p-global-filtered-data",
+        "p-selected-cells-hash",
+        "p-selection-group-hash",
+    } <= inputs
+
+    callback = next(
+        value
+        for key, value in app.callback_map.items()
+        if key == "p-violin-plot2.figure"
+    )["callback"].__wrapped__
+    callback(
+        "G1",
+        "cell_type",
+        "none",
+        "mode1",
+        "none",
+        [],
+        "X",
+        "Plotly",
+        {"cell_indices": None, "n_cells": 4},
+        {"len": 1, "hash": "filtered"},
+        None,
+        "split-violin-tab",
+        ["cell-1"],
+        None,
+    )
+    assert rendered["n_obs"] == 1
+    assert rendered["group_values"] is None
+
+    callback(
+        "G1",
+        SELECTION_GROUP,
+        "none",
+        "mode1",
+        "none",
+        [],
+        "X",
+        "Plotly",
+        {"cell_indices": None, "n_cells": 4},
+        None,
+        {"selected": {"len": 1, "hash": "highlighted"}},
+        "split-violin-tab",
+        None,
+        {
+            "selected_cells": ["cell-1"],
+            "universe_cells": None,
+        },
+    )
+    assert rendered["n_obs"] == 4
+    assert rendered["meta1"] == SELECTION_GROUP
+    assert rendered["group_values"][SELECTION_GROUP].tolist() == [
+        "Others",
+        "Selected",
+        "Others",
+        "Others",
+    ]
 
 
 def test_igv_uses_the_common_exploratory_workspace_guard():

@@ -9,7 +9,7 @@ import pandas as pd
 from scipy.stats import t as student_t
 from statsmodels.stats.multitest import multipletests
 
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_values
 
 
 def _welch_result(group_a, group_b):
@@ -49,6 +49,7 @@ def calculate_alr_welch(
     reference_population,
     group_order=None,
     pseudocount=0.5,
+    group_values=None,
 ):
     """Run all pairwise sample-level ALR Welch tests with global BH correction."""
     if not sample_key:
@@ -67,15 +68,26 @@ def calculate_alr_welch(
         raise ValueError("Pseudocount must be greater than zero.")
 
     required = (group_key, population_key, sample_key)
-    missing = [key for key in required if key not in adata.obs.columns]
+    missing = [
+        key
+        for key in required
+        if key not in adata.obs.columns
+        and not (group_values and key in group_values)
+    ]
     if missing:
         raise ValueError(f"Missing observation metadata: {', '.join(missing)}")
 
     frame = pd.DataFrame(
         {
-            "group": obs_col(adata.obs, group_key).astype(object),
-            "population": obs_col(adata.obs, population_key).astype(object),
-            "sample": obs_col(adata.obs, sample_key).astype(object),
+            "group": obs_values(
+                adata, group_key, group_values
+            ).astype(object),
+            "population": obs_values(
+                adata, population_key, group_values
+            ).astype(object),
+            "sample": obs_values(
+                adata, sample_key, group_values
+            ).astype(object),
         }
     ).dropna()
     if frame.empty:

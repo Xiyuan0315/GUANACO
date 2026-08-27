@@ -1,0 +1,78 @@
+{
+  "CLL clinical multi-omics": {
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/cll_clinical_multiomics.h5mu",
+    "organism": "human",
+    "description": "Patient-level CLL mRNA, DNA methylation, ex-vivo drug viability and genomic alterations with clinical outcomes.",
+    "modalities": {
+      "rna": {
+        "markers": [
+          "LPL",
+          "ZAP70",
+          "CD38",
+          "TCL1A",
+          "ZNF667",
+          "ADAM29"
+        ],
+        "default_embedding_left": "X_umap",
+        "default_embedding_right": "X_pca",
+        "default_color_left": "IGHV_status",
+        "default_color_right": "LPL"
+      },
+      "methylation": {
+        "default_embedding_left": "X_umap",
+        "default_embedding_right": "X_pca",
+        "default_color_left": "IGHV_status",
+        "default_color_right": "trisomy12_status"
+      },
+      "drug": {
+        "markers": [
+          "ibrutinib_1",
+          "ibrutinib_3",
+          "ibrutinib_5",
+          "idelalisib_3",
+          "navitoclax_3",
+          "fludarabine_3"
+        ],
+        "default_embedding_left": "X_umap",
+        "default_embedding_right": "X_pca",
+        "default_color_left": "IGHV_status",
+        "default_color_right": "ibrutinib_3"
+      },
+      "mutation": {
+        "markers": [
+          "IGHV",
+          "trisomy12",
+          "TP53",
+          "del17p13",
+          "NOTCH1",
+          "SF3B1"
+        ],
+        "default_embedding_left": "X_umap",
+        "default_embedding_right": "X_pca",
+        "default_color_left": "IGHV_status",
+        "default_color_right": "trisomy12"
+      }
+    },
+    "optional_plot_components": [
+      "dotplot",
+      "heatmap",
+      "violin",
+      "split-violin",
+      "stacked-bar",
+      "volcano",
+      "network",
+      "cross-modal-concordance",
+      "ai-explorer"
+    ]
+  },
+  "title": "GUANACO clinical multi-omics example",
+  "settings": {
+    "host": "127.0.0.1",
+    "port": 4399,
+    "max_cells": null,
+    "lazy_load": true,
+    "backed_mode": false,
+    "embedding_render_backend": "scattergl",
+    "share": false
+  }
+}

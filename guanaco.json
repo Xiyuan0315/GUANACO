@@ -1,13 +1,9 @@
 {
   "Dataset1": {
-    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/volcano_test.h5ad",
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/PBMC.h5mu",
+    "genome": "hg38",
     "optional_plot_components": [
-      "heatmap",
-      "violin",
-      "split-violin",
-      "dotplot",
-      "stacked-bar",
-      "volcano"
+      "peak-browser"
     ]
   },
   "title": "GUANACO",

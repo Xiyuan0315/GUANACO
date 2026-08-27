@@ -311,7 +311,7 @@ def _read_peak_cols(adata, cols: np.ndarray) -> np.ndarray:
     region most columns overlap with the previous one, so typically only a few
     new columns need S3 reads instead of all 50.
     """
-    from guanaco.utils.gene_extraction_utils import _densify
+    from guanaco.utils.gene_extraction_utils import densify_matrix
 
     adata_sig = f"{id(adata)}:{adata.n_obs}:{adata.n_vars}"
     n_obs = adata.n_obs
@@ -331,7 +331,7 @@ def _read_peak_cols(adata, cols: np.ndarray) -> np.ndarray:
 
     if missing_global:
         missing_arr = np.array(missing_global, dtype=np.intp)
-        sub = _densify(adata.X[:, missing_arr])
+        sub = densify_matrix(adata.X[:, missing_arr])
         if sub.ndim == 1:
             sub = sub.reshape(n_obs, 1)
         for i, (local_i, col_idx) in enumerate(zip(missing_local, missing_global)):

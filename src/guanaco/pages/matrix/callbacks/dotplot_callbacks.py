@@ -1,5 +1,7 @@
 from dash import Input, Output, State, no_update
 
+from guanaco.utils.obs_utils import SELECTION_GROUP, selection_group_context
+
 
 _DOTPLOT_TAB = "dotplot-tab"
 _DEFAULT_MATRIX_LAYER = "X"
@@ -55,7 +57,7 @@ def register_dotplot_callbacks(
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-plot-type-switch", "value"),
-            Input(f"{prefix}-data-layer", "value"),
+            Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-dotplot-standardization", "value"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-dotplot-cluster-mode", "value"),
@@ -63,12 +65,14 @@ def register_dotplot_callbacks(
             Input(f"{prefix}-dotplot-cluster-metric", "value"),
             Input(f"{prefix}-dotplot-transpose", "value"),
             Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
             Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
             State(f"{prefix}-dotplot", "figure"),
             State(f"{prefix}-dotplot-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
+            State(f"{prefix}-selection-group-store", "data"),
         ],
     )
     def update_dotplot(
@@ -84,10 +88,12 @@ def register_dotplot_callbacks(
         cluster_metric,
         transpose_selection,
         cells_hash,
+        selection_group_hash,
         active_tab,
         current_figure,
         rendered_key,
         selected_cells,
+        highlighted_cells,
     ):
         if active_tab != _DOTPLOT_TAB:
             return no_update, no_update
@@ -113,6 +119,7 @@ def register_dotplot_callbacks(
             cluster_metric=cluster_metric,
             transpose=transpose,
             selected_cells=cells_hash,
+            selection_group=selection_group_hash,
             is_backed=bool(hasattr(adata, "isbacked") and adata.isbacked),
             n_obs=adata.n_obs,
         )
@@ -128,6 +135,11 @@ def register_dotplot_callbacks(
             if multiomics_source is not None
             else adata
         )
+        group_values = None
+        if selected_annotation == SELECTION_GROUP and highlighted_cells:
+            plot_adata, group_values = selection_group_context(
+                plot_adata, highlighted_cells
+            )
         fig = plot_dot_matrix(
             plot_adata,
             selected_genes,
@@ -142,6 +154,7 @@ def register_dotplot_callbacks(
             metric=cluster_metric,
             transpose=transpose,
             selected_cells=selected_cells,
+            group_values=group_values,
         )
         cached_figure_set(cache_key, fig)
         return fig, cache_key

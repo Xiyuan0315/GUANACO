@@ -1,6 +1,15 @@
 """Runtime dataset registry built from the active GUANACO config."""
 
-from guanaco.data.loader import DEFAULT_COLORS, JSON_PATH, initialize_data, load_config
+import os
+from pathlib import Path
+
+from guanaco.data.loader import DEFAULT_COLORS, initialize_data, load_config
+
+
+# The config wizard imports loader utilities while inspecting the selected data.
+# Resolve this at registry startup, after the launcher has published the chosen
+# config, rather than reusing loader.JSON_PATH captured by an earlier import.
+JSON_PATH = Path(os.environ.get("GUANACO_CONFIG", "guanaco.json"))
 
 
 def _bool_setting(settings: dict, key: str, default: bool) -> bool:

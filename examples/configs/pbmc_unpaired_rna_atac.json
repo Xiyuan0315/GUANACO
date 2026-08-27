@@ -1,0 +1,47 @@
+{
+  "Unpaired PBMC RNA + ATAC": {
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/pbmc_unpaired_rna_atac.h5mu",
+    "organism": "human",
+    "description": "Independent 10x PBMC3k RNA and PBMC5k ATAC experiments with separate cells and modality-specific embeddings.",
+    "modalities": {
+      "rna": {
+        "markers": [
+          "CD3D",
+          "MS4A1",
+          "LST1",
+          "NKG7",
+          "FCGR3A",
+          "GNLY"
+        ],
+        "default_embedding_left": "X_umap",
+        "default_embedding_right": "X_pca",
+        "default_color_left": "cluster",
+        "default_color_right": "CD3D"
+      },
+      "atac": {
+        "default_embedding_left": "X_umap",
+        "default_embedding_right": "X_lsi",
+        "default_color_left": "cluster",
+        "default_color_right": "cluster"
+      }
+    },
+    "optional_plot_components": [
+      "dotplot",
+      "heatmap",
+      "violin",
+      "network",
+      "peak-browser",
+      "cross-modal-concordance"
+    ]
+  },
+  "title": "GUANACO unpaired multi-omics example",
+  "settings": {
+    "host": "127.0.0.1",
+    "port": 4399,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": true,
+    "embedding_render_backend": "scattergl",
+    "share": false
+  }
+}

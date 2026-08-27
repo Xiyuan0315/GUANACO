@@ -3,6 +3,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from guanaco.data.loader import obs_col
 from guanaco.pages.matrix.plots.cross_modal_concordance import (
     GROUP_CORRELATION,
     RELATIVE_SKEW,
@@ -24,7 +25,10 @@ def _feature_control(prefix, role, feature):
 
 
 def generate_cross_modal_concordance_layout(source, prefix):
-    """Build the paired-feature concordance exploratory tab."""
+    """Build the paired or metadata-level unpaired comparison tab."""
+    if not source.is_paired:
+        return _generate_unpaired_comparison_layout(source, prefix)
+
     modalities = list(source.modalities)
     modality_a = modalities[0]
     modality_b = modalities[1]
@@ -179,6 +183,141 @@ def generate_cross_modal_concordance_layout(source, prefix):
                 ],
                 id=f"{prefix}-concordance-main-row",
                 className="concordance-main-row concordance-main-row--with-summary",
+            ),
+        ],
+        className="cross-modal-concordance",
+    )
+
+
+def _generate_unpaired_comparison_layout(source, prefix):
+    modality_a, modality_b = list(source.modalities[:2])
+    feature_a = source.first_feature(modality_a)
+    feature_b = source.first_feature(modality_b)
+    groups_a = source.modality_discrete_obs_names(modality_a)
+    groups_b = source.modality_discrete_obs_names(modality_b)
+    shared_columns = [column for column in groups_a if column in set(groups_b)]
+    adata_a = source.modality_adata(modality_a)
+    adata_b = source.modality_adata(modality_b)
+    comparable_columns = []
+    for column in shared_columns:
+        labels_a = set(
+            obs_col(adata_a.obs, column).dropna().astype(str).unique()
+        )
+        labels_b = set(
+            obs_col(adata_b.obs, column).dropna().astype(str).unique()
+        )
+        if len(labels_a & labels_b) >= 2:
+            comparable_columns.append(column)
+    default_a = (
+        comparable_columns[0]
+        if comparable_columns
+        else (
+            shared_columns[0]
+            if shared_columns
+            else (groups_a[0] if groups_a else None)
+        )
+    )
+    default_b = default_a if default_a in groups_b else (groups_b[0] if groups_b else None)
+
+    return html.Div(
+        [
+            dcc.Store(
+                id=f"{prefix}-concordance-committed-features",
+                data={
+                    "feature_a": [feature_a] if feature_a else [],
+                    "feature_b": [feature_b] if feature_b else [],
+                },
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        _feature_control(prefix, "a", feature_a),
+                        className="concordance-control concordance-control--feature",
+                    ),
+                    html.Div(
+                        _feature_control(prefix, "b", feature_b),
+                        className="concordance-control concordance-control--feature",
+                    ),
+                    html.Div(
+                        dbc.Button(
+                            "Update comparison",
+                            id=f"{prefix}-concordance-update-comparison",
+                            n_clicks=0,
+                            className=(
+                                "update-other-plots-button "
+                                "concordance-update-button"
+                            ),
+                        ),
+                        className="concordance-control concordance-control--action",
+                    ),
+                ],
+                className="concordance-control-row concordance-controls",
+            ),
+            html.Div(
+                id=f"{prefix}-concordance-update-status",
+                className="concordance-update-status",
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        labeled_dropdown(
+                            f"{modality_a.upper()} groups:",
+                            f"{prefix}-concordance-group-a",
+                            [
+                                {"label": column, "value": column}
+                                for column in groups_a
+                            ],
+                            value=default_a,
+                            clearable=False,
+                        ),
+                        className="concordance-control concordance-control--group",
+                    ),
+                    html.Div(
+                        labeled_dropdown(
+                            f"{modality_b.upper()} groups:",
+                            f"{prefix}-concordance-group-b",
+                            [
+                                {"label": column, "value": column}
+                                for column in groups_b
+                            ],
+                            value=default_b,
+                            clearable=False,
+                        ),
+                        className="concordance-control concordance-control--group",
+                    ),
+                ],
+                className=(
+                    "concordance-control-row concordance-analysis-controls"
+                ),
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        dcc.Loading(
+                            dcc.Graph(
+                                id=f"{prefix}-concordance-unpaired-scatter",
+                                config=common_config,
+                                responsive=True,
+                                style={"height": "520px", "width": "100%"},
+                            ),
+                            type="circle",
+                        ),
+                        className="concordance-panel",
+                    ),
+                    html.Div(
+                        dcc.Loading(
+                            dcc.Graph(
+                                id=f"{prefix}-concordance-unpaired-heatmap",
+                                config=common_config,
+                                responsive=True,
+                                style={"height": "520px", "width": "100%"},
+                            ),
+                            type="circle",
+                        ),
+                        className="concordance-panel",
+                    ),
+                ],
+                className="concordance-main-row",
             ),
         ],
         className="cross-modal-concordance",

@@ -42,6 +42,18 @@ class GroupCorrelationAnalysis:
     counts: np.ndarray
 
 
+@dataclass(frozen=True)
+class UnpairedGroupComparison:
+    groups: np.ndarray
+    mean_a: np.ndarray
+    mean_b: np.ndarray
+    z_a: np.ndarray
+    z_b: np.ndarray
+    counts_a: np.ndarray
+    counts_b: np.ndarray
+    spearman: float
+
+
 def _correlation(x: np.ndarray, y: np.ndarray) -> float:
     if len(x) < 2 or np.ptp(x) == 0 or np.ptp(y) == 0:
         return float("nan")
@@ -117,6 +129,64 @@ def calculate_group_correlations(
             "features."
         )
     return GroupCorrelationAnalysis(labels, correlations, counts)
+
+
+def analyze_unpaired_group_comparison(
+    values_a,
+    groups_a,
+    values_b,
+    groups_b,
+) -> UnpairedGroupComparison:
+    """Compare independent modalities after aggregating shared metadata groups."""
+
+    def summarize(values, groups):
+        frame = pd.DataFrame(
+            {
+                "value": np.asarray(values, dtype=np.float64).reshape(-1),
+                "group": pd.Series(
+                    np.asarray(groups).reshape(-1),
+                    dtype="string",
+                ),
+            }
+        )
+        if len(frame["value"]) != len(frame["group"]):
+            raise ValueError("Feature values and metadata groups do not align.")
+        frame = frame[np.isfinite(frame["value"]) & frame["group"].notna()]
+        frame["group"] = frame["group"].astype(str)
+        return frame.groupby("group", sort=False)["value"].agg(["mean", "count"])
+
+    summary_a = summarize(values_a, groups_a)
+    summary_b = summarize(values_b, groups_b)
+    shared = [
+        group for group in summary_a.index if group in set(summary_b.index)
+    ]
+    if len(shared) < 2:
+        raise ValueError(
+            "The selected metadata columns need at least two shared group labels."
+        )
+
+    mean_a = summary_a.loc[shared, "mean"].to_numpy(dtype=np.float64)
+    mean_b = summary_b.loc[shared, "mean"].to_numpy(dtype=np.float64)
+    std_a = float(np.std(mean_a))
+    std_b = float(np.std(mean_b))
+    if std_a <= np.finfo(float).eps or std_b <= np.finfo(float).eps:
+        raise ValueError(
+            "Both feature profiles must vary across the shared metadata groups."
+        )
+    z_a = (mean_a - float(np.mean(mean_a))) / std_a
+    z_b = (mean_b - float(np.mean(mean_b))) / std_b
+    ranked_a = pd.Series(mean_a).rank(method="average").to_numpy()
+    ranked_b = pd.Series(mean_b).rank(method="average").to_numpy()
+    return UnpairedGroupComparison(
+        groups=np.asarray(shared, dtype=str),
+        mean_a=mean_a,
+        mean_b=mean_b,
+        z_a=z_a,
+        z_b=z_b,
+        counts_a=summary_a.loc[shared, "count"].to_numpy(dtype=np.int64),
+        counts_b=summary_b.loc[shared, "count"].to_numpy(dtype=np.int64),
+        spearman=_correlation(ranked_a, ranked_b),
+    )
 
 
 def empty_concordance_figure(message: str, *, height: int = 520) -> go.Figure:
@@ -472,4 +542,143 @@ def build_group_summary_heatmap(
         automargin=True,
         showgrid=False,
     )
+    return fig
+
+
+def build_unpaired_group_scatter(
+    comparison: UnpairedGroupComparison,
+    label_a: str,
+    label_b: str,
+) -> go.Figure:
+    """Show concordance of independent modalities across matched groups."""
+    customdata = np.column_stack(
+        [
+            comparison.mean_a,
+            comparison.mean_b,
+            comparison.counts_a,
+            comparison.counts_b,
+        ]
+    )
+    limit = float(
+        max(
+            1.0,
+            np.max(np.abs(comparison.z_a)),
+            np.max(np.abs(comparison.z_b)),
+        )
+    )
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=comparison.z_a,
+            y=comparison.z_b,
+            text=comparison.groups,
+            customdata=customdata,
+            mode="markers+text",
+            textposition="top center",
+            marker={"size": 10, "color": "#4e5d6c"},
+            hovertemplate=(
+                "%{text}<br>"
+                f"{label_a}: %{{customdata[0]:.3g}} (n=%{{customdata[2]:.0f}})<br>"
+                f"{label_b}: %{{customdata[1]:.3g}} (n=%{{customdata[3]:.0f}})"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[-limit, limit],
+            y=[-limit, limit],
+            mode="lines",
+            line={"color": "#a0a0a0", "dash": "dash", "width": 1.5},
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+    correlation = (
+        f"{comparison.spearman:.3f}"
+        if np.isfinite(comparison.spearman)
+        else "NA"
+    )
+    fig.add_annotation(
+        text=f"Across-group Spearman ρ = {correlation}",
+        x=0.98,
+        y=0.98,
+        xref="paper",
+        yref="paper",
+        xanchor="right",
+        yanchor="top",
+        showarrow=False,
+        font={"color": "#343a40", "size": 14},
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=520,
+        margin={"l": 70, "r": 25, "t": 35, "b": 70},
+        xaxis={
+            "title": f"{label_a} group mean (z-score)",
+            "range": [-limit * 1.1, limit * 1.1],
+            "showgrid": False,
+            "zeroline": True,
+        },
+        yaxis={
+            "title": f"{label_b} group mean (z-score)",
+            "range": [-limit * 1.1, limit * 1.1],
+            "showgrid": False,
+            "zeroline": True,
+            "scaleanchor": "x",
+            "scaleratio": 1,
+        },
+    )
+    return fig
+
+
+def build_unpaired_group_heatmap(
+    comparison: UnpairedGroupComparison,
+    label_a: str,
+    label_b: str,
+) -> go.Figure:
+    """Show standardized modality profiles and their group-level difference."""
+    values = np.column_stack(
+        [
+            comparison.z_a,
+            comparison.z_b,
+            comparison.z_a - comparison.z_b,
+        ]
+    )
+    hover = np.empty(values.shape, dtype=object)
+    for index, group in enumerate(comparison.groups):
+        hover[index, 0] = (
+            f"{group}<br>{label_a}<br>Mean: {comparison.mean_a[index]:.3g}"
+            f"<br>Cells: {comparison.counts_a[index]}"
+        )
+        hover[index, 1] = (
+            f"{group}<br>{label_b}<br>Mean: {comparison.mean_b[index]:.3g}"
+            f"<br>Cells: {comparison.counts_b[index]}"
+        )
+        hover[index, 2] = (
+            f"{group}<br>Relative profile: "
+            f"{comparison.z_a[index] - comparison.z_b[index]:+.2f}"
+        )
+    fig = go.Figure(
+        go.Heatmap(
+            z=values,
+            x=[label_a, label_b, "A − B"],
+            y=comparison.groups,
+            zmin=-2,
+            zmax=2,
+            zmid=0,
+            colorscale=DISAGREEMENT_COLORSCALE,
+            text=hover,
+            hovertemplate="%{text}<extra></extra>",
+            colorbar={"title": "Group profile<br>z-score"},
+        )
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=520,
+        margin={"l": 90, "r": 70, "t": 35, "b": 80},
+    )
+    fig.update_xaxes(side="top", automargin=True)
+    fig.update_yaxes(autorange="reversed", automargin=True)
     return fig

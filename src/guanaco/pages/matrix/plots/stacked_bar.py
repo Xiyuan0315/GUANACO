@@ -2,7 +2,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_values
 
 
 def _resolve_color_discrete_map(color_map, categories):
@@ -18,12 +18,24 @@ def _resolve_color_discrete_map(color_map, categories):
     return {cat: palette[i % len(palette)] for i, cat in enumerate(categories)}
 
 
-def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, x_order=None):
+def plot_stacked_bar(
+    x_meta,
+    y_meta,
+    norm,
+    adata,
+    color_map=None,
+    y_order=None,
+    x_order=None,
+    swap_axes=False,
+    group_values=None,
+):
     """Plot stacked bar chart."""
     # Check if x_meta and y_meta are the same - if so, create a histogram
     if x_meta == y_meta:
         # Create a simple count dataframe for histogram
-        count_df = obs_col(adata.obs, x_meta).value_counts().reset_index()
+        count_df = obs_values(
+            adata, x_meta, group_values
+        ).value_counts().reset_index()
         count_df.columns = [x_meta, 'count']
         count_df[x_meta] = count_df[x_meta].astype(str)
         
@@ -57,10 +69,14 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
         color_discrete_map = _resolve_color_discrete_map(color_map, bar_categories)
 
         # Create a simple bar plot (histogram)
+        axes = (
+            {"x": y_value, "y": x_meta, "orientation": "h"}
+            if swap_axes
+            else {"x": x_meta, "y": y_value}
+        )
         fig = px.bar(
             count_df,
-            x=x_meta,
-            y=y_value,
+            **axes,
             color=x_meta,
             labels={x_meta: f'{x_meta}', y_value: y_label},
             color_discrete_map=color_discrete_map,
@@ -69,7 +85,17 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
     else:
         # Original stacked bar logic
         # Create count dataframe
-        count_df = pd.DataFrame({x_meta: obs_col(adata.obs, x_meta), y_meta: obs_col(adata.obs, y_meta)}).groupby([x_meta, y_meta]).size().reset_index(name='count')
+        count_df = (
+            pd.DataFrame(
+                {
+                    x_meta: obs_values(adata, x_meta, group_values),
+                    y_meta: obs_values(adata, y_meta, group_values),
+                }
+            )
+            .groupby([x_meta, y_meta])
+            .size()
+            .reset_index(name="count")
+        )
         count_df[x_meta] = count_df[x_meta].astype(str)
         count_df[y_meta] = count_df[y_meta].astype(str)
 
@@ -115,10 +141,14 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
             category_orders[x_meta] = x_order_str
 
         # Create the plot
+        axes = (
+            {"x": y_value, "y": x_meta, "orientation": "h"}
+            if swap_axes
+            else {"x": x_meta, "y": y_value}
+        )
         fig = px.bar(
             count_df,
-            x=x_meta,
-            y=y_value,
+            **axes,
             color=y_meta,
             labels={x_meta: f'{x_meta}', y_value: y_label, y_meta: f'{y_meta}'},
             barmode='stack',
@@ -148,6 +178,8 @@ def plot_stacked_bar(x_meta, y_meta, norm, adata, color_map=None, y_order=None, 
 
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black')
     fig.update_yaxes(showline=True, linewidth=2, linecolor='black')
+    if swap_axes:
+        fig.update_yaxes(autorange="reversed")
 
     return fig
 
@@ -160,10 +192,11 @@ def plot_composition_hierarchy(
     parent_color_map=None,
     child_color_map=None,
     parent_order=None,
+    group_values=None,
 ):
     """Plot a two-level composition hierarchy as an icicle chart."""
     def string_values(key):
-        values = obs_col(adata.obs, key).astype(object)
+        values = obs_values(adata, key, group_values).astype(object)
         return values.where(values.notna(), "Missing").astype(str)
 
     frame = pd.DataFrame(

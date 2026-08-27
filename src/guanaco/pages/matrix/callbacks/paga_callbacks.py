@@ -2,6 +2,7 @@ from dash import Input, Output, State, html, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.render_guard import signature
+from guanaco.utils.search import ranked_substring_matches
 from guanaco.data.loader import obs_col
 
 
@@ -60,9 +61,11 @@ def register_paga_callbacks(
             values = [current_value] if current_value else []
             return [{"label": value, "value": value} for value in values]
 
-        matches = [
-            gene for gene in adata.var_names if search_value.lower() in gene.lower()
-        ][:25]
+        matches = ranked_substring_matches(
+            adata.var_names.astype(str),
+            search_value,
+            limit=25,
+        )
         if current_value and current_value not in matches:
             matches = [current_value] + matches
         return [{"label": gene, "value": gene} for gene in matches]

@@ -16,10 +16,13 @@ from guanaco.pages.matrix.plots.cross_modal_concordance import (
     RELATIVE_SKEW,
     SKEW_COLOR_LIMIT,
     analyze_concordance,
+    analyze_unpaired_group_comparison,
     build_concordance_embedding,
     build_disagreement_embedding,
     build_feature_scatter,
     build_group_summary_heatmap,
+    build_unpaired_group_heatmap,
+    build_unpaired_group_scatter,
     calculate_group_correlations,
 )
 from guanaco.pages.visualizations.registry import EXPLORATION_WORKSPACE
@@ -58,6 +61,41 @@ def test_disagreement_is_feature_a_z_score_minus_feature_b_z_score():
 def test_concordance_rejects_a_constant_feature():
     with pytest.raises(ValueError, match="must vary"):
         analyze_concordance(np.ones(20), np.arange(20))
+
+
+def test_unpaired_comparison_aligns_shared_metadata_groups():
+    result = analyze_unpaired_group_comparison(
+        [0.0, 2.0, 10.0, 12.0],
+        ["T", "T", "B", "B"],
+        [1.0, 3.0, 8.0, 10.0],
+        ["T", "T", "B", "B"],
+    )
+
+    assert result.groups.tolist() == ["T", "B"]
+    assert result.mean_a.tolist() == [1.0, 11.0]
+    assert result.mean_b.tolist() == [2.0, 9.0]
+    assert result.spearman == pytest.approx(1.0)
+    assert result.z_a == pytest.approx(result.z_b)
+
+    scatter = build_unpaired_group_scatter(result, "RNA · gene", "ATAC · peak")
+    heatmap = build_unpaired_group_heatmap(result, "RNA · gene", "ATAC · peak")
+    assert scatter.data[0].text.tolist() == ["T", "B"]
+    assert "Across-group Spearman" in scatter.layout.annotations[0].text
+    assert list(heatmap.data[0].x) == [
+        "RNA · gene",
+        "ATAC · peak",
+        "A − B",
+    ]
+
+
+def test_unpaired_comparison_requires_shared_group_labels():
+    with pytest.raises(ValueError, match="shared group labels"):
+        analyze_unpaired_group_comparison(
+            [1.0, 2.0],
+            ["RNA-1", "RNA-2"],
+            [3.0, 4.0],
+            ["ATAC-1", "ATAC-2"],
+        )
 
 
 def test_pair_data_supports_selecting_the_same_feature_twice():

@@ -1,0 +1,25 @@
+source,target,ligand_complex,receptor_complex,magnitude_rank,specificity_rank,method
+Monocyte_Classical,CD4+Tcells,IL1B,IL1R1,0.004,0.012,Visualization demo
+Monocyte_Classical,CD8+Tcells,IL1B,IL1R1,0.009,0.025,Visualization demo
+Monocyte_Classical,CD4+Tcells,TNF,TNFRSF1A,0.014,0.031,Visualization demo
+Monocyte_Classical,CD8+Tcells,TNF,TNFRSF1A,0.021,0.044,Visualization demo
+Monocyte_Classical,Bcells,TNFSF13B,TNFRSF13C,0.006,0.018,Visualization demo
+Monocyte_Classical,Bcells,SPP1,CD44,0.027,0.052,Visualization demo
+Monocyte_NonClassical,CD8+Tcells,CXCL16,CXCR6,0.011,0.023,Visualization demo
+Monocyte_NonClassical,NK,CXCL16,CXCR6,0.018,0.037,Visualization demo
+DCs,CD4+Tcells,CD80,CD28,0.003,0.009,Visualization demo
+DCs,CD4+Tcells,CD86,CD28,0.007,0.016,Visualization demo
+DCs,CD8+Tcells,CD86,CTLA4,0.019,0.041,Visualization demo
+DCs,CD4+Tcells,HLA-DRA,CD4,0.002,0.006,Visualization demo
+DCs,Bcells,TNFSF13B,TNFRSF13C,0.024,0.049,Visualization demo
+Bcells,CD4+Tcells,HLA-DRA,CD4,0.005,0.014,Visualization demo
+Bcells,CD4+Tcells,CD40,CD40LG,0.012,0.028,Visualization demo
+CD4+Tcells,Bcells,CD40LG,CD40,0.008,0.019,Visualization demo
+CD4+Tcells,Bcells,IL21,IL21R,0.016,0.034,Visualization demo
+CD4+Tcells,Monocyte_Classical,IFNG,IFNGR1,0.022,0.046,Visualization demo
+CD8+Tcells,Monocyte_Classical,IFNG,IFNGR1,0.010,0.022,Visualization demo
+CD8+Tcells,Monocyte_NonClassical,CSF1,CSF1R,0.026,0.054,Visualization demo
+NK,Monocyte_Classical,IFNG,IFNGR1,0.001,0.004,Visualization demo
+NK,Monocyte_Classical,TNFSF10,TNFRSF10B,0.013,0.029,Visualization demo
+NK,DCs,XCL1,XCR1,0.015,0.033,Visualization demo
+NK,DCs,XCL2,XCR1,0.020,0.043,Visualization demo

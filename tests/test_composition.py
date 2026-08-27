@@ -5,7 +5,11 @@ from anndata import AnnData
 from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import (
     _composition_control_state,
 )
-from guanaco.pages.matrix.plots.stacked_bar import plot_composition_hierarchy
+from guanaco.pages.matrix.plots.stacked_bar import (
+    plot_composition_hierarchy,
+    plot_stacked_bar,
+)
+from guanaco.utils.obs_utils import SELECTION_GROUP, selection_group_values
 
 
 def _adata():
@@ -97,3 +101,34 @@ def test_bar_controls_keep_the_original_terms_and_value_control():
     assert value_style == {}
     assert da_controls_style == {"marginBottom": "10px"}
     assert da_panel_style == {"marginTop": "24px", "width": "100%"}
+
+
+def test_stacked_bar_can_swap_to_horizontal_axes():
+    fig = plot_stacked_bar(
+        "lineage",
+        "cell_type",
+        "prop",
+        _adata(),
+        swap_axes=True,
+    )
+
+    assert all(trace.orientation == "h" for trace in fig.data)
+    assert fig.layout.yaxis.autorange == "reversed"
+
+
+def test_stacked_bar_accepts_session_local_lasso_groups():
+    adata = _adata()
+    fig = plot_stacked_bar(
+        "lineage",
+        SELECTION_GROUP,
+        "prop",
+        adata,
+        group_values={
+            SELECTION_GROUP: selection_group_values(
+                adata,
+                ["cell-1"],
+            )
+        },
+    )
+
+    assert {trace.name for trace in fig.data} == {"Selected", "Others"}

@@ -27,16 +27,36 @@ def generate_stacked_bar_layout(adata, discrete_label_list, prefix):
     )
     sample_unit_list = [str(column) for column in adata.obs.columns]
     reference_options, _ = _reference_categories(adata, default_stack_by)
-    view_mode = labeled_radioitems(
-        "View:",
-        f"{prefix}-composition-view",
+    appearance = html.Div(
         [
-            {"label": "Stacked bars", "value": "bars"},
-            {"label": "Hierarchy", "value": "hierarchy"},
-        ],
-        value="bars",
-        inline=True,
-        wrapper_style={"marginBottom": "15px"},
+            html.Label(
+                "Appearance:",
+                style={"fontWeight": "bold", "marginBottom": "5px"},
+            ),
+            html.Div(
+                [
+                    dbc.Checklist(
+                        id=f"{prefix}-composition-view",
+                        options=[
+                            {"label": "Hierarchy plot", "value": "hierarchy"}
+                        ],
+                        value=[],
+                        inline=True,
+                        switch=True,
+                        style={"display": "inline-block", "marginRight": "15px"},
+                    ),
+                    dbc.Checklist(
+                        id=f"{prefix}-composition-swap-axes",
+                        options=[{"label": "Swap axes", "value": "swap"}],
+                        value=[],
+                        inline=True,
+                        switch=True,
+                        style={"display": "inline-block", "marginRight": "15px"},
+                    ),
+                ],
+                style={"marginBottom": "5px"},
+            ),
+        ]
     )
     x_group_dropdown = labeled_dropdown(
         "Group bars by:",
@@ -125,12 +145,12 @@ def generate_stacked_bar_layout(adata, discrete_label_list, prefix):
     x_axis_order_component = html.Div(
         [
             html.Label(
-                "X-axis group order:",
+                "Group order:",
                 id=x_axis_order_title_id,
                 style={"fontWeight": "bold", "marginBottom": "10px"},
             ),
             dbc.Tooltip(
-                "Drag column headers to reorder x-axis groups.",
+                "Drag column headers to reorder groups.",
                 target=x_axis_order_title_id,
             ),
             dag.AgGrid(
@@ -171,50 +191,67 @@ def generate_stacked_bar_layout(adata, discrete_label_list, prefix):
 
     controls_row = dbc.Row(
         [
-            dbc.Col(view_mode, xs=12, lg=True),
-            dbc.Col(x_group_dropdown, xs=12, lg=True),
-            dbc.Col(stack_by_dropdown, xs=12, lg=True),
+            dbc.Col(x_group_dropdown, xs=12, lg=4),
+            dbc.Col(stack_by_dropdown, xs=12, lg=4),
             dbc.Col(
                 norm_box,
                 id=f"{prefix}-composition-value-control",
                 xs=12,
-                lg=True,
+                lg=4,
             ),
         ],
+        style={"marginBottom": "4px"},
+    )
+    appearance_row = dbc.Row(
+        [dbc.Col(appearance, xs=12)],
         style={"marginBottom": "15px"},
     )
     differential_abundance_controls = dbc.Row(
         [
             dbc.Col(sample_unit_dropdown, xs=12, lg=4),
             dbc.Col(reference_dropdown, xs=12, lg=4),
-            dbc.Col(
-                html.Div(
-                    "Tests use sample-level cell counts. Every pair of x-axis "
-                    "groups is compared and FDR-corrected together.",
-                    style={"color": "#6c757d", "fontSize": "13px"},
-                ),
-                xs=12,
-                lg=4,
-                style={"display": "flex", "alignItems": "center"},
-            ),
         ],
         id=f"{prefix}-composition-da-controls",
         style={"marginBottom": "10px"},
     )
     differential_abundance_panel = html.Div(
         [
-            dbc.Button(
-                "▸ Differential abundance",
-                id=f"{prefix}-composition-da-toggle",
-                n_clicks=0,
-                color="link",
-                style={
-                    "fontSize": "18px",
-                    "fontWeight": "600",
-                    "padding": "8px 0",
-                    "textDecoration": "none",
-                    "color": "#5f6368",
-                },
+            html.Div(
+                [
+                    dbc.Button(
+                        html.Span(
+                            "▸ Differential abundance",
+                            id=f"{prefix}-composition-da-toggle-label",
+                        ),
+                        id=f"{prefix}-composition-da-toggle",
+                        n_clicks=0,
+                        color="link",
+                        style={
+                            "fontSize": "18px",
+                            "fontWeight": "600",
+                            "padding": "8px 0",
+                            "textDecoration": "none",
+                            "color": "#5f6368",
+                        },
+                    ),
+                    html.Span(
+                        "ⓘ",
+                        id=f"{prefix}-composition-da-info",
+                        style={
+                            "color": "#7a7f85",
+                            "cursor": "help",
+                            "fontSize": "14px",
+                        },
+                    ),
+                    dbc.Tooltip(
+                        "Tests use sample-level cell counts. Every pair of x-axis "
+                        "groups is compared and FDR-corrected together.",
+                        id=f"{prefix}-composition-da-info-tooltip",
+                        target=f"{prefix}-composition-da-info",
+                        placement="right",
+                    ),
+                ],
+                style={"display": "flex", "alignItems": "center", "gap": "6px"},
             ),
             html.Div(
                 html.Div(
@@ -248,6 +285,7 @@ def generate_stacked_bar_layout(adata, discrete_label_list, prefix):
             column_order_store,
             dcc.Store(id=f"{prefix}-stacked-bar-rendered-key"),
             controls_row,
+            appearance_row,
             stack_by_tooltip,
             draggable_bar,
             x_axis_order_component,

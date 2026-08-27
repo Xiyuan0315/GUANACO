@@ -1,8 +1,9 @@
-"""Lightweight, cell-aligned access to several MuData modalities.
+"""Lightweight access to paired and unpaired MuData modalities.
 
-The joint visualization never concatenates complete modality matrices.  It keeps
-only a small shared ``obs``/``obsm`` frame in memory and materializes the feature
-columns requested by the active plot.
+Paired views never concatenate complete modality matrices. They keep only a small
+shared ``obs``/``obsm`` frame in memory and materialize the feature columns
+requested by the active plot. Unpaired views keep the modality matrices separate
+and expose only modality-scoped embedding and feature references.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from guanaco.utils.gene_extraction_utils import (
     extract_gene_expression,
     prewarm_gene_cache,
 )
+from guanaco.utils.search import ranked_substring_matches
 
 
 JOINT_TAB_ID = "multiomics"
@@ -101,7 +103,7 @@ def _unique_label(candidate: str, occupied: set[str], suffix: str) -> str:
 
 
 class MultiOmicsSource:
-    """A same-cell MuData view used by scatter and marker visualizations."""
+    """MuData access for either paired or unpaired multi-omics views."""
 
     def __init__(self, mdata):
         self.mdata = mdata
@@ -109,21 +111,33 @@ class MultiOmicsSource:
         if len(self.modalities) < 2:
             raise ValueError("A multi-omics view requires at least two modalities.")
 
-        self.cell_ids = pd.Index(mdata.obs_names.astype(str), name=mdata.obs_names.name)
-        if not self.cell_ids.is_unique:
+        global_cell_ids = pd.Index(
+            mdata.obs_names.astype(str), name=mdata.obs_names.name
+        )
+        if not global_cell_ids.is_unique:
             raise ValueError("MuData global obs_names contain duplicate cell IDs.")
 
         self._row_indexers: dict[str, np.ndarray] = {}
+        modality_cell_ids: dict[str, pd.Index] = {}
         for modality in self.modalities:
             mod_ids = pd.Index(mdata.mod[modality].obs_names.astype(str))
             if not mod_ids.is_unique:
                 raise ValueError(f"Modality '{modality}' contains duplicate cell IDs.")
-            indexer = mod_ids.get_indexer(self.cell_ids)
-            if len(mod_ids) != len(self.cell_ids) or np.any(indexer < 0):
-                raise ValueError(
-                    f"Modality '{modality}' does not contain the complete MuData cell set."
+            modality_cell_ids[modality] = mod_ids
+
+        first_ids = modality_cell_ids[self.modalities[0]]
+        self.is_paired = all(
+            len(modality_cell_ids[modality]) == len(first_ids)
+            and modality_cell_ids[modality].isin(first_ids).all()
+            for modality in self.modalities[1:]
+        )
+        self.cell_ids = first_ids.copy() if self.is_paired else global_cell_ids
+        if self.is_paired:
+            for modality in self.modalities:
+                indexer = modality_cell_ids[modality].get_indexer(self.cell_ids)
+                self._row_indexers[modality] = indexer.astype(
+                    np.int64, copy=False
                 )
-            self._row_indexers[modality] = indexer.astype(np.int64, copy=False)
 
         self._feature_refs: OrderedDict[str, _FeatureRef] = OrderedDict()
         self._obs_refs: OrderedDict[str, _ObsRef] = OrderedDict()
@@ -139,14 +153,17 @@ class MultiOmicsSource:
         self._feature_score_cache_size = 16
 
         self._build_feature_catalog()
-        obs = self._build_obs_catalog()
-        obsm = self._build_embedding_catalog()
-        self.base_adata = ad.AnnData(
-            X=np.empty((len(self.cell_ids), 0), dtype=np.float32),
-            obs=obs,
-            obsm=obsm,
-        )
-        self.base_adata.obs_names = self.cell_ids.copy()
+        obsm = self._build_embedding_catalog(materialize=self.is_paired)
+        if self.is_paired:
+            obs = self._build_obs_catalog()
+            self.base_adata = ad.AnnData(
+                X=np.empty((len(self.cell_ids), 0), dtype=np.float32),
+                obs=obs,
+                obsm=obsm,
+            )
+            self.base_adata.obs_names = self.cell_ids.copy()
+        else:
+            self.base_adata = None
 
     @property
     def label(self) -> str:
@@ -177,6 +194,8 @@ class MultiOmicsSource:
 
     @property
     def discrete_obs_names(self) -> list[str]:
+        if self.base_adata is None:
+            return []
         return get_discrete_labels(self.base_adata)
 
     def _build_feature_catalog(self) -> None:
@@ -263,9 +282,12 @@ class MultiOmicsSource:
 
         return frame
 
-    def _build_embedding_catalog(self) -> dict[str, np.ndarray]:
+    def _build_embedding_catalog(
+        self, *, materialize: bool
+    ) -> dict[str, np.ndarray]:
         obsm: dict[str, np.ndarray] = {}
         occupied: set[str] = set()
+        modalities_with_embeddings: set[str] = set()
         for modality in self.modalities:
             for raw_key in self.mdata.mod[modality].obsm.keys():
                 stored_values = self.mdata.mod[modality].obsm[raw_key]
@@ -278,12 +300,38 @@ class MultiOmicsSource:
                     "embedding",
                 )
                 occupied.add(label)
-                values = embedding_to_numpy(stored_values)
-                obsm[label] = values[self._row_indexers[modality]]
                 self._embedding_refs[label] = (modality, str(raw_key))
-        if not obsm:
+                modalities_with_embeddings.add(modality)
+                if materialize:
+                    values = embedding_to_numpy(stored_values)
+                    obsm[label] = values[self._row_indexers[modality]]
+        if not self._embedding_refs:
             raise ValueError("No modality contains an embedding in obsm.")
+        if not self.is_paired and len(modalities_with_embeddings) < 2:
+            raise ValueError(
+                "At least two modalities must contain embedding coordinates for "
+                "an unpaired multi-omics view."
+            )
         return obsm
+
+    def embedding_context(self, label: str):
+        """Return ``(modality, raw_key, AnnData)`` for a displayed embedding."""
+        ref = self._embedding_refs.get(label)
+        if ref is None:
+            raise ValueError(f"Unknown multi-omics embedding: {label}")
+        modality, raw_key = ref
+        return modality, raw_key, self.mdata.mod[modality]
+
+    def embedding_modality(self, label: str | None) -> str | None:
+        ref = self._embedding_refs.get(label or "")
+        return ref[0] if ref is not None else None
+
+    def modality_embeddings(self, modality: str) -> list[str]:
+        return [
+            label
+            for label, (owner, _raw_key) in self._embedding_refs.items()
+            if owner == modality
+        ]
 
     def is_feature(self, value: str | None) -> bool:
         return bool(value) and value in self._feature_refs
@@ -291,6 +339,18 @@ class MultiOmicsSource:
     def feature_modality(self, value: str | None) -> str | None:
         ref = self._feature_refs.get(value or "")
         return ref.modality if ref is not None else None
+
+    def feature_key(self, value: str | None) -> str | None:
+        ref = self._feature_refs.get(value or "")
+        return ref.key if ref is not None else None
+
+    def modality_adata(self, modality: str):
+        if modality not in self.modalities:
+            raise ValueError(f"Unknown modality: {modality}")
+        return self.mdata.mod[modality]
+
+    def modality_discrete_obs_names(self, modality: str) -> list[str]:
+        return get_discrete_labels(self.modality_adata(modality))
 
     def first_feature(self, modality: str) -> str | None:
         return next(
@@ -312,16 +372,17 @@ class MultiOmicsSource:
         """Return a bounded feature search scoped to one modality."""
         if modality not in self.modalities:
             return []
-        needle = str(query or "").strip().lower()
-        matches: list[str] = []
-        for raw_key in self.mdata.mod[modality].var_names.astype(str):
-            if needle and needle not in raw_key.lower():
-                continue
-            label = self._raw_feature_lookup[(modality.lower(), raw_key.lower())]
-            matches.append(label)
-            if len(matches) >= limit:
-                break
-        return matches
+        raw_keys = self.mdata.mod[modality].var_names.astype(str).tolist()
+        labels = [
+            self._raw_feature_lookup[(modality.lower(), raw_key.lower())]
+            for raw_key in raw_keys
+        ]
+        return ranked_substring_matches(
+            labels,
+            query,
+            limit=limit,
+            match_values=raw_keys,
+        )
 
     def search_all_features(
         self,
@@ -330,18 +391,19 @@ class MultiOmicsSource:
         limit: int = 20,
     ) -> list[str]:
         """Return a bounded search across every modality."""
-        needle = str(query or "").strip().lower()
+        needle = str(query or "").strip()
         if not needle:
             return self.feature_preview(
                 per_modality=max(1, limit // len(self.modalities))
             )[:limit]
-        matches: list[str] = []
-        for label in self._feature_refs:
-            if needle in label.lower():
-                matches.append(label)
-                if len(matches) >= limit:
-                    break
-        return matches
+        labels = list(self._feature_refs)
+        raw_keys = [ref.key for ref in self._feature_refs.values()]
+        return ranked_substring_matches(
+            labels,
+            needle,
+            limit=limit,
+            match_values=raw_keys,
+        )
 
     def is_obs(self, value: str | None) -> bool:
         return bool(value) and value in self._obs_refs
@@ -408,6 +470,33 @@ class MultiOmicsSource:
 
     def score_features(self, features: Iterable[str]) -> np.ndarray:
         """Return one raw feature or a Scanpy set score aligned to global cells."""
+        if not self.is_paired:
+            raise ValueError(
+                "Cell-level feature scores require paired modalities with shared cells."
+            )
+        feature_names, modality = self._validate_feature_set(features)
+        cached = self._feature_score_cache.get(feature_names)
+        if cached is not None:
+            self._feature_score_cache.move_to_end(feature_names)
+            return cached
+        native_values = self._native_feature_score(feature_names, modality)
+        values = np.asarray(
+            native_values[self._row_indexers[modality]],
+            dtype=np.float64,
+        )
+        values.setflags(write=False)
+        self._cache_feature_score(feature_names, values)
+        return values
+
+    def score_modality_features(self, features: Iterable[str]) -> np.ndarray:
+        """Return a feature/signature score in its native modality row order."""
+        feature_names, modality = self._validate_feature_set(features)
+        return self._native_feature_score(feature_names, modality)
+
+    def _validate_feature_set(
+        self,
+        features: Iterable[str],
+    ) -> tuple[tuple[str, ...], str]:
         feature_names = tuple(
             sorted(
                 name
@@ -421,13 +510,19 @@ class MultiOmicsSource:
         modalities = {self._feature_refs[name].modality for name in feature_names}
         if len(modalities) != 1:
             raise ValueError("Each feature set must come from one matrix.")
+        return feature_names, next(iter(modalities))
 
-        cached = self._feature_score_cache.get(feature_names)
+    def _native_feature_score(
+        self,
+        feature_names: tuple[str, ...],
+        modality: str,
+    ) -> np.ndarray:
+        cache_key = ("__native__", *feature_names)
+        cached = self._feature_score_cache.get(cache_key)
         if cached is not None:
-            self._feature_score_cache.move_to_end(feature_names)
+            self._feature_score_cache.move_to_end(cache_key)
             return cached
 
-        modality = next(iter(modalities))
         mod_adata = self.mdata.mod[modality]
         raw_keys = [self._feature_refs[name].key for name in feature_names]
         if mod_adata.X is None:
@@ -436,12 +531,9 @@ class MultiOmicsSource:
         if len(feature_names) == 1:
             prewarm_gene_cache(mod_adata, raw_keys)
             raw_values = extract_gene_expression(mod_adata, raw_keys[0])
-            values = np.asarray(
-                raw_values[self._row_indexers[modality]],
-                dtype=np.float64,
-            )
+            values = np.array(raw_values, dtype=np.float64, copy=True)
             values.setflags(write=False)
-            self._cache_feature_score(feature_names, values)
+            self._cache_feature_score(cache_key, values)
             return values
 
         # score_genes only writes its result to obs. A lightweight wrapper lets it
@@ -474,10 +566,9 @@ class MultiOmicsSource:
                 f"Could not calculate a feature-set score for matrix '{modality}'."
             ) from exc
         values = score_adata.obs[score_name].to_numpy(dtype=np.float64, copy=True)
-        values = values[self._row_indexers[modality]]
         values.setflags(write=False)
 
-        self._cache_feature_score(feature_names, values)
+        self._cache_feature_score(cache_key, values)
         return values
 
     def _cache_feature_score(
@@ -497,6 +588,10 @@ class MultiOmicsSource:
         embedding: str | None = None,
     ) -> ad.AnnData:
         """Return a small AnnData containing only requested feature columns."""
+        if not self.is_paired:
+            raise ValueError(
+                "A joint feature matrix cannot be materialized for unpaired modalities."
+            )
         feature_names = tuple(
             name for name in dict.fromkeys(features or ()) if name in self._feature_refs
         )
@@ -557,7 +652,7 @@ class MultiOmicsSource:
 
 
 def try_build_multiomics_source(mdata) -> tuple[MultiOmicsSource | None, str | None]:
-    """Build a joint view, returning a user-readable reason when unavailable."""
+    """Build a paired or unpaired view, with a user-readable failure reason."""
     try:
         return MultiOmicsSource(mdata), None
     except ValueError as exc:

@@ -7,6 +7,32 @@ import pandas as pd
 from scipy.sparse import issparse
 
 
+GENE_SYMBOL_COLUMNS = (
+    "gene_symbol",
+    "gene_symbols",
+    "symbol",
+    "feature_name",
+    "gene_name",
+)
+
+
+def gene_symbol_lookup(adata) -> dict[str, str]:
+    """Map case-folded feature IDs and symbols to matrix variable names."""
+    lookup: dict[str, str] = {}
+    for var_name in adata.var_names.astype(str):
+        lookup.setdefault(var_name.casefold(), var_name)
+    for column in GENE_SYMBOL_COLUMNS:
+        if column not in adata.var.columns:
+            continue
+        for var_name, symbol in zip(
+            adata.var_names.astype(str), adata.var[column], strict=False
+        ):
+            text = "" if symbol is None else str(symbol).strip()
+            if text and text.lower() != "nan":
+                lookup.setdefault(text.casefold(), var_name)
+    return lookup
+
+
 class GeneExpressionCache:
     """O(1) LRU + TTL cache for 1D gene vectors, bounded by item count *and* bytes.
 
@@ -159,7 +185,7 @@ class GeneExpressionCache:
 # Internal helper functions
 # --------------------------
 
-def _densify(block):
+def densify_matrix(block):
     """Return a dense ``numpy`` array from a numpy / scipy-sparse / dask block.
 
     Cloud-backed (lazy) ``X``/``layers`` are dask arrays whose chunks may be
@@ -222,7 +248,7 @@ def _compute_gene_vector(adata, gene, layer=None, use_raw=False, dtype=None):
     j = int(idx[0])
 
     # X may be a lazy/cloud-backed dask array: this slice reads only column j.
-    out = _densify(X[:, j]).ravel()
+    out = densify_matrix(X[:, j]).ravel()
 
     if dtype is not None:
         out = out.astype(dtype, copy=False)
@@ -240,7 +266,7 @@ def _compute_gene_block(adata, genes, layer=None, use_raw=False, dtype=None):
     X = _get_matrix(data_source, layer)
 
     idxs = np.asarray(data_source.var_names.get_indexer(genes), dtype=np.int64)
-    block = _densify(X[:, idxs])
+    block = densify_matrix(X[:, idxs])
     if block.ndim == 1:  # single gene -> keep 2D so the column split below works
         block = block.reshape(-1, 1)
 

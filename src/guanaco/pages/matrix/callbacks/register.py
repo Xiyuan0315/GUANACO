@@ -43,14 +43,27 @@ from guanaco.pages.matrix.callbacks.violin_callbacks import (
 from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import register_stacked_bar_callbacks
 from guanaco.pages.matrix.callbacks.paga_callbacks import register_paga_callbacks
 from guanaco.pages.matrix.callbacks.volcano_callbacks import register_volcano_callbacks
-from guanaco.pages.matrix.callbacks.grn_demo_callbacks import register_grn_demo_callbacks
+from guanaco.pages.matrix.callbacks.network_callbacks import register_network_callbacks
+from guanaco.pages.matrix.callbacks.ligand_receptor_callbacks import (
+    register_ligand_receptor_callbacks,
+)
+from guanaco.pages.matrix.callbacks.spatial_relationships_callbacks import (
+    register_spatial_relationships_callbacks,
+)
 from guanaco.pages.matrix.callbacks.atac_browser_callbacks import register_atac_browser_callbacks
 from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
     register_cross_modal_concordance_callbacks,
 )
 from guanaco.pages.matrix.plots.atac_browser import has_genomic_peak_features
 from guanaco.utils.colors import discrete_palette_config
-from guanaco.utils.obs_utils import sorted_categories
+from guanaco.utils.obs_utils import (
+    SELECTION_GROUP,
+    SELECTION_GROUP_LABEL,
+    SELECTION_LABELS,
+    selection_group_signature,
+    sorted_categories,
+)
+from guanaco.utils.search import ranked_substring_matches
 from guanaco.data.registry import color_config as _default_color_config
 from guanaco.data.loader import obs_col
 warnings.filterwarnings('ignore', message='.*observed=False.*')
@@ -308,6 +321,7 @@ def register_exploratory_plot_callbacks(
     resolve_plot_adata_from_filter,
     hash_list_signature,
     multiomics_source=None,
+    organism="human",
 ):
     """Register plots whose data selections are owned by their own tab."""
     if "split-violin" in enabled:
@@ -319,6 +333,7 @@ def register_exploratory_plot_callbacks(
             var_names=var_names,
             var_names_lower=var_names_lower,
             color_config=color_config,
+            resolve_plot_adata_from_filter=resolve_plot_adata_from_filter,
         )
     if "stacked-bar" in enabled:
         register_stacked_bar_callbacks(
@@ -346,8 +361,29 @@ def register_exploratory_plot_callbacks(
         )
     if "volcano" in enabled:
         register_volcano_callbacks(app, adata, prefix)
-    if "grn" in enabled:
-        register_grn_demo_callbacks(app, adata, prefix)
+    if "network" in enabled:
+        register_network_callbacks(
+            app,
+            adata,
+            prefix,
+            organism=organism,
+            resolve_plot_adata_from_filter=resolve_plot_adata_from_filter,
+            hash_list_signature=hash_list_signature,
+        )
+    if "ligand-receptor" in enabled:
+        register_ligand_receptor_callbacks(
+            app,
+            adata,
+            prefix,
+            color_config=color_config,
+        )
+    if "spatial-relationships" in enabled:
+        register_spatial_relationships_callbacks(
+            app,
+            adata,
+            prefix,
+            color_config=color_config,
+        )
     if "peak-browser" in enabled and has_genomic_peak_features(adata):
         register_atac_browser_callbacks(
             app,
@@ -379,6 +415,7 @@ def matrix_callbacks(
     color_config=None,
     gene_annotation_path=None,
     multiomics_source=None,
+    organism="human",
 ):
     """Compose shared, marker-driven, and exploratory callback registrars."""
     embedding_render_backend = str(embedding_render_backend).lower()
@@ -410,18 +447,12 @@ def matrix_callbacks(
         return adata
 
     def _search_combined(primary, primary_lower, secondary, secondary_lower, query, limit=10):
-        q = query.lower()
-        hits = []
-        for values, lowered in (
-            (primary, primary_lower),
-            (secondary, secondary_lower),
-        ):
-            for item, item_lower in zip(values, lowered):
-                if q in item_lower:
-                    hits.append(item)
-                    if len(hits) >= limit:
-                        return hits
-        return hits
+        return ranked_substring_matches(
+            [*primary, *secondary],
+            query,
+            limit=limit,
+            match_values=[*primary_lower, *secondary_lower],
+        )
 
     # ===== Cell Selection Hash =====
     # Pre-compute a compact hash of selected_cells once, so downstream plot
@@ -437,6 +468,13 @@ def matrix_callbacks(
         payload = json.dumps(selected_cells, separators=(",", ":"), default=str)
         digest = hashlib.md5(payload.encode()).hexdigest()
         return {"len": n, "hash": digest}
+
+    @app.callback(
+        Output(f'{prefix}-selection-group-hash', 'data'),
+        Input(f'{prefix}-selection-group-store', 'data'),
+    )
+    def update_selection_group_hash(selected_cells):
+        return selection_group_signature(selected_cells)
 
     # ===== Global Filter Callbacks =====
 
@@ -683,25 +721,70 @@ def matrix_callbacks(
     def update_genes_dropdown(search_value, value):
         if not search_value:
             raise PreventUpdate
-        label_list = var_names
-        query = search_value.lower()
-        matching_labels = []
-        for label in label_list:
-            if query in label.lower():
-                matching_labels.append(label)
-                if len(matching_labels) >= 10:
-                    break
+        matching_labels = ranked_substring_matches(
+            var_names,
+            search_value,
+            limit=10,
+            match_values=var_names_lower,
+        )
         selected_labels = value if value else []
         all_labels = list(dict.fromkeys(selected_labels + matching_labels))
         return [{'label': label, 'value': label} for label in all_labels]
     
     @app.callback(
+        [
+            Output(f'{prefix}-single-cell-annotation-dropdown', 'options'),
+            Output(f'{prefix}-single-cell-annotation-dropdown', 'value'),
+        ],
+        Input(f'{prefix}-selection-group-hash', 'data'),
+        [
+            State(f'{prefix}-selection-group-store', 'data'),
+            State(f'{prefix}-single-cell-annotation-dropdown', 'options'),
+            State(f'{prefix}-single-cell-annotation-dropdown', 'value'),
+        ],
+    )
+    def update_selection_annotation(
+        _selection_group_hash,
+        highlighted_cells,
+        current_options,
+        current_value,
+    ):
+        base_options = [
+            option
+            for option in (current_options or [])
+            if option.get('value') != SELECTION_GROUP
+        ]
+        if highlighted_cells:
+            return [
+                {'label': SELECTION_GROUP_LABEL, 'value': SELECTION_GROUP},
+                *base_options,
+            ], SELECTION_GROUP
+        if current_value == SELECTION_GROUP:
+            fallback = base_options[0]['value'] if base_options else None
+            return base_options, fallback
+        return base_options, current_value
+
+    @app.callback(
         [Output(f'{prefix}-single-cell-label-selection', 'options'),
          Output(f'{prefix}-single-cell-label-selection', 'value')],
         [Input(f'{prefix}-single-cell-annotation-dropdown', 'value'),
-         Input(f'{prefix}-selected-cells-store', 'data')]
+         Input(f'{prefix}-selected-cells-hash', 'data'),
+         Input(f'{prefix}-selection-group-hash', 'data')],
+        [
+            State(f'{prefix}-selected-cells-store', 'data'),
+            State(f'{prefix}-selection-group-store', 'data'),
+        ],
     )
-    def update_labels_based_on_annotation(selected_annotation, selected_cells):
+    def update_labels_based_on_annotation(
+        selected_annotation,
+        _selected_cells_hash,
+        _selection_group_hash,
+        selected_cells,
+        highlighted_cells,
+    ):
+        if selected_annotation == SELECTION_GROUP and highlighted_cells:
+            options = [{'label': label, 'value': label} for label in SELECTION_LABELS]
+            return options, list(SELECTION_LABELS)
         # Filter adata if cells are selected
         src = adata[selected_cells] if selected_cells else adata
         unique_labels = sorted_categories(src, selected_annotation)
@@ -728,21 +811,41 @@ def matrix_callbacks(
         resolve_plot_adata_from_filter=_resolve_plot_adata_from_filter,
         hash_list_signature=_hash_list_signature,
         multiomics_source=multiomics_source,
+        organism=organism,
     )
 
     # Add callback to update filter status
     @app.callback(
         Output(f'{prefix}-filter-status', 'children'),
-        Input(f'{prefix}-selected-cells-store', 'data')
+        [
+            Input(f'{prefix}-selected-cells-hash', 'data'),
+            Input(f'{prefix}-selection-group-hash', 'data'),
+        ],
     )
-    def update_filter_status(selected_cells):
-        if selected_cells:
-            n_selected = len(selected_cells)
+    def update_filter_status(selected_cells_hash, selection_group_hash):
+        if selected_cells_hash:
+            n_selected = selected_cells_hash['len']
             n_total = adata.n_obs
             return dbc.Alert(
                 f"Showing {n_selected} of {n_total} cells ({n_selected/n_total*100:.1f}%) based on scatter plot selection",
                 color="info",
                 dismissable=False,
                 style={'margin': '0'}
+            )
+        if selection_group_hash:
+            selected_signature = selection_group_hash.get('selected') or {}
+            universe_signature = selection_group_hash.get('universe')
+            n_selected = selected_signature.get('len', 0)
+            n_total = (
+                universe_signature['len']
+                if universe_signature is not None
+                else adata.n_obs
+            )
+            return dbc.Alert(
+                f"Comparing {n_selected} Selected with "
+                f"{max(n_total - n_selected, 0)} Others",
+                color="info",
+                dismissable=False,
+                style={'margin': '0'},
             )
         return None

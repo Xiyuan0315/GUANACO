@@ -66,6 +66,7 @@ class DatasetBundle:
         expression_layer: str | None = None,
         gene_annotation_path: str | None = None,
         modality_configs: dict[str, dict] | None = None,
+        organism: str = "human",
     ):
 
         self.title = title
@@ -85,6 +86,7 @@ class DatasetBundle:
         self.max_cells = max_cells
         self.expression_layer = expression_layer
         self.gene_annotation_path = gene_annotation_path  # Dataset-level default
+        self.organism = organism
         # Per-modality overrides keyed by modality name (e.g. "rna", "atac").
         # Each value is a dict with optional keys: gene_markers, scatter_defaults,
         # optional_plot_components, gene_annotation_path.
@@ -127,6 +129,15 @@ def load_config(json_path: Path) -> dict[str, Any]:
     if not json_path.exists():
         raise FileNotFoundError(f"Config file not found: {json_path}")
     return json.loads(json_path.read_text())
+
+
+def _organism_from_genome(genome: str | None) -> str:
+    normalized = str(genome or "").strip().lower()
+    if normalized.startswith("mm"):
+        return "mouse"
+    if normalized.startswith("rn"):
+        return "rat"
+    return "human"
 
 
 def _resolve_optional_local_path(value: str | None, base_dir: Path) -> str | None:
@@ -1199,6 +1210,7 @@ def initialize_data(
                 expression_layer=dataset_cfg.get("expression_layer"),
                 gene_annotation_path=gene_annotation_path,
                 modality_configs=modality_configs or None,
+                organism=dataset_cfg.get("organism", _organism_from_genome(dataset_cfg.get("genome", genome))),
             )
             datasets[dataset_key] = dataset_bundle
         else:

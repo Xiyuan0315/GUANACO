@@ -247,7 +247,12 @@ def anndata_layout(
     genome_tracks=None,
     ref_track=None,
     multiomics_source=None,
+    modality_name=None,
+    organism="human",
 ):
+    is_unpaired_multiomics = (
+        multiomics_source is not None and not multiomics_source.is_paired
+    )
     sections = generate_visualization_sections(
         adata,
         default_gene_markers,
@@ -258,9 +263,11 @@ def anndata_layout(
         genome_tracks=genome_tracks,
         ref_track=ref_track,
         multiomics_source=multiomics_source,
+        modality_name=modality_name,
+        organism=organism,
     )
     children = []
-    if adata is not None:
+    if adata is not None or is_unpaired_multiomics:
         children.append(
             dbc.Card(
                 html.Div(

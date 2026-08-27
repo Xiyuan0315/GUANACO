@@ -3,7 +3,12 @@ from dataclasses import dataclass
 from dash import Input, Output, State, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
-from guanaco.utils.obs_utils import sorted_categories
+from guanaco.utils.obs_utils import (
+    SELECTION_GROUP,
+    SELECTION_LABELS,
+    selection_group_context,
+    sorted_categories,
+)
 
 
 _HEATMAP_TAB = "heatmap-tab"
@@ -24,8 +29,10 @@ class _HeatmapRequest:
     discrete_color_map: object
     secondary_colormap: object
     cells_hash: object
+    selection_group_hash: object
     active_tab: object
     selected_cells: object
+    highlighted_cells: object
 
 
 # Clientside double-click reset for the heatmap. Plotly's own reset is unreliable
@@ -34,14 +41,19 @@ class _HeatmapRequest:
 # (relayout emits *.autorange:true) we force every axis back to the figure's
 # configured range -- the full heatmap extent -- which always restores cleanly.
 # Output is a throwaway store; the real work is the Plotly.relayout side effect.
-_HEATMAP_RESET_JS = """
+_HEATMAP_RESET_JS = r"""
 function(relayout, figure) {
     const noUpdate = window.dash_clientside.no_update;
     if (!relayout || !figure) return noUpdate;
-    // Double-click reset emits *.autorange:true. Ignore zoom/pan (emit ranges) and
-    // responsive resize (emits 'autosize'), so this only fires on an actual reset.
-    const isReset = relayout['xaxis.autorange'] === true
-                 || relayout['yaxis.autorange'] === true;
+    // This is a shared-axis subplot.  Plotly emits autorange on whichever row has
+    // no explicit initial range (usually yaxis2/yaxis3), not necessarily on the
+    // first xaxis/yaxis.  Watching only those first two axes lets Plotly's native
+    // reset leave the matched axes in inconsistent states and collapse the map.
+    // Zoom/pan emits explicit ranges and responsive resize emits only `autosize`,
+    // so an autorange=true event on any Cartesian subplot axis identifies reset.
+    const isReset = Object.keys(relayout).some(function(key) {
+        return /^[xy]axis\d*\.autorange$/.test(key) && relayout[key] === true;
+    });
     if (!isReset) return noUpdate;
     // Debounce so the relayout we trigger below doesn't re-enter this handler.
     const now = Date.now();
@@ -56,10 +68,16 @@ function(relayout, figure) {
     // figure.layout holds the server-set (original) ranges -- the full view.
     const lay = (figure && figure.layout) || {};
     const upd = {};
-    ['xaxis','xaxis2','xaxis3','yaxis','yaxis2','yaxis3'].forEach(function(ax) {
-        if (lay[ax] && lay[ax].range) {
+    Object.keys(lay).filter(function(key) {
+        return /^[xy]axis\d*$/.test(key);
+    }).forEach(function(ax) {
+        if (lay[ax].range) {
             upd[ax + '.range'] = lay[ax].range.slice();
             upd[ax + '.autorange'] = false;
+        } else {
+            // Annotation rows normally use autorange.  Restore that state too so
+            // a previous failed reset can be repaired by double-clicking again.
+            upd[ax + '.autorange'] = true;
         }
     });
     if (Object.keys(upd).length > 0) window.Plotly.relayout(gd, upd);
@@ -87,7 +105,11 @@ def _uses_secondary_annotation(primary_annotation, secondary_annotation):
 def _label_color_map(adata, annotation, palette_name):
     if not annotation or not palette_name:
         return None
-    unique_labels = sorted_categories(adata, annotation)
+    unique_labels = (
+        SELECTION_LABELS
+        if annotation == SELECTION_GROUP
+        else sorted_categories(adata, annotation)
+    )
     palette = resolve_discrete_palette(palette_name, len(unique_labels))
     if not palette:
         return None
@@ -113,6 +135,7 @@ def _heatmap_cache_key(
         discrete_color_map=request.discrete_color_map,
         secondary_colormap=request.secondary_colormap,
         selected_cells=request.cells_hash,
+        selection_group=request.selection_group_hash,
         is_backed=_is_backed(adata),
         n_obs=adata.n_obs,
     )
@@ -133,6 +156,7 @@ def _heatmap_plan_signature(
         standardization=request.standardization,
         data_layer=request.data_layer,
         selected_cells=request.cells_hash,
+        selection_group=request.selection_group_hash,
         n_obs=adata.n_obs,
     )
 
@@ -162,6 +186,7 @@ def _heatmap_kwargs(
     plan_sig,
     adata_obs,
     color_config,
+    obs_overrides=None,
 ):
     groupby1_label_color_map, groupby2_label_color_map = label_color_maps
     return dict(
@@ -182,6 +207,7 @@ def _heatmap_kwargs(
         adata_obs=adata_obs,
         data_already_filtered=not bool(request.selected_labels),
         color_config=color_config,
+        obs_overrides=obs_overrides,
     )
 
 
@@ -211,6 +237,12 @@ def _build_heatmap_figure(
     # filter_data returns the same cached view for the same selected_cells, avoiding
     # repeated obs/var DataFrame slicing for purely cosmetic parameter changes.
     plot_adata = filter_data(source_adata, None, None, request.selected_cells)
+    obs_overrides = None
+    if request.selected_annotation == SELECTION_GROUP and request.highlighted_cells:
+        plot_adata, group_values = selection_group_context(
+            plot_adata, request.highlighted_cells
+        )
+        obs_overrides = {SELECTION_GROUP: group_values}
     common_kwargs = _heatmap_kwargs(
         request,
         plot_adata=plot_adata,
@@ -219,6 +251,7 @@ def _build_heatmap_figure(
         plan_sig=plan_sig,
         adata_obs=source_adata.obs,
         color_config=color_config,
+        obs_overrides=obs_overrides,
     )
     return plot_unified_heatmap(**common_kwargs)
 
@@ -257,18 +290,20 @@ def register_heatmap_callbacks(
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
             Input(f"{prefix}-single-cell-label-selection", "value"),
             Input(f"{prefix}-heatmap-standardization", "value"),
-            Input(f"{prefix}-data-layer", "value"),
+            Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-heatmap-label-dropdown", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-heatmap-secondary-colormap-dropdown", "value"),
             Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
             Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
             State(f"{prefix}-heatmap", "figure"),
             State(f"{prefix}-heatmap-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
+            State(f"{prefix}-selection-group-store", "data"),
         ],
     )
     def update_heatmap(
@@ -282,15 +317,18 @@ def register_heatmap_callbacks(
         discrete_color_map,
         secondary_colormap,
         cells_hash,
+        selection_group_hash,
         active_tab,
         current_figure,
         rendered_key,
         selected_cells,
+        highlighted_cells,
     ):
         request = _HeatmapRequest(
             selected_genes, selected_annotation, selected_labels, standardization,
             data_layer, heatmap_color, secondary_annotation, discrete_color_map,
-            secondary_colormap, cells_hash, active_tab, selected_cells,
+            secondary_colormap, cells_hash, selection_group_hash, active_tab,
+            selected_cells, highlighted_cells,
         )
         if request.active_tab != _HEATMAP_TAB:
             return no_update, no_update

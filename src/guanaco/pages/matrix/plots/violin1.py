@@ -86,9 +86,16 @@ def _label_masks(obs_values, labels):
     return masks
 
 
-def _row_positions_for_labels(adata, groupby, labels, data_already_filtered):
+def _row_positions_for_labels(
+    adata,
+    groupby,
+    labels,
+    data_already_filtered,
+    group_values=None,
+):
     if labels and not data_already_filtered:
-        return np.where(obs_col(adata.obs, groupby).isin(labels).to_numpy())[0]
+        values = group_values if group_values is not None else obs_col(adata.obs, groupby)
+        return np.where(values.isin(labels).to_numpy())[0]
     return None
 
 
@@ -136,9 +143,17 @@ def _get_adata_id(adata):
     return f"{id(adata)}_{adata.shape}"
 
 
-def _label_color_map(adata, groupby, groupby_label_color_map, adata_obs=None):
+def _label_color_map(
+    adata,
+    groupby,
+    groupby_label_color_map,
+    adata_obs=None,
+    group_values=None,
+):
     unique_labels = (
-        sorted(obs_col(adata_obs, groupby).unique())
+        list(group_values.cat.categories)
+        if group_values is not None and hasattr(group_values, "cat")
+        else sorted(obs_col(adata_obs, groupby).unique())
         if adata_obs is not None
         else sorted(obs_col(adata.obs, groupby).unique())
     )
@@ -247,6 +262,7 @@ def _extract_and_cache_violin_data(
     transformation,
     data_already_filtered=False,
     layer=None,
+    group_values=None,
 ):
     """Extract and cache violin plot data for reuse."""
     adata_id = _get_adata_id(adata)
@@ -255,7 +271,10 @@ def _extract_and_cache_violin_data(
         labels,
         groupby,
         transformation,
-        f"{adata_id}_prefilter={data_already_filtered}_layer={layer}",
+        (
+            f"{adata_id}_prefilter={data_already_filtered}_layer={layer}_groups="
+            f"{hashlib.md5(np.asarray(group_values.cat.codes, dtype=np.int8).tobytes()).hexdigest() if group_values is not None else None}"
+        ),
     )
     
     # Check if data is already cached
@@ -269,7 +288,13 @@ def _extract_and_cache_violin_data(
     if not valid_genes:
         return None
 
-    row_pos = _row_positions_for_labels(adata, groupby, labels, data_already_filtered)
+    row_pos = _row_positions_for_labels(
+        adata,
+        groupby,
+        labels,
+        data_already_filtered,
+        group_values=group_values,
+    )
     if adata.n_obs == 0 or (row_pos is not None and row_pos.size == 0):
         return None
 
@@ -278,7 +303,9 @@ def _extract_and_cache_violin_data(
     # the selected rows. Consumers index gene_df / obs_values positionally, so it is
     # row order -- not the index -- that must line up, and both come from row_pos.
     gene_df = _extract_gene_frame(adata, valid_genes, row_pos, layer=layer)
-    if row_pos is not None:
+    if group_values is not None:
+        obs_values = group_values.iloc[row_pos] if row_pos is not None else group_values
+    elif row_pos is not None:
         _obs_slice = adata.obs.iloc[row_pos]
         _obs_slice = _obs_slice.to_memory() if hasattr(_obs_slice, 'to_memory') else _obs_slice
         obs_values = obs_col(_obs_slice, groupby)
@@ -309,6 +336,7 @@ def plot_violin1(
     groupby_label_color_map=None,
     adata_obs=None,
     data_already_filtered=False,
+    group_values=None,
 ):
 
     # if no label or no genes, stop updating.
@@ -316,7 +344,14 @@ def plot_violin1(
         raise PreventUpdate
     # Extract data
     cached_data = _extract_and_cache_violin_data(
-        adata, genes, labels, groupby, transformation, data_already_filtered=data_already_filtered, layer=layer
+        adata,
+        genes,
+        labels,
+        groupby,
+        transformation,
+        data_already_filtered=data_already_filtered,
+        layer=layer,
+        group_values=group_values,
     )
     if cached_data is None:
         return go.Figure()
@@ -325,7 +360,13 @@ def plot_violin1(
     obs_values = cached_data['obs_values']
     valid_genes = cached_data['valid_genes']
     
-    groupby_label_color_map = _label_color_map(adata, groupby, groupby_label_color_map, adata_obs=adata_obs)
+    groupby_label_color_map = _label_color_map(
+        adata,
+        groupby,
+        groupby_label_color_map,
+        adata_obs=adata_obs,
+        group_values=group_values,
+    )
 
     # Create subplots. secondary_y on every row gives each gene a left axis (the
     # gene-name tick) and a right axis (the numeric scale); see _add_gene_row_axes.

@@ -1,0 +1,36 @@
+{
+  "Visium H&E mouse brain": {
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/visium_hne_spatial.h5ad",
+    "organism": "mouse",
+    "markers": [
+      "Olfm1",
+      "Plp1",
+      "Itpka",
+      "Snap25",
+      "Nnat",
+      "Ppp3ca"
+    ],
+    "scatter_defaults": {
+      "embedding_left": "spatial",
+      "embedding_right": "X_umap",
+      "color_left": "cluster",
+      "color_right": "cluster"
+    },
+    "optional_plot_components": [
+      "dotplot",
+      "heatmap",
+      "violin",
+      "spatial-relationships"
+    ]
+  },
+  "title": "Guanaco spatial omics example",
+  "settings": {
+    "host": "127.0.0.1",
+    "port": 4399,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": true,
+    "embedding_render_backend": "scattergl",
+    "share": false
+  }
+}

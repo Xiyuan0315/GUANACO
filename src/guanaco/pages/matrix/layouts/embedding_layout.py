@@ -88,6 +88,76 @@ def create_control_components(adata, prefix, *, role="left", default_embedding=N
     return clustering_dropdown, coordinates_dropdowns
 
 
+def create_unpaired_control_components(
+    source,
+    prefix,
+    *,
+    role="left",
+    default_embedding=None,
+):
+    """Build the usual embedding controls from modality-scoped embeddings."""
+    id_prefix = prefix if role == "left" else f"{prefix}-right"
+    embedding_names = source.embedding_names
+    initial_embedding = (
+        default_embedding
+        if default_embedding in embedding_names
+        else embedding_names[0]
+    )
+    _modality, raw_key, adata = source.embedding_context(initial_embedding)
+    n_dimensions = adata.obsm[raw_key].shape[1]
+    display_name = EMBEDDING_PREFIXES.get(
+        raw_key, raw_key.removeprefix("X_")
+    )
+    default_columns = [
+        f"{display_name}{index + 1}" for index in range(n_dimensions)
+    ]
+    clustering_dropdown = dcc.Dropdown(
+        id=f"{id_prefix}-clustering-dropdown",
+        options=[
+            {"label": embedding, "value": embedding}
+            for embedding in embedding_names
+        ],
+        value=initial_embedding,
+        placeholder="Select Clustering Method",
+        style={"marginBottom": "15px", "fontSize": "14px"},
+        clearable=False,
+    )
+    coordinates_dropdowns = html.Div(
+        [
+            html.Label(
+                "X-axis:",
+                style={"fontWeight": "bold", "marginBottom": "5px"},
+            ),
+            dcc.Dropdown(
+                id=f"{id_prefix}-x-axis",
+                options=[
+                    {"label": column, "value": column}
+                    for column in default_columns
+                ],
+                value=default_columns[0],
+            ),
+            html.Label(
+                "Y-axis:",
+                style={
+                    "fontWeight": "bold",
+                    "marginTop": "15px",
+                    "marginBottom": "5px",
+                },
+            ),
+            dcc.Dropdown(
+                id=f"{id_prefix}-y-axis",
+                options=[
+                    {"label": column, "value": column}
+                    for column in default_columns
+                ],
+                value=default_columns[1],
+            ),
+        ],
+        style={"display": "none"},
+    )
+    return clustering_dropdown, coordinates_dropdowns
+
+
 def generate_annotation_dropdown(anno_list, prefix, default_value=None):
     return dcc.Dropdown(
         id=f"{prefix}-annotation-dropdown",
@@ -244,27 +314,19 @@ def generate_embedding_plots(
     multiomics_source=None,
 ):
     scatter_defaults = scatter_defaults or {}
+    is_unpaired_multiomics = (
+        multiomics_source is not None and not multiomics_source.is_paired
+    )
     # Independent defaults for the left and right scatter panels.
     cfg_embedding_left = scatter_defaults.get("embedding_left")
     cfg_embedding_right = scatter_defaults.get("embedding_right")
     cfg_color_left = scatter_defaults.get("color_left")
     cfg_color_right = scatter_defaults.get("color_right")
     palette_options = discrete_palette_options()
-    # Global data-layer selector. Chooses which matrix feeds every expression
-    # plot (scatter, co-expression, violin, dotplot, heatmap, expression trend).
-    # "X" -> adata.X; other entries are adata.layers keys. Replaces the old
-    # per-plot Log toggles (X is conventionally already log-normalized).
-    layer_options = [{"label": "X (default)", "value": "X"}] + [
-        {"label": str(layer_name), "value": str(layer_name)}
-        for layer_name in getattr(adata, "layers", {}).keys()
-    ]
-    data_layer_selection = dcc.Dropdown(
-        id=f"{prefix}-data-layer",
-        options=layer_options,
-        value="X",
-        clearable=False,
-        style={"fontSize": "14px"},
-    )
+    # Expression plots always use adata.X. Keep the value in a Store so the
+    # plotting callbacks can share the same fixed input without exposing a
+    # per-omics data-layer choice in the UI.
+    data_layer_selection = dcc.Store(id=f"{prefix}-data-layer", data="X")
 
     scatter_order_selection = html.Div(
         [
@@ -350,30 +412,89 @@ def generate_embedding_plots(
 
     # Use exactly the Global Data Filter rule for categorical annotations. Numeric
     # observations remain available because scatter supports continuous coloring.
-    annotations = selectable_scatter_annotations(adata)
-    sample_genes = (
-        multiomics_source.feature_preview(per_modality=10)
-        if multiomics_source is not None
-        else adata.var_names[:20].tolist()
-    )
-    combined_list = annotations + sample_genes
+    if is_unpaired_multiomics:
+        embedding_modalities = [
+            modality
+            for modality in multiomics_source.modalities
+            if multiomics_source.modality_embeddings(modality)
+        ]
+        left_modality, right_modality = embedding_modalities[:2]
+        left_adata = multiomics_source.modality_adata(left_modality)
+        right_adata = multiomics_source.modality_adata(right_modality)
+        left_annotations = selectable_scatter_annotations(left_adata)
+        right_annotations = selectable_scatter_annotations(right_adata)
+        left_sample_genes = multiomics_source.search_features(
+            left_modality, None, limit=20
+        )
+        right_sample_genes = multiomics_source.search_features(
+            right_modality, None, limit=20
+        )
+    else:
+        left_annotations = right_annotations = selectable_scatter_annotations(
+            adata
+        )
+        sample_genes = (
+            multiomics_source.feature_preview(per_modality=10)
+            if multiomics_source is not None
+            else adata.var_names[:20].tolist()
+        )
+        left_sample_genes = right_sample_genes = sample_genes
+    left_combined_list = left_annotations + left_sample_genes
+    right_combined_list = right_annotations + right_sample_genes
     # Surface configured genes even if they fall outside the sampled gene list.
-    for cfg_color in (cfg_color_left, cfg_color_right):
+    for cfg_color, combined_list in (
+        (cfg_color_left, left_combined_list),
+        (cfg_color_right, right_combined_list),
+    ):
         is_feature = (
             multiomics_source.is_feature(cfg_color)
             if multiomics_source is not None
             else cfg_color in adata.var_names
         ) if cfg_color else False
         if cfg_color and cfg_color not in combined_list and is_feature:
-            combined_list = combined_list + [cfg_color]
+            combined_list.append(cfg_color)
 
-    default_annotation = cfg_color_left if cfg_color_left in combined_list else (annotations[0] if annotations else None)
+    default_annotation = cfg_color_left if cfg_color_left in left_combined_list else (
+        left_annotations[0]
+        if left_annotations
+        else (left_sample_genes[0] if left_sample_genes else None)
+    )
     # Default the right panel to an obs annotation to avoid heavy
     # gene-expression/datashader work at initial page load.
-    default_gene = cfg_color_right if cfg_color_right in combined_list else (annotations[0] if annotations else (sample_genes[0] if sample_genes else None))
+    default_gene = cfg_color_right if cfg_color_right in right_combined_list else (
+        right_annotations[0]
+        if right_annotations
+        else (right_sample_genes[0] if right_sample_genes else None)
+    )
 
-    clustering_dropdown, coordinates_dropdowns = create_control_components(adata, prefix, default_embedding=cfg_embedding_left)
-    right_clustering_dropdown, right_coordinates_dropdowns = create_control_components(adata, prefix, role="right", default_embedding=cfg_embedding_right)
+    if is_unpaired_multiomics:
+        clustering_dropdown, coordinates_dropdowns = (
+            create_unpaired_control_components(
+                multiomics_source,
+                prefix,
+                default_embedding=cfg_embedding_left,
+            )
+        )
+        right_clustering_dropdown, right_coordinates_dropdowns = (
+            create_unpaired_control_components(
+                multiomics_source,
+                prefix,
+                role="right",
+                default_embedding=cfg_embedding_right,
+            )
+        )
+    else:
+        clustering_dropdown, coordinates_dropdowns = create_control_components(
+            adata, prefix, default_embedding=cfg_embedding_left
+        )
+        right_clustering_dropdown, right_coordinates_dropdowns = (
+            create_control_components(
+                adata,
+                prefix,
+                role="right",
+                default_embedding=cfg_embedding_right,
+            )
+        )
     spatial_imgkey_control = html.Div(
         [
             html.Label("Spatial Image:", className="control-label"),
@@ -394,6 +515,8 @@ def generate_embedding_plots(
         [
             dcc.Store(id=f"{prefix}-selected-cells-store"),
             dcc.Store(id=f"{prefix}-selected-cells-hash"),
+            dcc.Store(id=f"{prefix}-selection-group-store"),
+            dcc.Store(id=f"{prefix}-selection-group-hash"),
             dcc.Store(id=f"{prefix}-left-highlighted-cells-store"),
             # Debounced legend state: a clientside callback collapses rapid legend
             # clicks and writes the settled set of hidden labels here, so the server
@@ -410,7 +533,11 @@ def generate_embedding_plots(
             # reads this instead of State(figure) so it can decide to patch just the
             # point trace without shipping the multi-MB base64 tissue image to the server.
             dcc.Store(id=f"{prefix}-gene-scatter-meta"),
-            create_global_metadata_filter(adata, prefix),
+            (
+                html.Div()
+                if is_unpaired_multiomics
+                else create_global_metadata_filter(adata, prefix)
+            ),
             dbc.Row(
                 [
                     dbc.Col(
@@ -421,18 +548,7 @@ def generate_embedding_plots(
                                 html.Div([html.Label("Dimension Reduction Right:", className="control-label"), right_clustering_dropdown], className="dbc", style={"marginBottom": "15px"}),
                                 html.Div([html.Div(right_coordinates_dropdowns, id=f"{prefix}-right-coordinates-dropdowns")], className="dbc", style={"marginBottom": "15px"}),
                                 spatial_imgkey_control,
-                                html.Div(
-                                    [
-                                        html.Label("Data layer:", className="control-label"),
-                                        data_layer_selection,
-                                    ],
-                                    className="dbc",
-                                    style=(
-                                        {"display": "none"}
-                                        if multiomics_source is not None
-                                        else {"marginBottom": "15px"}
-                                    ),
-                                ),
+                                data_layer_selection,
                                 html.Button("More controls", id=f"{prefix}-toggle-button", n_clicks=0, style={"marginBottom": "10px", "border": "1px solid", "borderRadius": "5px"}),
                                 graphic_control,
                             ]
@@ -448,7 +564,7 @@ def generate_embedding_plots(
                         html.Div(
                             [
                                 html.Label("Select Annotation/Variable", style={"fontWeight": "bold", "marginBottom": "5px"}),
-                                generate_annotation_dropdown(anno_list=combined_list, prefix=prefix, default_value=default_annotation),
+                                generate_annotation_dropdown(anno_list=left_combined_list, prefix=prefix, default_value=default_annotation),
                                 html.Div(style={"height": "25px", "marginBottom": "5px"}),
                                 dcc.Loading(
                                     id=f"{prefix}-loading-annotaion-scatter",
@@ -465,23 +581,31 @@ def generate_embedding_plots(
                                 ),
                                 html.Div(
                                     [
-                                        dbc.Button(
-                                            "Update other Plots",
-                                            id=f"{prefix}-update-plots-button",
-                                            color="primary",
-                                            className="update-other-plots-button",
-                                            n_clicks=0,
+                                        dbc.ButtonGroup(
+                                            [
+                                                dbc.Button(
+                                                    "Highlighting",
+                                                    id=f"{prefix}-highlight-plots-button",
+                                                    color="dark",
+                                                    outline=True,
+                                                    n_clicks=0,
+                                                ),
+                                                dbc.Button(
+                                                    "Filtering",
+                                                    id=f"{prefix}-filter-plots-button",
+                                                    color="dark",
+                                                    outline=True,
+                                                    n_clicks=0,
+                                                ),
+                                            ],
+                                            className="selection-action-buttons",
                                         ),
-                                        dbc.DropdownMenu(
-                                            [dbc.DropdownMenuItem("Cell IDs (.txt)", id=f"{prefix}-download-cellids")],
-                                            label="Download",
-                                            color="secondary",
-                                            id=f"{prefix}-download-menu",
-                                            disabled=True,
-                                        ),
-                                        dcc.Download(id=f"{prefix}-download-cells-data"),
                                     ],
-                                    style={"display": "flex", "alignItems": "center", "gap": "10px", "marginTop": "10px"},
+                                    style=(
+                                        {"display": "none"}
+                                        if is_unpaired_multiomics
+                                        else {"display": "flex", "alignItems": "center", "gap": "10px", "marginTop": "10px"}
+                                    ),
                                 ),
                                 html.Div(id=f"{prefix}-selection-status", style={"marginTop": "5px"}),
                             ],
@@ -498,7 +622,7 @@ def generate_embedding_plots(
                         html.Div(
                             [
                                 html.Label("Select Annotation/Variable:", style={"fontWeight": "bold", "marginBottom": "5px"}),
-                                generate_scatter_gene_selection(combined_list=combined_list, prefix=prefix, default_value=default_gene),
+                                generate_scatter_gene_selection(combined_list=right_combined_list, prefix=prefix, default_value=default_gene),
                                 dbc.RadioItems(
                                     id=f"{prefix}-coexpression-toggle",
                                     options=[{"label": "Single Gene", "value": "single"}, {"label": "Co-expression", "value": "coexpression"}],
@@ -513,12 +637,12 @@ def generate_embedding_plots(
                                             id=f"{prefix}-scatter-gene2-selection",
                                             options=[
                                                 {"label": label, "value": label}
-                                                for label in sample_genes[:10]
+                                                for label in right_sample_genes[:10]
                                             ],
                                             value=(
-                                                sample_genes[1]
-                                                if len(sample_genes) > 1
-                                                else (sample_genes[0] if sample_genes else None)
+                                                right_sample_genes[1]
+                                                if len(right_sample_genes) > 1
+                                                else (right_sample_genes[0] if right_sample_genes else None)
                                             ),
                                             placeholder="Search and select second gene...",
                                             style={"marginBottom": "10px"},

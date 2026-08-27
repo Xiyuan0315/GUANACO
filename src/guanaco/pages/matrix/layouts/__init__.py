@@ -8,7 +8,9 @@ from .stacked_bar_layout import generate_stacked_bar_layout
 from .pseudotime_layout import generate_pseudotime_layout
 from .paga_layout import generate_paga_layout
 from .volcano_layout import generate_volcano_layout
-from .grn_demo_layout import generate_grn_demo_layout
+from .network_layout import generate_network_layout
+from .ligand_receptor_layout import generate_ligand_receptor_layout
+from .spatial_relationships_layout import generate_spatial_relationships_layout
 
 __all__ = [
     "generate_embedding_plots",
@@ -20,5 +22,7 @@ __all__ = [
     "generate_pseudotime_layout",
     "generate_paga_layout",
     "generate_volcano_layout",
-    "generate_grn_demo_layout",
+    "generate_network_layout",
+    "generate_ligand_receptor_layout",
+    "generate_spatial_relationships_layout",
 ]

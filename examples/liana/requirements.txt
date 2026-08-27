@@ -1,0 +1,4 @@
+liana==1.7.0
+anndata==0.11.4
+pandas==2.2.3
+zarr<3

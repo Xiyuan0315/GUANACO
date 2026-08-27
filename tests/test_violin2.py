@@ -7,6 +7,7 @@ from anndata import AnnData
 from guanaco.pages.matrix.plots import violin2 as violin2_module
 from guanaco.pages.matrix.plots.violin2 import plot_violin2_new
 from guanaco.utils.gene_extraction_utils import clear_gene_cache
+from guanaco.utils.obs_utils import SELECTION_GROUP, selection_group_values
 from guanaco.widget import violin_grouped
 
 
@@ -120,6 +121,26 @@ def test_violin2_zscore_layout_keeps_negative_values_visible():
     y_range = tuple(fig.layout.yaxis.range)
     assert y_range[0] < 0
     assert y_range[1] > 0
+
+
+def test_violin2_accepts_session_local_lasso_groups():
+    adata = _violin2_adata()
+    fig = plot_violin2_new(
+        adata,
+        "GeneA",
+        SELECTION_GROUP,
+        None,
+        "mode1",
+        test_method="none",
+        group_values={
+            SELECTION_GROUP: selection_group_values(
+                adata,
+                ["c1", "c2"],
+            )
+        },
+    )
+
+    assert {trace.name for trace in fig.data} == {"Selected", "Others"}
 
 
 def test_model_summary_annotation_uses_public_helper_signature():

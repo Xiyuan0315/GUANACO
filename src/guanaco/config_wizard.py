@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from tkinter import BooleanVar, Canvas, StringVar, Text, Tk, Toplevel, filedialog, messagebox
 from tkinter import ttk
@@ -28,13 +30,25 @@ EXPLORATORY_VISUALIZATION_PLOTS = (
     ("Composition", "stacked-bar"),
     ("PAGA", "paga"),
     ("Volcano Plot", "volcano"),
-    ("GRN", "grn"),
+    ("Network", "network"),
+    ("Ligand–receptor", "ligand-receptor"),
+    ("Spatial relationships", "spatial-relationships"),
     ("Peak Browser", "peak-browser"),
+    ("Omics comparison", "cross-modal-concordance"),
 )
 
 OPTIONAL_PLOTS = MARKER_VISUALIZATION_PLOTS + EXPLORATORY_VISUALIZATION_PLOTS
 
-DEFAULT_PLOTS = {"heatmap", "violin", "split-violin", "dotplot", "stacked-bar"}
+DEFAULT_PLOTS = {
+    "heatmap",
+    "violin",
+    "split-violin",
+    "dotplot",
+    "stacked-bar",
+    "peak-browser",
+}
+
+ORGANISM_OPTIONS = ("human", "mouse", "rat")
 
 # Top-level keys reserved for global config; a dataset cannot use these names.
 RESERVED_NAMES = {"title", "color", "genome", "settings"}
@@ -139,27 +153,54 @@ def _zarr_suffix(value: str) -> bool:
     return base.lower().endswith(".zarr")
 
 
-def _detect_modalities(path: str) -> list[str] | None:
-    """Modality names for a local ``.h5mu`` file, or ``None`` for single AnnData/unknown.
+@dataclass(frozen=True)
+class DatasetInspection:
+    """Small metadata-only result used to tailor the wizard's plot choices."""
 
-    Reads only the ``mod`` group keys from the HDF5 container (no cell data), so it
-    stays cheap even for large files. Remote stores and ``.h5ad`` are treated as a
-    single (unnamed) modality.
-    """
-    if not path:
-        return None
-    text = path.strip()
-    if _is_remote_uri(text) or not text.lower().endswith(".h5mu"):
-        return None
-    try:
-        import h5py
+    modalities: tuple[str, ...] | None
+    available_plots: frozenset[str]
 
-        with h5py.File(Path(text).expanduser(), "r") as f:
-            if "mod" in f:
-                return list(f["mod"].keys())
-    except Exception:
-        return None
-    return None
+
+_WIZARD_PLOT_KEYS = {"pseudotime": "expression-trend"}
+
+
+@lru_cache(maxsize=32)
+def _inspect_data_file_cached(
+    source: str,
+    _file_size: int,
+    _modified_ns: int,
+) -> DatasetInspection:
+    """Cache immutable inspection results for an unchanged local file."""
+    from guanaco.data.hdf5_capabilities import inspect_hdf5_capabilities
+
+    summary = inspect_hdf5_capabilities(source)
+    wizard_keys = {
+        _WIZARD_PLOT_KEYS.get(key, key)
+        for key in summary.available_plots
+        if key != "igv"
+    }
+    return DatasetInspection(
+        modalities=summary.modalities,
+        available_plots=frozenset(wizard_keys),
+    )
+
+
+def inspect_data_file(path: str) -> DatasetInspection:
+    """Inspect local HDF5 structure without constructing AnnData/MuData objects."""
+    source = Path(path).expanduser().resolve()
+    if not source.exists():
+        raise ValueError(f"File does not exist: {source}")
+
+    suffix = source.suffix.lower()
+    if suffix not in {".h5ad", ".h5mu"}:
+        raise ValueError("Automatic detection supports local .h5ad and .h5mu files.")
+
+    stat = source.stat()
+    return _inspect_data_file_cached(
+        str(source),
+        stat.st_size,
+        stat.st_mtime_ns,
+    )
 
 
 class ViewBlock:
@@ -251,17 +292,22 @@ class DatasetTab:
         self.sc_data = StringVar()
         self.description = StringVar()
 
-        self.genome = StringVar(value="hg38")
+        self.genome = StringVar()
+        self.organism = StringVar(value="human")
         self.atac_names = StringVar()
 
-        self.plot_vars = {value: BooleanVar(value=value in DEFAULT_PLOTS) for _, value in OPTIONAL_PLOTS}
+        # Plot choices are populated only after inspecting the selected dataset.
+        self.plot_vars = {value: BooleanVar(value=False) for _, value in OPTIONAL_PLOTS}
 
         # Default-view blocks: one for single AnnData, one per modality for MuData.
         # Rebuilt whenever the selected data file's modality layout is detected.
         self._view_blocks: list[ViewBlock] = []
         self._detected_mods: list[str] | None = None
-        self._last_detected_path: str | None = None
-        self._has_peak_modality = False
+        self._last_detected_signature: tuple[str, int, int] | None = None
+        self._available_plot_keys: frozenset[str] | None = None
+        self.plot_status = StringVar(
+            value="Choose a data file to detect compatible visualizations."
+        )
 
         self._build()
         # Keep the tab label in sync with the dataset name.
@@ -278,30 +324,38 @@ class DatasetTab:
         _entry_row(basics, 2, "Description", self.description)
         # Reference genome is a dataset-wide property (species/assembly), but only
         # peak data (ATAC/ChIP) needs it -- so the row is hidden until something that
-        # uses it is enabled (Peak Browser, IGV tracks, or a detected peak modality).
+        # uses it is enabled (Peak Browser or IGV tracks).
         self._genome_row = ttk.Frame(basics)
-        self._genome_row.grid(row=3, column=0, columnspan=3, sticky="ew")
+        self._genome_row.grid(row=8, column=0, columnspan=3, sticky="ew")
         self._genome_row.columnconfigure(1, weight=1)
         _entry_row(self._genome_row, 0, "Reference genome", self.genome, example="e.g. hg38 — for ATAC/peak data")
         self._genome_row.grid_remove()
-        ttk.Label(basics, text="Visualizations to show").grid(
-            row=4, column=0, columnspan=3, sticky="w", pady=(6, 0)
+        self._organism_row = ttk.Frame(basics)
+        self._organism_row.grid(row=4, column=0, columnspan=3, sticky="ew")
+        self._organism_row.columnconfigure(1, weight=1)
+        ttk.Label(self._organism_row, text="Organism").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Combobox(
+            self._organism_row,
+            textvariable=self.organism,
+            values=ORGANISM_OPTIONS,
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=4)
+        self._organism_row.grid_remove()
+        ttk.Label(basics, text="Compatible visualizations").grid(
+            row=5, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
-        plot_box = ttk.Frame(basics)
-        plot_box.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-        plot_box.columnconfigure(0, weight=1)
-        self._build_plot_group(
-            plot_box,
-            0,
-            "Markers visualization",
-            MARKER_VISUALIZATION_PLOTS,
+        ttk.Label(
+            basics,
+            textvariable=self.plot_status,
+            style="Hint.TLabel",
+            wraplength=560,
+        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(2, 2))
+        self._plot_box = ttk.Frame(basics)
+        self._plot_box.grid(
+            row=7, column=0, columnspan=3, sticky="ew", pady=(4, 0)
         )
-        self._build_plot_group(
-            plot_box,
-            1,
-            "Exploratory visualization",
-            EXPLORATORY_VISUALIZATION_PLOTS,
-        )
+        self._plot_box.columnconfigure(0, weight=1)
+        self._render_plot_options()
         # Re-read the modality layout when the data file changes (MuData -> one
         # view block per modality; AnnData -> a single block).
         self.sc_data_entry.bind("<FocusOut>", self._detect_and_rebuild)
@@ -342,11 +396,12 @@ class DatasetTab:
         self.bucket_text.grid(row=1, column=1, sticky="ew", pady=4)
         _entry_row(igv.body, 2, "Track names", self.atac_names)
 
-        # Reveal the Reference genome row only when the dataset needs it: the Peak
-        # Browser is enabled, IGV tracks are added, or a peak modality is detected.
+        # Reveal Reference genome only when Peak Browser or IGV is enabled.
         self.plot_vars["peak-browser"].trace_add("write", lambda *_: self._sync_genome_visibility())
+        self.plot_vars["network"].trace_add("write", lambda *_: self._sync_organism_visibility())
         self.bucket_text.bind("<FocusOut>", lambda _e: self._sync_genome_visibility())
         self._sync_genome_visibility()
+        self._sync_organism_visibility()
 
     def _build_plot_group(self, parent, row, title, plots):
         group = ttk.LabelFrame(parent, text=title, padding=(10, 6))
@@ -371,16 +426,39 @@ class DatasetTab:
                 pady=4,
             )
 
-    @staticmethod
-    def _is_peak_modality(name: str) -> bool:
-        low = name.lower()
-        return any(tag in low for tag in ("atac", "peak", "chip", "cut"))
+    def _render_plot_options(self):
+        """Render only options supported by the currently selected dataset."""
+        for child in self._plot_box.winfo_children():
+            child.destroy()
+        if self._available_plot_keys is None:
+            return
+
+        groups = (
+            ("Markers visualization", MARKER_VISUALIZATION_PLOTS),
+            ("Exploratory visualization", EXPLORATORY_VISUALIZATION_PLOTS),
+        )
+        row = 0
+        for title, plots in groups:
+            compatible = tuple(
+                plot for plot in plots if plot[1] in self._available_plot_keys
+            )
+            if compatible:
+                self._build_plot_group(self._plot_box, row, title, compatible)
+                row += 1
+
+    def _show_uninspected_state(self, message: str):
+        self._available_plot_keys = None
+        for variable in self.plot_vars.values():
+            variable.set(False)
+        self.plot_status.set(message)
+        self._render_plot_options()
+        self._sync_genome_visibility()
+        self._sync_organism_visibility()
 
     def _genome_needed(self) -> bool:
-        """True if the dataset uses the reference genome (Peak Browser / IGV / peak modality)."""
+        """True when an enabled visualization needs a reference genome."""
         return (
             self.plot_vars["peak-browser"].get()
-            or self._has_peak_modality
             or bool(_split_values(self.bucket_text.get("1.0", "end")))
         )
 
@@ -390,6 +468,12 @@ class DatasetTab:
             self._genome_row.grid()
         else:
             self._genome_row.grid_remove()
+
+    def _sync_organism_visibility(self, *_):
+        if self.plot_vars["network"].get():
+            self._organism_row.grid()
+        else:
+            self._organism_row.grid_remove()
 
     def _rebuild_view_blocks(self, modalities: list[str] | None):
         """(Re)build the Default-Views blocks: one per modality, or a single block."""
@@ -408,18 +492,54 @@ class DatasetTab:
             self._view_blocks.append(vb)
 
     def _detect_and_rebuild(self, *_):
-        """Detect the data file's modalities and rebuild the view blocks if changed."""
+        """Inspect metadata, then show only plots that can use the selected data."""
         path = self.sc_data.get().strip()
-        if path == self._last_detected_path:
+        if not path:
+            self._last_detected_signature = None
+            self._show_uninspected_state(
+                "Choose a data file to detect compatible visualizations."
+            )
             return
-        self._last_detected_path = path
-        mods = _detect_modalities(path)
-        if mods == self._detected_mods:
+
+        if _is_remote_uri(path):
+            self._last_detected_signature = None
+            self._show_uninspected_state(
+                "Remote data will be inspected when GUANACO starts; compatible "
+                "default plots will be selected automatically."
+            )
             return
-        self._detected_mods = mods
-        self._has_peak_modality = bool(mods) and any(self._is_peak_modality(m) for m in mods)
-        self._rebuild_view_blocks(mods)
+
+        try:
+            source = Path(path).expanduser().resolve()
+            stat = source.stat()
+            signature = (str(source), stat.st_size, stat.st_mtime_ns)
+        except OSError as exc:
+            self._show_uninspected_state(f"Could not inspect this file: {exc}")
+            return
+        if signature == self._last_detected_signature:
+            return
+
+        self.plot_status.set("Inspecting dataset metadata…")
+        self.frame.update_idletasks()
+        try:
+            inspection = inspect_data_file(path)
+        except Exception as exc:
+            self._show_uninspected_state(f"Could not inspect this file: {exc}")
+            return
+
+        self._last_detected_signature = signature
+
+        mods = list(inspection.modalities) if inspection.modalities else None
+        if mods != self._detected_mods:
+            self._detected_mods = mods
+            self._rebuild_view_blocks(mods)
+        self._available_plot_keys = inspection.available_plots
+        for value, variable in self.plot_vars.items():
+            variable.set(value in DEFAULT_PLOTS and value in inspection.available_plots)
+        self.plot_status.set("")
+        self._render_plot_options()
         self._sync_genome_visibility()
+        self._sync_organism_visibility()
 
     def _browse_sc_data(self):
         path = filedialog.askopenfilename(
@@ -444,6 +564,7 @@ class DatasetTab:
     # -- serialization ------------------------------------------------------
     def build_dataset(self) -> tuple[str, dict]:
         """Return (dataset_name, dataset_dict); raise ValueError if invalid."""
+        self._detect_and_rebuild()
         name = self.name.get().strip()
         sc_data = self.sc_data.get().strip()
         if not name:
@@ -469,15 +590,20 @@ class DatasetTab:
             dataset["description"] = description
 
         # Reference genome — saved only when the dataset actually uses it (Peak
-        # Browser, IGV tracks, or a peak modality). Drives IGV's ref track and the
+        # Browser or IGV tracks). Drives IGV's ref track and the
         # Peak Browser's gene models.
         genome_value = self.genome.get().strip()
         if genome_value and self._genome_needed():
             dataset["genome"] = genome_value
 
-        dataset["optional_plot_components"] = [
-            value for _, value in OPTIONAL_PLOTS if self.plot_vars[value].get()
-        ]
+        if self._available_plot_keys is not None:
+            dataset["optional_plot_components"] = [
+                value
+                for _, value in OPTIONAL_PLOTS
+                if value in self._available_plot_keys and self.plot_vars[value].get()
+            ]
+        if self.plot_vars["network"].get():
+            dataset["organism"] = self.organism.get().strip() or "human"
 
         # Default views. A single block writes dataset-level keys (default_*, markers);
         # modality blocks write a `modalities` map (each with default_*, markers,

@@ -14,7 +14,7 @@ from guanaco.pages.matrix.plots.violin1 import (
     _to_rgba,
 )
 from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_values
 
 DEFAULT_COLORS = [
     "#E69F00",
@@ -309,17 +309,27 @@ def _empty_message_figure(message):
     return fig
 
 
-def _build_expression_frame(adata, key, meta1, meta2, mode, transformation=None, layer=None, labels=None):
+def _build_expression_frame(
+    adata,
+    key,
+    meta1,
+    meta2,
+    mode,
+    transformation=None,
+    layer=None,
+    labels=None,
+    group_values=None,
+):
     expression_data = extract_gene_expression(adata, key, layer=layer)
     if transformation:
         expression_data = apply_transformation(expression_data, transformation, copy=False)
 
     data = {
         'Expression': expression_data,
-        meta1: obs_col(adata.obs, meta1).values,
+        meta1: obs_values(adata, meta1, group_values).values,
     }
     if mode != 'mode1' and meta2:
-        data[meta2] = obs_col(adata.obs, meta2).values
+        data[meta2] = obs_values(adata, meta2, group_values).values
 
     df = pd.DataFrame(data)
     if labels:
@@ -585,7 +595,8 @@ def add_p_value_annotations_new(fig, p_values, df, mode, meta1=None, meta2=None,
 
 def plot_violin2_new(adata, key, meta1, meta2, mode, transformation=None, layer=None,
                      show_box=False, test_method='auto',
-                     labels=None, color_map=None, palette=None, show_points=False):
+                     labels=None, color_map=None, palette=None, show_points=False,
+                     group_values=None):
     """
     Create violin plots for gene expression data with support for multiple metadata designs.
     
@@ -612,7 +623,17 @@ def plot_violin2_new(adata, key, meta1, meta2, mode, transformation=None, layer=
     if mode in ['mode2', 'mode3', 'mode4'] and not meta2:
         return go.Figure()
 
-    df = _build_expression_frame(adata, key, meta1, meta2, mode, transformation, layer, labels)
+    df = _build_expression_frame(
+        adata,
+        key,
+        meta1,
+        meta2,
+        mode,
+        transformation,
+        layer,
+        labels,
+        group_values,
+    )
 
     # Handle empty dataframe
     if len(df) == 0:

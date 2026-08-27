@@ -165,6 +165,12 @@
     box-shadow: 0 0 0 0.2rem rgba(26, 26, 26, 0.25) !important;
 }
 
+.dbc-slider .rc-slider-dot,
+.dbc-slider .rc-slider-dot-active {
+    background-color: #fff !important;
+    border-color: #1a1a1a !important;
+}
+
 /* Style Dash Core Component dropdowns to match LUX theme */
 .Select-control {
     border-color: #4e5d6c !important;
@@ -332,13 +338,31 @@
 .update-other-plots-button:hover,
 .update-other-plots-button:focus,
 .update-other-plots-button:active {
-    background-color: #808080 !important;
-    border-color: #808080 !important;
+    background-color: #000 !important;
+    border-color: #000 !important;
     color: #fff !important;
 }
 
 .update-other-plots-button:focus {
-    box-shadow: 0 0 0 0.2rem rgba(128, 128, 128, 0.3) !important;
+    box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.22) !important;
+}
+
+.selection-action-buttons .btn-dark {
+    --bs-btn-bg: #000;
+    --bs-btn-border-color: #000;
+    --bs-btn-hover-bg: #000;
+    --bs-btn-hover-border-color: #000;
+    --bs-btn-active-bg: #000;
+    --bs-btn-active-border-color: #000;
+}
+
+.selection-action-buttons .btn-outline-dark {
+    --bs-btn-color: #000;
+    --bs-btn-border-color: #000;
+    --bs-btn-hover-bg: #000;
+    --bs-btn-hover-border-color: #000;
+    --bs-btn-active-bg: #000;
+    --bs-btn-active-border-color: #000;
 }
 
 /* Compact plot-type segmented control. Icon masks are isolated in the modifier
@@ -383,7 +407,7 @@
 
 .visualization-section .visualization-plot-tab--selected,
 .visualization-section .visualization-plot-tab--selected:hover {
-    background-color: #808080 !important;
+    background-color: #000 !important;
     color: #fff !important;
     font-weight: 500 !important;
 }
@@ -439,8 +463,475 @@
     --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='3' cy='5' r='1.5'/%3E%3Ccircle cx='6' cy='9' r='1.5'/%3E%3Ccircle cx='9' cy='15' r='1.5'/%3E%3Ccircle cx='12' cy='19' r='1.5'/%3E%3Ccircle cx='15' cy='14' r='1.5'/%3E%3Ccircle cx='18' cy='8' r='1.5'/%3E%3Ccircle cx='21' cy='4' r='1.5'/%3E%3Ccircle cx='7' cy='4' r='1.5'/%3E%3Ccircle cx='17' cy='3' r='1.5'/%3E%3C/svg%3E");
 }
 
-.visualization-plot-tab--grn {
+.visualization-plot-tab--grn,
+.visualization-plot-tab--network {
     --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 6l7 5 7-6m-7 6-5 8m5-8 7 7' stroke='black' stroke-width='1.8'/%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Ccircle cx='19' cy='5' r='3'/%3E%3Ccircle cx='12' cy='11' r='3'/%3E%3Ccircle cx='7' cy='19' r='3'/%3E%3Ccircle cx='19' cy='18' r='3'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--ligand-receptor {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='5' cy='7' r='3'/%3E%3Ccircle cx='19' cy='17' r='3'/%3E%3Cpath d='M8 8.5c5 1 3 6 8 7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M13 13l3 2-1-3' fill='black'/%3E%3C/svg%3E");
+}
+
+.visualization-plot-tab--spatial-relationships {
+    --plot-tab-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='2' y='3' width='3' height='3' rx='.5'/%3E%3Crect x='6' y='3' width='3' height='3' rx='.5'/%3E%3Crect x='2' y='7' width='3' height='3' rx='.5'/%3E%3Crect x='6' y='7' width='3' height='3' rx='.5'/%3E%3Cpath d='M12 18l3-4 3 2 4-7' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.network-layout {
+    padding: 18px 20px 22px;
+}
+
+.network-controls {
+    align-items: flex-end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: flex-start;
+    margin-bottom: 0;
+}
+
+.network-control-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.network-controls--secondary {
+    padding-top: 2px;
+}
+
+/* Keep every first-row field on the same label and control baselines.  The
+   STRING switch is not a dcc.Dropdown, so normalize its two rows explicitly. */
+.network-controls--primary > div > label,
+.network-controls--primary > div > div > label {
+    display: block;
+    line-height: 1.2;
+    margin: 0 0 5px !important;
+}
+
+.network-control--genes {
+    flex: 0 0 420px;
+    width: 420px;
+}
+
+.network-confidence-control {
+    flex: 0 0 250px;
+    padding: 0 8px 3px;
+    width: 250px;
+}
+
+.network-string-mode-control {
+    flex: 0 0 auto;
+    padding-bottom: 0;
+}
+
+.network-string-mode-options {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    height: 38px;
+}
+
+.network-string-mode-switch {
+    margin: 0;
+}
+
+.network-string-mode-switch .form-check-input:checked {
+    background-color: #808080;
+    border-color: #808080;
+}
+
+.network-gene-input {
+    border: 1px solid #adb5bd;
+    border-radius: 4px;
+    box-sizing: border-box;
+    display: block;
+    font-family: inherit;
+    font-size: 0.95rem;
+    height: 38px;
+    max-height: 38px;
+    min-height: 38px;
+    overflow-y: auto;
+    padding: 7px 10px;
+    resize: none;
+    width: 100%;
+}
+
+.network-build-button,
+.network-download-button {
+    border: 1px solid #808080;
+    border-radius: 4px;
+    cursor: pointer;
+    height: 38px;
+    padding: 0 14px;
+}
+
+.network-download-button {
+    background: #fff;
+    color: #4a4a4a;
+}
+
+.network-graph-shell {
+    position: relative;
+}
+
+.network-download-button--overlay {
+    bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    height: 34px;
+    position: absolute;
+    right: 12px;
+    z-index: 5;
+}
+
+.network-status {
+    color: #6c757d;
+    font-size: 0.85rem;
+    min-height: 22px;
+    padding: 2px 0 4px;
+}
+
+.network-graph-container {
+    border: 1px solid #e1e3e5;
+    border-radius: 6px;
+    height: min(680px, 74vh);
+    min-height: 500px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.network-graph-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+.network-empty-state {
+    align-items: center;
+    color: #7c838a;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    min-height: 260px;
+    padding: 24px;
+    text-align: center;
+}
+
+.network-empty-state--error {
+    color: #8f2d2d;
+}
+
+.network-legend {
+    align-items: center;
+    border-bottom: 1px solid #eceeef;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    justify-content: space-between;
+    padding: 8px 12px;
+}
+
+.network-expression-legend,
+.network-type-legend {
+    align-items: center;
+    color: #6c757d;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+    gap: 7px;
+}
+
+.network-legend-title {
+    color: #3f454b;
+    font-weight: 500;
+}
+
+.network-expression-gradient {
+    background: linear-gradient(90deg, #f1eef6, #045a8d);
+    border-radius: 3px;
+    display: inline-block;
+    height: 10px;
+    width: 92px;
+}
+
+.network-target-gradient {
+    background: linear-gradient(90deg, #e6dced, #603878);
+    border-radius: 3px;
+    display: inline-block;
+    height: 10px;
+    width: 72px;
+}
+
+.network-legend-item {
+    white-space: nowrap;
+}
+
+.network-enrichment-section {
+    border-top: 1px solid #e4e6e8;
+    margin-top: 14px;
+    padding-top: 10px;
+}
+
+.network-enrichment-section summary {
+    color: #4a4f54;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 4px 0 10px;
+}
+
+.network-enrichment-method,
+.network-enrichment-footnote,
+.network-enrichment-empty {
+    color: #6c757d;
+    font-size: 0.82rem;
+}
+
+.network-enrichment-method {
+    margin-bottom: 8px;
+}
+
+.network-enrichment-table-wrap {
+    max-height: 420px;
+    overflow: auto;
+}
+
+.network-enrichment-table {
+    border-collapse: collapse;
+    font-size: 0.84rem;
+    width: 100%;
+}
+
+.network-enrichment-table th,
+.network-enrichment-table td {
+    border-bottom: 1px solid #eceeef;
+    padding: 7px 9px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.network-enrichment-table th {
+    background: #f7f7f7;
+    color: #555b61;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.network-enrichment-tf {
+    font-weight: 600;
+}
+
+.network-enrichment-significant {
+    background: #fafcfa;
+}
+
+.network-enrichment-footnote {
+    padding-top: 8px;
+}
+
+.lr-layout {
+    padding: 18px 20px 22px;
+}
+
+.lr-controls {
+    align-items: flex-end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 8px;
+}
+
+.lr-linked-views {
+    display: flex;
+    gap: 14px;
+    min-height: 540px;
+    width: 100%;
+}
+
+.lr-linked-panel {
+    border: 1px solid #e1e3e5;
+    border-radius: 6px;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.lr-network-container {
+    height: 100%;
+    min-height: 540px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.lr-network-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+.lr-network-legend {
+    align-items: center;
+    border-bottom: 1px solid #eceeef;
+    color: #6c757d;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+    gap: 8px 18px;
+    padding: 8px 12px;
+}
+
+.lr-range-control {
+    min-width: 0;
+    padding: 0 0 8px;
+    width: 100%;
+}
+
+.lr-metric-controls {
+    align-items: flex-start;
+}
+
+.lr-metric-control {
+    display: flex;
+    flex: 0 0 340px;
+    flex-direction: column;
+    gap: 12px;
+    width: 340px;
+}
+
+.lr-empty-state {
+    align-items: center;
+    color: #7c838a;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    min-height: 180px;
+    padding: 24px;
+    text-align: center;
+}
+
+.lr-empty-state--error {
+    color: #8f2d2d;
+}
+
+.lr-detail-container {
+    border-top: 1px solid #e4e6e8;
+    margin-top: 14px;
+    min-height: 110px;
+    padding-top: 12px;
+}
+
+.lr-detail-hint {
+    color: #7c838a;
+    padding: 18px 4px;
+}
+
+.lr-detail-title {
+    color: #3f454b;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.lr-detail-table-wrap {
+    max-height: 380px;
+    overflow: auto;
+}
+
+.lr-detail-table {
+    border-collapse: collapse;
+    font-size: 0.84rem;
+    width: 100%;
+}
+
+.lr-detail-table th,
+.lr-detail-table td {
+    border-bottom: 1px solid #eceeef;
+    padding: 7px 9px;
+    text-align: left;
+}
+
+.lr-detail-table th {
+    background: #f7f7f7;
+    color: #555b61;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+}
+
+.spatial-relationships-layout {
+    padding: 18px 20px 22px;
+}
+
+.spatial-relationships-controls {
+    align-items: flex-end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 12px;
+}
+
+.spatial-relationships-hint {
+    color: #737980;
+    font-size: 0.82rem;
+    padding-bottom: 9px;
+}
+
+.spatial-relationships-figures {
+    display: flex;
+    gap: 14px;
+    min-height: 540px;
+    width: 100%;
+}
+
+.spatial-relationships-panel {
+    border: 1px solid #e1e3e5;
+    border-radius: 6px;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+@media (max-width: 767.98px) {
+    .network-control--genes,
+    .network-controls > div {
+        flex-basis: 100%;
+        width: 100% !important;
+    }
+
+    .network-graph-container {
+        min-height: 440px;
+    }
+
+    .lr-controls > div {
+        width: 100% !important;
+    }
+
+    .lr-linked-views {
+        flex-direction: column;
+    }
+
+    .lr-linked-panel,
+    .lr-network-container {
+        flex-basis: 480px;
+        min-height: 480px;
+    }
+
+    .spatial-relationships-controls > div {
+        width: 100% !important;
+    }
+
+    .spatial-relationships-figures {
+        flex-direction: column;
+    }
+
+    .spatial-relationships-panel {
+        flex-basis: 480px;
+        min-height: 480px;
+    }
 }
 
 .visualization-plot-tab--cross-modal-concordance {

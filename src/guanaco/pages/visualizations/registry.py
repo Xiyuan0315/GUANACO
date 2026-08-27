@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from guanaco.pages.matrix.plots.atac_browser import has_genomic_peak_features
-from guanaco.pages.matrix.plots.volcano import has_volcano_data
+from guanaco.data.capabilities import PLOT_KEYS, has_plot_capability
 
 
 Workspace = Literal["feature-analysis", "dataset-exploration"]
@@ -34,17 +33,25 @@ PLOT_SPECS = (
     PlotSpec("stacked-bar", "Composition", EXPLORATION_WORKSPACE, True),
     PlotSpec("paga", "PAGA", EXPLORATION_WORKSPACE),
     PlotSpec("volcano", "Volcano Plot", EXPLORATION_WORKSPACE),
-    PlotSpec("grn", "GRN", EXPLORATION_WORKSPACE),
+    PlotSpec("network", "Network", EXPLORATION_WORKSPACE),
+    PlotSpec("ligand-receptor", "Ligand–receptor", EXPLORATION_WORKSPACE),
+    PlotSpec(
+        "spatial-relationships",
+        "Spatial relationships",
+        EXPLORATION_WORKSPACE,
+    ),
     PlotSpec("peak-browser", "Peak Browser", EXPLORATION_WORKSPACE, True),
     PlotSpec("igv", "IGV", EXPLORATION_WORKSPACE),
     PlotSpec(
         "cross-modal-concordance",
-        "Cross-modal concordance",
+        "Omics comparison",
         EXPLORATION_WORKSPACE,
     ),
 )
 
 PLOT_SPECS_BY_KEY = {spec.key: spec for spec in PLOT_SPECS}
+if tuple(PLOT_SPECS_BY_KEY) != PLOT_KEYS:
+    raise RuntimeError("Visualization specs and data capabilities are out of sync.")
 MARKER_PLOTS = tuple(
     spec.key for spec in PLOT_SPECS if spec.workspace == FEATURE_WORKSPACE
 )
@@ -54,7 +61,6 @@ EXPLORATORY_PLOTS = tuple(
 
 _COMPONENT_ALIASES = {
     "vocano": "volcano",
-    "grn-demo": "grn",
     "expression-trend": "pseudotime",
     "expression_trend": "pseudotime",
     "stacked-violin": "violin",
@@ -68,30 +74,79 @@ _COMPONENT_ALIASES = {
     "genome-browser": "peak-browser",
     "atac_browser": "peak-browser",
     "atac-browser": "peak-browser",
+    "spatial-neighborhood": "spatial-relationships",
+    "spatial-relations": "spatial-relationships",
+    "omics-comparison": "cross-modal-concordance",
+    "cross-modal-comparison": "cross-modal-concordance",
 }
 
+def is_plot_available(
+    key,
+    adata,
+    *,
+    has_igv=False,
+    modality_name: str | None = None,
+    feature_data_available: bool | None = None,
+    discrete_data_available: bool | None = None,
+) -> bool:
+    """Return whether one plot can produce a useful view from this data."""
+    key = _COMPONENT_ALIASES.get(key, key)
+    return key in PLOT_SPECS_BY_KEY and has_plot_capability(
+        key,
+        adata,
+        has_igv=has_igv,
+        modality_name=modality_name,
+        feature_data_available=feature_data_available,
+        discrete_data_available=discrete_data_available,
+    )
 
-def _is_available(key, adata, *, has_igv):
-    if key == "igv":
-        return has_igv
-    if adata is None:
-        return False
-    if key == "peak-browser":
-        return has_genomic_peak_features(adata)
-    if key == "paga":
-        return "paga" in adata.uns and "connectivities" in adata.uns["paga"]
-    if key == "volcano":
-        return has_volcano_data(adata)
-    return True
+
+def available_plot_components(
+    adata,
+    *,
+    has_igv=False,
+    modality_name: str | None = None,
+    feature_data_available: bool | None = None,
+    discrete_data_available: bool | None = None,
+) -> tuple[str, ...]:
+    """Return every compatible plot in stable display order."""
+    return tuple(
+        spec.key
+        for spec in PLOT_SPECS
+        if is_plot_available(
+            spec.key,
+            adata,
+            has_igv=has_igv,
+            modality_name=modality_name,
+            feature_data_available=feature_data_available,
+            discrete_data_available=discrete_data_available,
+        )
+    )
 
 
-def resolve_plot_components(adata, optional_plot_components=None, *, has_igv=False):
+def resolve_plot_components(
+    adata,
+    optional_plot_components=None,
+    *,
+    has_igv=False,
+    modality_name: str | None = None,
+    feature_data_available: bool | None = None,
+    discrete_data_available: bool | None = None,
+):
     """Resolve configured plot aliases and remove unavailable plot types."""
     if optional_plot_components is None:
         selected = [
             spec.key
             for spec in PLOT_SPECS
-            if spec.default_enabled and _is_available(spec.key, adata, has_igv=has_igv)
+            if spec.default_enabled
+            and is_plot_available(
+                spec.key,
+                adata,
+                has_igv=has_igv,
+                modality_name=modality_name,
+                feature_data_available=feature_data_available,
+                discrete_data_available=discrete_data_available,
+            )
         ]
     else:
         selected = []
@@ -101,7 +156,14 @@ def resolve_plot_components(adata, optional_plot_components=None, *, has_igv=Fal
                 canonical != "igv"
                 and canonical in PLOT_SPECS_BY_KEY
                 and canonical not in selected
-                and _is_available(canonical, adata, has_igv=has_igv)
+                and is_plot_available(
+                    canonical,
+                    adata,
+                    has_igv=has_igv,
+                    modality_name=modality_name,
+                    feature_data_available=feature_data_available,
+                    discrete_data_available=discrete_data_available,
+                )
             ):
                 selected.append(canonical)
 

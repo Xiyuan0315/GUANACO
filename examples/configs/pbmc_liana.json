@@ -1,0 +1,19 @@
+{
+  "PBMC LIANA": {
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/pbmc_liana_demo.h5ad",
+    "optional_plot_components": [
+      "ligand-receptor"
+    ],
+    "description": "PBMC example containing interactions inferred with the LIANA consensus method."
+  },
+  "title": "GUANACO",
+  "settings": {
+    "host": "0.0.0.0",
+    "port": 4400,
+    "max_cells": 10000,
+    "lazy_load": true,
+    "backed_mode": false,
+    "embedding_render_backend": "scattergl",
+    "share": false
+  }
+}

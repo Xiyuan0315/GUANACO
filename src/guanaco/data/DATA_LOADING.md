@@ -154,8 +154,8 @@ If backed reading raises (notably some MuData), it degrades to a full in-memory
 **Gene expression** is always read through `utils/gene_extraction_utils.py`:
 
 - `extract_gene_expression` / `extract_multiple_genes` →
-  `_compute_gene_vector` slices `X[:, j]` → `_densify` (`gene_extraction_utils.py:142`).
-- `_densify` handles all three matrix kinds uniformly: `.compute()` on dask blocks,
+  `_compute_gene_vector` slices `X[:, j]` → `densify_matrix` (`gene_extraction_utils.py`).
+- `densify_matrix` handles all three matrix kinds uniformly: `.compute()` on dask blocks,
   `.toarray()` on scipy-sparse, numpy passes through. This is why the same plotting
   code works on in-memory, backed-HDF5, and cloud-lazy datasets unchanged.
 - Results are memoized in `GeneExpressionCache` (LRU + TTL, bounded by item count and
@@ -195,3 +195,69 @@ Set in the dataset JSON (see `registry.py`):
 | Local `.zarr` | In-memory or cloud-native lazy | Lazy `read_lazy`; CSC per-gene chunking when backed |
 | Remote `.zarr` (`s3://`/`gs://`/`https://`) | Cloud-native lazy | Consolidated metadata + on-demand column reads |
 | MuData (any) | In-memory or muon-backed | No lazy reader for MuData |
+
+## 9. Spatial relationships example
+
+The processed Squidpy Visium H&E example is stored at:
+
+```
+/Users/xiyuanzhang/Documents/GUANACO_v2/data/visium_hne_spatial.h5ad
+```
+
+Launch its example configuration from the repository root:
+
+```bash
+guanaco -c examples/configs/visium_hne_spatial.json
+```
+
+The **Spatial relationships** exploratory tab reads precomputed Squidpy results;
+it does not run spatial statistics in a Dash callback. For a categorical
+`cluster_key`, the AnnData object must contain both:
+
+- `adata.uns[f"{cluster_key}_nhood_enrichment"]` with `zscore` and `count`
+- `adata.uns[f"{cluster_key}_co_occurrence"]` with `occ` and `interval`
+
+`examples/scripts/prepare_visium_hne_spatial.py` reproduces the example from
+Squidpy's `visium_hne_adata` dataset. The heatmap shows neighborhood-enrichment
+z-scores; selecting a cell uses its row as the conditional group, shows that
+group's co-occurrence curves against every group, and emphasizes the selected
+column's curve.
+
+## 10. Ligand–receptor visualization input
+
+The **Ligand–receptor** exploratory tab visualizes precomputed results only. It
+does not download an interaction database or infer communication from the
+expression matrix.
+
+The preferred input is a long `pandas.DataFrame` stored under any
+`adata.uns[...]` key. It must contain:
+
+- `source` and `target` cell-group columns
+- `ligand_complex` / `ligand`
+- `receptor_complex` / `receptor`
+- at least one numeric magnitude, score, rank, or p-value column
+
+For example:
+
+```python
+adata.uns["liana_res"] = pd.DataFrame(
+    {
+        "source": ["Monocyte"],
+        "target": ["T cell"],
+        "ligand_complex": ["CXCL10"],
+        "receptor_complex": ["CXCR3"],
+        "magnitude_rank": [0.001],
+        "specificity_rank": [0.004],
+    }
+)
+```
+
+GUANACO also recognizes CellChat-style long tables, Squidpy
+`{"means", "pvalues", "metadata"}` mappings, and CellPhoneDB
+`{"means", "pvalues"}` mappings.
+
+Metric names containing `pval`, `fdr`, `qvalue`, or `rank` are interpreted as
+lower-is-stronger. Other numeric metrics are interpreted as
+higher-is-stronger. Circle-edge width is the number of displayed interactions;
+the dot plot maps the selected magnitude to color and the optional specificity
+metric to size.

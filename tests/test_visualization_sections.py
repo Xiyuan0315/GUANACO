@@ -57,6 +57,21 @@ def test_plot_components_keep_aliases_and_add_igv_by_capability():
     assert enabled == ("dotplot", "split-violin", "igv")
 
 
+def test_result_driven_plots_are_removed_when_results_are_missing():
+    adata = _adata()
+
+    assert resolve_plot_components(
+        adata,
+        [
+            "paga",
+            "volcano",
+            "ligand-receptor",
+            "spatial-relationships",
+            "peak-browser",
+        ],
+    ) == ()
+
+
 def test_visualizations_share_one_workspace_with_feature_analysis_as_default():
     prefix = "dataset-atac"
     sections = generate_visualization_sections(
@@ -118,11 +133,9 @@ def test_visualizations_share_one_workspace_with_feature_analysis_as_default():
         "IGV",
     ]
     composition_view = _by_id(sections, f"{prefix}-composition-view")
-    assert composition_view.value == "bars"
-    assert [option["value"] for option in composition_view.options] == [
-        "bars",
-        "hierarchy",
-    ]
+    assert composition_view.value == []
+    assert [option["value"] for option in composition_view.options] == ["hierarchy"]
+    assert _by_id(sections, f"{prefix}-composition-swap-axes").value == []
     sample_unit = _by_id(sections, f"{prefix}-composition-sample-unit")
     assert sample_unit.value is None
     assert "sample" in {option["value"] for option in sample_unit.options}
@@ -141,8 +154,12 @@ def test_visualizations_share_one_workspace_with_feature_analysis_as_default():
         sections, f"{prefix}-composition-da-panel"
     )
     assert _by_id(
-        differential_abundance, f"{prefix}-composition-da-toggle"
+        differential_abundance, f"{prefix}-composition-da-toggle-label"
     ).children == "▸ Differential abundance"
+    da_tooltip = _by_id(
+        differential_abundance, f"{prefix}-composition-da-info-tooltip"
+    )
+    assert "sample-level cell counts" in da_tooltip.children
     assert _by_id(
         differential_abundance, f"{prefix}-composition-da-collapse"
     ).style == {"display": "none", "width": "100%"}

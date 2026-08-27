@@ -118,6 +118,9 @@ for name, dataset in datasets.items():
                     optional_plot_components=mod_cfg["optional_plot_components"],
                     genome_tracks=mod_cfg["genome_tracks"],
                     ref_track=mod_cfg["ref_track"],
+                    modality_name=mod,
+                    organism=dataset.organism,
+                    default_features=mod_cfg["gene_markers"],
                 )
             if multiomics_source is not None:
                 _multiomics_sources[name] = multiomics_source
@@ -129,6 +132,8 @@ for name, dataset in datasets.items():
                     color_config=dataset.color_config,
                     optional_plot_components=None,
                     multiomics_source=multiomics_source,
+                    modality_name=JOINT_TAB_ID,
+                    organism=dataset.organism,
                 )
             elif unavailable_reason:
                 print(
@@ -151,6 +156,9 @@ for name, dataset in datasets.items():
                 optional_plot_components=mod_cfg["optional_plot_components"],
                 genome_tracks=mod_cfg["genome_tracks"],
                 ref_track=mod_cfg["ref_track"],
+                modality_name="rna",
+                organism=dataset.organism,
+                default_features=mod_cfg["gene_markers"],
             )
     else:
         # Legacy tracks-only datasets use a synthetic genome modality. Explicit
@@ -171,6 +179,8 @@ for name, dataset in datasets.items():
                 genome_tracks=mod_cfg["genome_tracks"],
                 ref_track=mod_cfg["ref_track"],
                 has_palette_control=False,
+                modality_name=mod,
+                organism=dataset.organism,
             )
 
 
@@ -223,7 +233,7 @@ def update_anndata_layout(selected_modality, active_tab):
     # Per-modality config (falls back to dataset-level for single-modality / legacy configs).
     mod_cfg = _modality_config(dataset, selected_modality)
 
-    if multiomics_source is not None:
+    if multiomics_source is not None and multiomics_source.is_paired:
         markers_by_modality = {
             modality: _modality_config(dataset, modality).get("gene_markers")
             for modality in multiomics_source.modalities
@@ -250,6 +260,51 @@ def update_anndata_layout(selected_modality, active_tab):
             "genome_tracks": None,
             "ref_track": None,
         }
+    elif multiomics_source is not None:
+        embedding_modalities = [
+            modality
+            for modality in multiomics_source.modalities
+            if multiomics_source.modality_embeddings(modality)
+        ]
+        left_modality, right_modality = embedding_modalities[:2]
+        left_cfg = _modality_config(dataset, left_modality)
+        right_cfg = _modality_config(dataset, right_modality)
+
+        def resolve_panel_color(modality, configured):
+            if not configured:
+                return None
+            modality_adata = multiomics_source.modality_adata(modality)
+            if configured in modality_adata.obs.columns:
+                return configured
+            return multiomics_source.resolve_text_feature(
+                f"{modality}::{configured}"
+            )
+
+        modality_markers = []
+        label_list = []
+        mod_cfg = {
+            **mod_cfg,
+            "scatter_defaults": {
+                "embedding_left": multiomics_source.preferred_embedding(
+                    left_modality
+                ),
+                "embedding_right": multiomics_source.preferred_embedding(
+                    right_modality
+                ),
+                "color_left": resolve_panel_color(
+                    left_modality,
+                    (left_cfg.get("scatter_defaults") or {}).get("color_left"),
+                ),
+                "color_right": resolve_panel_color(
+                    right_modality,
+                    (right_cfg.get("scatter_defaults") or {}).get("color_right"),
+                ),
+            },
+            "optional_plot_components": None,
+            "gene_annotation_path": None,
+            "genome_tracks": None,
+            "ref_track": None,
+        }
     elif mod_cfg["gene_markers"] is not None:
         modality_markers = mod_cfg["gene_markers"]
     else:
@@ -266,6 +321,8 @@ def update_anndata_layout(selected_modality, active_tab):
         genome_tracks=mod_cfg["genome_tracks"],
         ref_track=mod_cfg["ref_track"],
         multiomics_source=multiomics_source,
+        modality_name=selected_modality,
+        organism=dataset.organism,
     )
 
 

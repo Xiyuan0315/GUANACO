@@ -1,7 +1,17 @@
 """One callback-registration entry point for every visualization plot."""
 
 from guanaco.pages.matrix.callbacks import matrix_callbacks
+from guanaco.pages.matrix.callbacks.unpaired_multiomics_callbacks import (
+    register_unpaired_multiomics_callbacks,
+)
+from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
+    register_cross_modal_concordance_callbacks,
+)
 from guanaco.pages.visualizations.registry import resolve_plot_components
+from guanaco.pages.ai_explorer import (
+    is_ai_explorer_requested,
+    register_ai_explorer_callbacks,
+)
 
 
 def register_visualization_callbacks(
@@ -17,13 +27,46 @@ def register_visualization_callbacks(
     ref_track=None,
     has_palette_control=None,
     multiomics_source=None,
+    modality_name=None,
+    organism="human",
+    default_features=None,
 ):
     """Register all available plots for one modality through one lifecycle."""
+    if adata is not None and is_ai_explorer_requested(optional_plot_components):
+        register_ai_explorer_callbacks(
+            app,
+            adata,
+            prefix,
+            default_features=default_features,
+        )
+
+    if multiomics_source is not None and not multiomics_source.is_paired:
+        register_unpaired_multiomics_callbacks(
+            app,
+            multiomics_source,
+            prefix,
+            embedding_render_backend=embedding_render_backend,
+            color_config=color_config,
+        )
+        register_cross_modal_concordance_callbacks(
+            app,
+            multiomics_source,
+            prefix,
+        )
+        return ()
+
     has_igv = bool(genome_tracks) and bool(ref_track)
     enabled = resolve_plot_components(
         adata,
         optional_plot_components,
         has_igv=has_igv,
+        modality_name=modality_name,
+        feature_data_available=bool(multiomics_source.feature_names)
+        if multiomics_source is not None
+        else None,
+        discrete_data_available=bool(multiomics_source.discrete_obs_names)
+        if multiomics_source is not None
+        else None,
     )
     if multiomics_source is not None:
         enabled = tuple(
@@ -43,6 +86,7 @@ def register_visualization_callbacks(
             color_config=color_config,
             gene_annotation_path=gene_annotation_path,
             multiomics_source=multiomics_source,
+            organism=organism,
         )
 
     if "igv" in enabled:

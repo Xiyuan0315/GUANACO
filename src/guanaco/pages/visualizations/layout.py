@@ -9,6 +9,10 @@ from __future__ import annotations
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from guanaco.pages.ai_explorer import (
+    generate_ai_explorer_layout,
+    is_ai_explorer_requested,
+)
 from guanaco.pages.matrix.layouts.atac_browser_layout import (
     generate_atac_browser_layout,
 )
@@ -16,10 +20,16 @@ from guanaco.pages.matrix.layouts.cross_modal_concordance_layout import (
     generate_cross_modal_concordance_layout,
 )
 from guanaco.pages.matrix.layouts.dotplot_layout import generate_dotplot_layout
-from guanaco.pages.matrix.layouts.grn_demo_layout import generate_grn_demo_layout
 from guanaco.pages.matrix.layouts.heatmap_layout import generate_heatmap_layout
+from guanaco.pages.matrix.layouts.ligand_receptor_layout import (
+    generate_ligand_receptor_layout,
+)
+from guanaco.pages.matrix.layouts.network_layout import generate_network_layout
 from guanaco.pages.matrix.layouts.paga_layout import generate_paga_layout
 from guanaco.pages.matrix.layouts.pseudotime_layout import generate_pseudotime_layout
+from guanaco.pages.matrix.layouts.spatial_relationships_layout import (
+    generate_spatial_relationships_layout,
+)
 from guanaco.pages.matrix.layouts.stacked_bar_layout import generate_stacked_bar_layout
 from guanaco.pages.matrix.layouts.violin_layout import (
     generate_split_violin_layout,
@@ -164,6 +174,8 @@ def _exploratory_tabs(
     gene_annotation_path,
     genome_tracks,
     multiomics_source=None,
+    organism="human",
+    ai_explorer_enabled=False,
 ):
     factories = {
         "split-violin": lambda: generate_split_violin_layout(
@@ -175,7 +187,12 @@ def _exploratory_tabs(
         "stacked-bar": lambda: generate_stacked_bar_layout(adata, labels, prefix),
         "paga": lambda: generate_paga_layout(adata, prefix),
         "volcano": lambda: generate_volcano_layout(adata, prefix),
-        "grn": lambda: generate_grn_demo_layout(adata, prefix),
+        "network": lambda: generate_network_layout(prefix),
+        "ligand-receptor": lambda: generate_ligand_receptor_layout(adata, prefix),
+        "spatial-relationships": lambda: generate_spatial_relationships_layout(
+            adata,
+            prefix,
+        ),
         "peak-browser": lambda: generate_atac_browser_layout(
             adata,
             prefix,
@@ -198,6 +215,19 @@ def _exploratory_tabs(
                 label=PLOT_SPECS_BY_KEY[key].label,
                 value=f"{key}-tab",
                 children=[factories[key]()],
+                className=class_name,
+                selected_className=selected_class_name,
+            )
+        )
+
+    # Removable demo: deliberately outside PLOT_SPECS and capability scanning.
+    if ai_explorer_enabled and adata is not None:
+        class_name, selected_class_name = _plot_tab_classes("ai-explorer")
+        children.append(
+            dcc.Tab(
+                label="Ask your data (demo)",
+                value="ai-explorer-tab",
+                children=[generate_ai_explorer_layout(prefix, markers)],
                 className=class_name,
                 selected_className=selected_class_name,
             )
@@ -247,13 +277,30 @@ def generate_visualization_sections(
     genome_tracks=None,
     ref_track=None,
     multiomics_source=None,
+    modality_name=None,
+    organism="human",
 ):
     """Build one modality-scoped workspace with two control models."""
+    ai_explorer_enabled = is_ai_explorer_requested(optional_plot_components)
     has_igv = bool(genome_tracks) and bool(ref_track)
+    paired_multiomics = (
+        multiomics_source
+        if multiomics_source is not None and multiomics_source.is_paired
+        else None
+    )
     enabled = resolve_plot_components(
         adata,
         optional_plot_components,
         has_igv=has_igv,
+        modality_name=modality_name,
+        feature_data_available=(
+            bool(paired_multiomics.feature_names) if paired_multiomics else None
+        ),
+        discrete_data_available=(
+            bool(paired_multiomics.discrete_obs_names)
+            if paired_multiomics
+            else None
+        ),
     )
     if multiomics_source is not None:
         enabled = tuple(key for key in enabled if key in MARKER_PLOTS) + (
@@ -271,6 +318,8 @@ def generate_visualization_sections(
         gene_annotation_path,
         genome_tracks,
         multiomics_source,
+        organism,
+        ai_explorer_enabled,
     )
 
     if marker_tabs is None and exploratory_tabs is None:
@@ -305,21 +354,31 @@ def generate_visualization_sections(
         )
     )
 
+    is_unpaired = (
+        multiomics_source is not None and not multiomics_source.is_paired
+    )
+    workspace_children = [
+        _workspace_tab(
+            "Exploratory visualization",
+            EXPLORATION_WORKSPACE,
+            exploration_content,
+        )
+    ] if is_unpaired else [
+        _workspace_tab(
+            "Markers visualization",
+            FEATURE_WORKSPACE,
+            feature_content,
+        ),
+        _workspace_tab(
+            "Exploratory visualization",
+            EXPLORATION_WORKSPACE,
+            exploration_content,
+        ),
+    ]
     workspace = dcc.Tabs(
-        [
-            _workspace_tab(
-                "Markers visualization",
-                FEATURE_WORKSPACE,
-                feature_content,
-            ),
-            _workspace_tab(
-                "Exploratory visualization",
-                EXPLORATION_WORKSPACE,
-                exploration_content,
-            ),
-        ],
+        workspace_children,
         id=f"{prefix}-visualization-workspace-tabs",
-        value=FEATURE_WORKSPACE,
+        value=EXPLORATION_WORKSPACE if is_unpaired else FEATURE_WORKSPACE,
         className="visualization-workspace-tabs",
     )
     return [_section(workspace)]

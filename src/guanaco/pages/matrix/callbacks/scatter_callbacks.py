@@ -3,6 +3,7 @@ import dash_bootstrap_components as dbc
 from dash import Input, Output, Patch, State, dcc, html, callback_context, exceptions, no_update
 
 from guanaco.utils.colors import resolve_discrete_palette
+from guanaco.utils.search import ranked_substring_matches
 from guanaco.data.loader import obs_col
 
 # Auto-dismiss delay (ms) for the cell-selection status toasts.
@@ -379,13 +380,12 @@ def register_scatter_callbacks(
     def update_scatter_gene2_selection(search_value):
         if not search_value:
             raise exceptions.PreventUpdate
-        q = search_value.lower()
-        matching_genes = []
-        for gene, gene_lower in zip(var_names, var_names_lower):
-            if q in gene_lower:
-                matching_genes.append(gene)
-                if len(matching_genes) >= 20:
-                    break
+        matching_genes = ranked_substring_matches(
+            var_names,
+            search_value,
+            limit=20,
+            match_values=var_names_lower,
+        )
         return [{"label": gene, "value": gene} for gene in matching_genes]
 
     @app.callback(
@@ -409,7 +409,7 @@ def register_scatter_callbacks(
             Input(f"{prefix}-scatter-legend-toggle", "value"),
             Input(f"{prefix}-axis-toggle", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
-            Input(f"{prefix}-data-layer", "value"),
+            Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-plot-order", "value"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-global-filtered-data", "data"),
@@ -527,7 +527,7 @@ def register_scatter_callbacks(
             Input(f"{prefix}-right-clustering-dropdown", "value"),
             Input(f"{prefix}-right-x-axis", "value"),
             Input(f"{prefix}-right-y-axis", "value"),
-            Input(f"{prefix}-data-layer", "value"),
+            Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-plot-order", "value"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-marker-size-slider", "value"),
@@ -867,7 +867,7 @@ def register_scatter_callbacks(
             Input(f"{prefix}-scatter-gene-selection", "value"),
             Input(f"{prefix}-scatter-gene2-selection", "value"),
             Input(f"{prefix}-coexpression-toggle", "value"),
-            Input(f"{prefix}-data-layer", "value"),
+            Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-global-filtered-data", "data"),
         ],
     )
@@ -912,8 +912,12 @@ def register_scatter_callbacks(
 
     @app.callback(
         Output(f"{prefix}-selected-cells-store", "data"),
+        Output(f"{prefix}-selection-group-store", "data"),
         Output(f"{prefix}-selection-status", "children"),
-        [Input(f"{prefix}-update-plots-button", "n_clicks")],
+        [
+            Input(f"{prefix}-highlight-plots-button", "n_clicks"),
+            Input(f"{prefix}-filter-plots-button", "n_clicks"),
+        ],
         [
             State(f"{prefix}-annotation-scatter", "selectedData"),
             State(f"{prefix}-annotation-dropdown", "value"),
@@ -921,77 +925,91 @@ def register_scatter_callbacks(
         ],
         prevent_initial_call=True,
     )
-    def store_selected_cells(n_clicks, selected_data, current_annotation, filtered_data):
-        if n_clicks == 0:
-            return None, ""
+    def store_selected_cells(
+        _highlight_clicks,
+        _filter_clicks,
+        selected_data,
+        current_annotation,
+        filtered_data,
+    ):
+        triggered_id = callback_context.triggered_id
+        highlighting = triggered_id == f"{prefix}-highlight-plots-button"
+        if not highlighting and triggered_id != f"{prefix}-filter-plots-button":
+            return no_update, no_update, no_update
 
         plot_adata = resolve_plot_adata_from_filter(filtered_data)
 
         if not selected_data or not selected_data.get("points"):
-            all_indices = plot_adata.obs.index.tolist()
-            n_cells = len(all_indices)
-            status_msg = dbc.Alert(
-                f"✓ All {n_cells} cells from scatter plot selected. Other plots updated.",
-                color="info",
-                dismissable=True,
-                duration=_SELECTION_ALERT_DURATION_MS,
-            )
-            return all_indices, status_msg
-
-        selected_points = selected_data["points"]
-        selected_indices = []
-
-        if _is_feature(current_annotation) or is_continuous_annotation(plot_adata, current_annotation):
-            for point in selected_points:
-                if "customdata" in point:
-                    customdata = point["customdata"]
-                    if isinstance(customdata, (list, tuple)) and len(customdata) > 1:
-                        cell_idx = int(customdata[1])
-                    else:
-                        cell_idx = int(customdata)
-                    selected_indices.append(plot_adata.obs.index[cell_idx])
-                else:
-                    point_number = point.get("pointNumber", 0)
-                    selected_indices.append(plot_adata.obs.index[point_number])
+            selected_indices = plot_adata.obs.index.tolist()
         else:
-            for point in selected_points:
-                if "customdata" in point:
-                    try:
-                        row_idx = int(point["customdata"])
-                        selected_indices.append(plot_adata.obs.index[row_idx])
-                    except (IndexError, ValueError, TypeError):
-                        pass
+            selected_points = selected_data["points"]
+            selected_indices = []
+
+            if _is_feature(current_annotation) or is_continuous_annotation(plot_adata, current_annotation):
+                for point in selected_points:
+                    if "customdata" in point:
+                        customdata = point["customdata"]
+                        if isinstance(customdata, (list, tuple)) and len(customdata) > 1:
+                            cell_idx = int(customdata[1])
+                        else:
+                            cell_idx = int(customdata)
+                        selected_indices.append(plot_adata.obs.index[cell_idx])
+                    else:
+                        point_number = point.get("pointNumber", 0)
+                        selected_indices.append(plot_adata.obs.index[point_number])
+            else:
+                for point in selected_points:
+                    if "customdata" in point:
+                        try:
+                            row_idx = int(point["customdata"])
+                            selected_indices.append(plot_adata.obs.index[row_idx])
+                        except (IndexError, ValueError, TypeError):
+                            pass
 
         if selected_indices:
             n_selected = len(selected_indices)
+            if highlighting:
+                n_others = max(plot_adata.n_obs - n_selected, 0)
+                message = (
+                    f"✓ Highlighting applied: {n_selected} Selected and "
+                    f"{n_others} Others."
+                )
+            else:
+                message = f"✓ Filtering applied to {n_selected} cells."
             status_msg = dbc.Alert(
-                f"✓ {n_selected} cells selected from {current_annotation}. Other plots updated.",
+                message,
                 color="success",
                 dismissable=True,
                 duration=_SELECTION_ALERT_DURATION_MS,
             )
-            return selected_indices, status_msg
-        return None, ""
-
-    @app.callback(Output(f"{prefix}-download-menu", "disabled"), [Input(f"{prefix}-selected-cells-store", "data")])
-    def toggle_download_menu(selected_cells):
-        return not bool(selected_cells)
+            if highlighting:
+                universe_cells = None
+                if filtered_data and filtered_data.get("cell_indices") is not None:
+                    universe_cells = plot_adata.obs.index.tolist()
+                selection_data = {
+                    "selected_cells": selected_indices,
+                    "universe_cells": universe_cells,
+                }
+                return None, selection_data, status_msg
+            return selected_indices, None, status_msg
+        return None, None, ""
 
     @app.callback(
-        Output(f"{prefix}-download-cells-data", "data"),
-        [Input(f"{prefix}-download-cellids", "n_clicks")],
-        [State(f"{prefix}-selected-cells-store", "data")],
-        prevent_initial_call=True,
+        [
+            Output(f"{prefix}-highlight-plots-button", "outline"),
+            Output(f"{prefix}-filter-plots-button", "outline"),
+        ],
+        [
+            Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
+        ],
     )
-    def download_selected_cells(n_clicks_txt, selected_cells):
-        ctx = callback_context
-        if not ctx.triggered or not selected_cells:
-            raise exceptions.PreventUpdate
-        button_id = ctx.triggered[0]["prop_id"].split(".")[0]
-        if f"{prefix}-download-cellids" in button_id:
-            content = "\n".join(selected_cells)
-            return dict(content=content, filename="selected_cells.txt")
-        raise exceptions.PreventUpdate
+    def show_selection_action(selected_cells_hash, selection_group_hash):
+        if selection_group_hash:
+            return False, True
+        if selected_cells_hash:
+            return True, False
+        return True, True
 
     # Reset-link (see _AXIS_RESET_LINK_JS): client-side double-click reset, linked
     # to the other panel when both use the same dimension reduction.
