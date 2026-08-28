@@ -7,6 +7,9 @@ import scanpy as sc
 from scipy import sparse
 
 from guanaco.data.multiomics import MultiOmicsSource, try_build_multiomics_source
+from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
+    _pair_data,
+)
 from guanaco.pages.matrix.callbacks.unpaired_multiomics_callbacks import (
     _panel_color_options,
     build_unpaired_embedding_figure,
@@ -14,6 +17,9 @@ from guanaco.pages.matrix.callbacks.unpaired_multiomics_callbacks import (
 from guanaco.pages.matrix.layouts.embedding_layout import (
     generate_embedding_plots,
     initialize_scatter_components,
+)
+from guanaco.pages.matrix.layouts.cross_modal_concordance_layout import (
+    generate_cross_modal_concordance_layout,
 )
 from guanaco.pages.visualizations.layout import generate_visualization_sections
 
@@ -59,6 +65,30 @@ def _unpaired_mudata():
     rna.obsm["X_umap"] = np.asarray([[0, 0], [1, 1], [2, 0]], dtype=float)
     adt.obsm["X_umap"] = np.asarray([[10, 0], [11, 1]], dtype=float)
     return mu.MuData({"rna": rna, "adt": adt})
+
+
+def _partially_overlapping_mudata():
+    rna = ad.AnnData(
+        X=np.asarray([[1.0], [2.0], [4.0], [8.0]]),
+        obs=pd.DataFrame(index=["p1", "p2", "p3", "p4"]),
+        var=pd.DataFrame(index=["g1"]),
+    )
+    adt = ad.AnnData(
+        X=np.asarray([[10.0], [8.0], [3.0], [1.0]]),
+        obs=pd.DataFrame(index=["p2", "p3", "p4", "p5"]),
+        var=pd.DataFrame(index=["p1"]),
+    )
+    rna.obsm["X_umap"] = np.asarray(
+        [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0], [4.0, 40.0]]
+    )
+    adt.obsm["X_umap"] = np.asarray(
+        [[20.0, 2.0], [30.0, 3.0], [40.0, 4.0], [50.0, 5.0]]
+    )
+    mdata = mu.MuData({"rna": rna, "adt": adt})
+    mdata.obs["response"] = pd.Categorical(
+        ["yes", "yes", "no", "no", "unknown"]
+    )
+    return mdata
 
 
 def _walk(component):
@@ -164,6 +194,55 @@ def test_unpaired_multiomics_source_keeps_modality_rows_separate():
     assert source.embedding_context("ADT · UMAP")[2].n_obs == 2
     with pytest.raises(ValueError, match="cannot be materialized"):
         source.materialize(["RNA · CD3D"])
+
+
+def test_partial_overlap_uses_only_shared_observations_for_comparison():
+    source = MultiOmicsSource(_partially_overlapping_mudata())
+
+    assert source.is_paired is False
+    assert source.supports_pairwise_comparison is True
+    frame, rna_values, adt_values = source.pairwise_feature_data(
+        ["RNA · g1"],
+        ["ADT · p1"],
+    )
+
+    assert frame.obs_names.tolist() == ["p2", "p3", "p4"]
+    assert rna_values.tolist() == [2.0, 4.0, 8.0]
+    assert adt_values.tolist() == [10.0, 8.0, 3.0]
+    assert source.pairwise_embedding(
+        "RNA · UMAP", frame.obs_names
+    ).tolist() == [[2.0, 20.0], [3.0, 30.0], [4.0, 40.0]]
+    assert "response" in source.discrete_obs_names
+
+
+def test_partial_overlap_gets_paired_style_comparison_controls():
+    source = MultiOmicsSource(_partially_overlapping_mudata())
+    layout = generate_cross_modal_concordance_layout(source, "joint")
+
+    assert _by_id(layout, "joint-concordance-view-mode") is not None
+    assert _by_id(layout, "joint-concordance-embedding").value == "RNA · UMAP"
+    assert _by_id(layout, "joint-concordance-group-by") is not None
+    assert not any(
+        getattr(item, "id", None) in {
+            "joint-concordance-group-a",
+            "joint-concordance-group-b",
+        }
+        for item in _walk(layout)
+    )
+
+
+def test_partial_overlap_pair_data_aligns_by_shared_observation_id():
+    source = MultiOmicsSource(_partially_overlapping_mudata())
+    frame, positions, result = _pair_data(
+        source,
+        ["RNA · g1"],
+        ["ADT · p1"],
+        {"cell_indices": [0]},
+        None,
+    )
+    assert frame.obs_names.tolist() == ["p2", "p3", "p4"]
+    assert positions.tolist() == [0, 1, 2]
+    assert result.x.tolist() == [2.0, 4.0, 8.0]
 
 
 def test_unpaired_feature_score_stays_in_native_modality_rows():

@@ -34,6 +34,7 @@ EXPLORATORY_VISUALIZATION_PLOTS = (
     ("Ligand–receptor", "ligand-receptor"),
     ("Spatial relationships", "spatial-relationships"),
     ("Peak Browser", "peak-browser"),
+    ("Multi-omics coverage", "multiomics-composition"),
     ("Omics comparison", "cross-modal-concordance"),
 )
 
@@ -46,6 +47,7 @@ DEFAULT_PLOTS = {
     "dotplot",
     "stacked-bar",
     "peak-browser",
+    "multiomics-composition",
 }
 
 ORGANISM_OPTIONS = ("human", "mouse", "rat")

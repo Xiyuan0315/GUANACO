@@ -32,6 +32,7 @@ def test_wizard_plot_groups_match_dashboard_labels_and_keys():
         ("Ligand–receptor", "ligand-receptor"),
         ("Spatial relationships", "spatial-relationships"),
         ("Peak Browser", "peak-browser"),
+        ("Multi-omics coverage", "multiomics-composition"),
         ("Omics comparison", "cross-modal-concordance"),
     )
 
@@ -89,6 +90,7 @@ def test_wizard_inspects_metadata_and_offers_only_compatible_plots(tmp_path):
         "volcano",
         "spatial-relationships",
         "peak-browser",
+        "multiomics-composition",
         "cross-modal-concordance",
     }.isdisjoint(inspection.available_plots)
 
@@ -136,6 +138,7 @@ def test_wizard_h5mu_modalities_inherit_shared_observation_metadata(tmp_path):
         "split-violin",
         "stacked-bar",
         "network",
+        "multiomics-composition",
         "cross-modal-concordance",
     } <= inspection.available_plots
 

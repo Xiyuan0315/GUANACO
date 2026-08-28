@@ -19,5 +19,6 @@ PLOT_KEYS = (
     "spatial-relationships",
     "peak-browser",
     "igv",
+    "multiomics-composition",
     "cross-modal-concordance",
 )

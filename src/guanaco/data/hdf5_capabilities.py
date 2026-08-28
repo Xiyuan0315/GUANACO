@@ -338,6 +338,7 @@ def inspect_hdf5_capabilities(path: str | Path) -> HDF5CapabilitySummary:
                     )
                 )
             if len(modalities) >= 2:
+                plots.add("multiomics-composition")
                 plots.add("cross-modal-concordance")
             return HDF5CapabilitySummary(modalities, frozenset(plots))
 

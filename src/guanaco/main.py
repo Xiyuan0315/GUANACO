@@ -129,7 +129,7 @@ for name, dataset in datasets.items():
                     f"{name}-{JOINT_TAB_ID}",
                     embedding_render_backend=embedding_render_backend,
                     color_config=dataset.color_config,
-                    optional_plot_components=None,
+                    optional_plot_components=dataset.optional_plot_components,
                     multiomics_source=multiomics_source,
                     modality_name=JOINT_TAB_ID,
                     organism=dataset.organism,
@@ -253,12 +253,15 @@ def update_anndata_layout(selected_modality, active_tab):
                 "color_left": default_color,
                 "color_right": default_color,
             },
-            "optional_plot_components": None,
+            "optional_plot_components": dataset.optional_plot_components,
             "gene_annotation_path": None,
             "genome_tracks": None,
             "ref_track": None,
         }
-    elif multiomics_source is not None:
+    elif (
+        multiomics_source is not None
+        and multiomics_source.supports_embedding_view
+    ):
         embedding_modalities = [
             modality
             for modality in multiomics_source.modalities
@@ -298,7 +301,18 @@ def update_anndata_layout(selected_modality, active_tab):
                     (right_cfg.get("scatter_defaults") or {}).get("color_right"),
                 ),
             },
-            "optional_plot_components": None,
+            "optional_plot_components": dataset.optional_plot_components,
+            "gene_annotation_path": None,
+            "genome_tracks": None,
+            "ref_track": None,
+        }
+    elif multiomics_source is not None:
+        modality_markers = []
+        label_list = []
+        mod_cfg = {
+            **mod_cfg,
+            "scatter_defaults": {},
+            "optional_plot_components": dataset.optional_plot_components,
             "gene_annotation_path": None,
             "genome_tracks": None,
             "ref_track": None,

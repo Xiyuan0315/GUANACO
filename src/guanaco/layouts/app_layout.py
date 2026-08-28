@@ -267,7 +267,10 @@ def anndata_layout(
         organism=organism,
     )
     children = []
-    if adata is not None or is_unpaired_multiomics:
+    has_embedding_workspace = (
+        multiomics_source is None or multiomics_source.supports_embedding_view
+    )
+    if (adata is not None or is_unpaired_multiomics) and has_embedding_workspace:
         children.append(
             dbc.Card(
                 html.Div(

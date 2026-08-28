@@ -20,6 +20,9 @@ from guanaco.pages.matrix.layouts.heatmap_layout import generate_heatmap_layout
 from guanaco.pages.matrix.layouts.ligand_receptor_layout import (
     generate_ligand_receptor_layout,
 )
+from guanaco.pages.matrix.layouts.multiomics_composition_layout import (
+    generate_multiomics_composition_layout,
+)
 from guanaco.pages.matrix.layouts.network_layout import generate_network_layout
 from guanaco.pages.matrix.layouts.paga_layout import generate_paga_layout
 from guanaco.pages.matrix.layouts.pseudotime_layout import generate_pseudotime_layout
@@ -39,6 +42,7 @@ from guanaco.pages.visualizations.registry import (
     FEATURE_WORKSPACE,
     MARKER_PLOTS,
     PLOT_SPECS_BY_KEY,
+    multiomics_plot_components,
     resolve_plot_components,
 )
 
@@ -195,6 +199,10 @@ def _exploratory_tabs(
             discrete_label_list=labels,
         ),
         "igv": lambda: build_igv_layout(prefix, genome_tracks or {}),
+        "multiomics-composition": lambda: generate_multiomics_composition_layout(
+            multiomics_source,
+            prefix,
+        ),
         "cross-modal-concordance": lambda: generate_cross_modal_concordance_layout(
             multiomics_source,
             prefix,
@@ -284,9 +292,7 @@ def generate_visualization_sections(
         ),
     )
     if multiomics_source is not None:
-        enabled = tuple(key for key in enabled if key in MARKER_PLOTS) + (
-            "cross-modal-concordance",
-        )
+        enabled = multiomics_plot_components(enabled)
     marker_tabs = _marker_tabs(
         adata, default_gene_markers, discrete_label_list, prefix, enabled
     )

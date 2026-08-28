@@ -124,6 +124,32 @@ class MultiOmicsSource:
             if not mod_ids.is_unique:
                 raise ValueError(f"Modality '{modality}' contains duplicate cell IDs.")
             modality_cell_ids[modality] = mod_ids
+        self._modality_cell_ids = modality_cell_ids
+
+        # Coverage/composition views use the union of observations across all
+        # modalities.  MuData normally stores that union in mdata.obs_names, but
+        # append any modality-only IDs defensively so a malformed/older file does
+        # not silently hide measured samples.
+        coverage_ids = list(global_cell_ids)
+        seen_coverage_ids = set(coverage_ids)
+        for modality in self.modalities:
+            for observation_id in modality_cell_ids[modality]:
+                if observation_id not in seen_coverage_ids:
+                    seen_coverage_ids.add(observation_id)
+                    coverage_ids.append(observation_id)
+        self.coverage_ids = pd.Index(
+            coverage_ids,
+            name=global_cell_ids.name,
+        )
+        self._coverage = pd.DataFrame(
+            {
+                modality: self.coverage_ids.isin(modality_cell_ids[modality])
+                for modality in self.modalities
+            },
+            index=self.coverage_ids,
+            dtype=bool,
+        )
+        self._coverage_obs = self._build_coverage_obs_catalog()
 
         first_ids = modality_cell_ids[self.modalities[0]]
         self.is_paired = all(
@@ -175,11 +201,100 @@ class MultiOmicsSource:
 
     @property
     def obs_names(self) -> list[str]:
+        if self.base_adata is None:
+            return self.coverage_metadata_names
         return list(self._obs_refs)
 
     @property
     def embedding_names(self) -> list[str]:
         return list(self._embedding_refs)
+
+    @property
+    def supports_embedding_view(self) -> bool:
+        """Whether the joint tab can build its two-panel embedding workspace."""
+        if self.is_paired:
+            return bool(self._embedding_refs)
+        modalities_with_embeddings = {
+            modality for modality, _raw_key in self._embedding_refs.values()
+        }
+        return len(modalities_with_embeddings) >= 2
+
+    @property
+    def supports_pairwise_comparison(self) -> bool:
+        """Whether any two modalities share enough observations to compare."""
+        feature_a, feature_b = self.default_pairwise_features()
+        return feature_a is not None and feature_b is not None
+
+    def default_pairwise_features(self) -> tuple[str | None, str | None]:
+        """Choose the first feature pair with an alignable embedding and rows."""
+        for index, modality_a in enumerate(self.modalities):
+            feature_a = self.first_feature(modality_a)
+            if not feature_a:
+                continue
+            for modality_b in self.modalities[index + 1 :]:
+                if not (
+                    self.modality_embeddings(modality_a)
+                    or self.modality_embeddings(modality_b)
+                ):
+                    continue
+                feature_b = self.first_feature(modality_b)
+                if feature_b and len(
+                    self._shared_observation_ids(modality_a, modality_b)
+                ) >= 3:
+                    return feature_a, feature_b
+        return None, None
+
+    @property
+    def coverage_matrix(self) -> pd.DataFrame:
+        """Observation-by-modality availability without reading any data matrix."""
+        return self._coverage
+
+    @property
+    def coverage_metadata_names(self) -> list[str]:
+        """Low-cardinality metadata suitable for grouping coverage columns."""
+        availability_columns = {
+            f"{str(modality).strip().lower()}_data" for modality in self.modalities
+        }
+        names: list[str] = []
+        for column in self._coverage_obs.columns:
+            normalized = str(column).strip().lower().replace(" ", "_")
+            if normalized in availability_columns:
+                continue
+            values = self._coverage_obs[column]
+            cardinality = int(values.nunique(dropna=True))
+            if cardinality == 0 or cardinality > 50:
+                continue
+            dtype = values.dtype
+            is_categorical = isinstance(dtype, pd.CategoricalDtype)
+            is_textual = (
+                pd.api.types.is_object_dtype(dtype)
+                or pd.api.types.is_string_dtype(dtype)
+                or pd.api.types.is_bool_dtype(dtype)
+            )
+            # Clinical flags are often stored as 0/1 integers rather than bools.
+            is_low_cardinality_numeric = (
+                pd.api.types.is_numeric_dtype(dtype) and cardinality <= 20
+            )
+            if is_categorical or is_textual or is_low_cardinality_numeric:
+                names.append(str(column))
+        return names
+
+    def coverage_metadata(self, name: str) -> pd.Series:
+        """Return one coverage metadata vector aligned to ``coverage_ids``."""
+        if name not in self._coverage_obs.columns:
+            raise ValueError(f"Unknown multi-omics coverage metadata: {name}")
+        return self._coverage_obs[name]
+
+    @property
+    def modality_dimensions(self) -> dict[str, tuple[int, int]]:
+        """Map modality to (observations, features), using shape metadata only."""
+        return {
+            modality: (
+                int(self.mdata.mod[modality].n_obs),
+                int(self.mdata.mod[modality].n_vars),
+            )
+            for modality in self.modalities
+        }
 
     def preferred_embedding(self, modality: str) -> str | None:
         candidates = [
@@ -195,8 +310,94 @@ class MultiOmicsSource:
     @property
     def discrete_obs_names(self) -> list[str]:
         if self.base_adata is None:
-            return []
+            return self.coverage_metadata_names
         return get_discrete_labels(self.base_adata)
+
+    def pairwise_overlap_ids(
+        self,
+        features_a: Iterable[str],
+        features_b: Iterable[str],
+    ) -> pd.Index:
+        """Return shared observation IDs for the two selected feature sets."""
+        _names_a, modality_a = self._validate_feature_set(features_a)
+        _names_b, modality_b = self._validate_feature_set(features_b)
+        return self._shared_observation_ids(modality_a, modality_b)
+
+    def _shared_observation_ids(
+        self,
+        modality_a: str,
+        modality_b: str,
+    ) -> pd.Index:
+        ids_a = self._modality_cell_ids[modality_a]
+        ids_b = self._modality_cell_ids[modality_b]
+        return ids_a[ids_a.isin(ids_b)]
+
+    def pairwise_feature_data(
+        self,
+        features_a: Iterable[str],
+        features_b: Iterable[str],
+    ) -> tuple[ad.AnnData, np.ndarray, np.ndarray]:
+        """Align two native feature scores on their shared observation IDs."""
+        names_a, modality_a = self._validate_feature_set(features_a)
+        names_b, modality_b = self._validate_feature_set(features_b)
+        shared_ids = self._shared_observation_ids(modality_a, modality_b)
+        if len(shared_ids) < 3:
+            raise ValueError(
+                "The selected modalities need at least three shared observations."
+            )
+
+        ids_a = self._modality_cell_ids[modality_a]
+        ids_b = self._modality_cell_ids[modality_b]
+        indexer_a = ids_a.get_indexer(shared_ids)
+        indexer_b = ids_b.get_indexer(shared_ids)
+        score_a = np.asarray(
+            self._native_feature_score(names_a, modality_a)[indexer_a],
+            dtype=np.float64,
+        )
+        score_b = np.asarray(
+            self._native_feature_score(names_b, modality_b)[indexer_b],
+            dtype=np.float64,
+        )
+
+        frame = ad.AnnData(
+            X=np.empty((len(shared_ids), 0), dtype=np.float32),
+            obs=self._coverage_obs.reindex(shared_ids).copy(),
+        )
+        frame.obs_names = shared_ids.copy()
+        return frame, score_a, score_b
+
+    def pairwise_embedding_options(
+        self,
+        features_a: Iterable[str],
+        features_b: Iterable[str],
+    ) -> list[str]:
+        """Return embeddings owned by either selected feature modality."""
+        _names_a, modality_a = self._validate_feature_set(features_a)
+        _names_b, modality_b = self._validate_feature_set(features_b)
+        modalities = list(dict.fromkeys((modality_a, modality_b)))
+        return [
+            embedding
+            for modality in modalities
+            for embedding in self.modality_embeddings(modality)
+        ]
+
+    def pairwise_embedding(
+        self,
+        embedding: str,
+        observation_ids: Iterable[str],
+    ) -> np.ndarray:
+        """Align one modality-owned embedding to pairwise observation IDs."""
+        modality, raw_key, adata = self.embedding_context(embedding)
+        requested = pd.Index(np.asarray(list(observation_ids), dtype=str))
+        indexer = self._modality_cell_ids[modality].get_indexer(requested)
+        if np.any(indexer < 0):
+            missing = int(np.sum(indexer < 0))
+            raise ValueError(
+                f"{embedding} does not contain {missing} shared observations. "
+                "Select an embedding from either feature modality."
+            )
+        coordinates = embedding_to_numpy(adata.obsm[raw_key])
+        return np.asarray(coordinates[indexer])
 
     def _build_feature_catalog(self) -> None:
         occupied: set[str] = set()
@@ -209,6 +410,58 @@ class MultiOmicsSource:
                 self._raw_feature_lookup[(modality.lower(), str(raw_key).lower())] = (
                     label
                 )
+
+    def _build_coverage_obs_catalog(self) -> pd.DataFrame:
+        """Merge global/local metadata onto the coverage observation union.
+
+        Equal columns shared by modalities are collapsed to one readable name;
+        conflicting local columns keep a modality prefix.  Only obs vectors are
+        touched here--never X, layers, obsm, or any feature matrix.
+        """
+        frame = pd.DataFrame(index=self.coverage_ids)
+        occupied: set[str] = set()
+
+        def aligned_values(obs, column: str) -> pd.Series:
+            values = obs_col(obs, column).copy()
+            values.index = pd.Index(obs.index.astype(str))
+            return values.reindex(self.coverage_ids)
+
+        global_obs = getattr(self.mdata, "obs", None)
+        if global_obs is not None:
+            for column in global_obs.columns:
+                label = str(column)
+                frame[label] = aligned_values(global_obs, column)
+                occupied.add(label)
+
+        for modality in self.modalities:
+            modality_obs = self.mdata.mod[modality].obs
+            for column in modality_obs.columns:
+                raw_column = str(column)
+                values = aligned_values(modality_obs, column)
+                if raw_column in frame.columns:
+                    existing = frame[raw_column]
+                    overlap = existing.notna() & values.notna()
+                    if not overlap.any() or _same_values(
+                        existing.loc[overlap], values.loc[overlap]
+                    ):
+                        fill = existing.isna() & values.notna()
+                        if fill.any():
+                            combined = existing.copy()
+                            try:
+                                combined.loc[fill] = values.loc[fill]
+                            except (TypeError, ValueError):
+                                combined = existing.astype(object)
+                                combined.loc[fill] = values.loc[fill].astype(object)
+                            frame[raw_column] = combined
+                        continue
+                label = _unique_label(
+                    f"{_modality_label(modality)} · {raw_column}",
+                    occupied,
+                    "metadata",
+                )
+                occupied.add(label)
+                frame[label] = values
+        return frame
 
     def _aligned_mod_obs(self, modality: str, column: str) -> pd.Series:
         series = obs_col(self.mdata.mod[modality].obs, column)
@@ -287,7 +540,6 @@ class MultiOmicsSource:
     ) -> dict[str, np.ndarray]:
         obsm: dict[str, np.ndarray] = {}
         occupied: set[str] = set()
-        modalities_with_embeddings: set[str] = set()
         for modality in self.modalities:
             for raw_key in self.mdata.mod[modality].obsm.keys():
                 stored_values = self.mdata.mod[modality].obsm[raw_key]
@@ -301,17 +553,9 @@ class MultiOmicsSource:
                 )
                 occupied.add(label)
                 self._embedding_refs[label] = (modality, str(raw_key))
-                modalities_with_embeddings.add(modality)
                 if materialize:
                     values = embedding_to_numpy(stored_values)
                     obsm[label] = values[self._row_indexers[modality]]
-        if not self._embedding_refs:
-            raise ValueError("No modality contains an embedding in obsm.")
-        if not self.is_paired and len(modalities_with_embeddings) < 2:
-            raise ValueError(
-                "At least two modalities must contain embedding coordinates for "
-                "an unpaired multi-omics view."
-            )
         return obsm
 
     def embedding_context(self, label: str):

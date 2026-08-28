@@ -4,6 +4,7 @@ from collections import OrderedDict
 from threading import Lock
 
 import numpy as np
+import pandas as pd
 from dash import Input, Output, State, no_update
 
 from guanaco.data.loader import obs_col
@@ -144,22 +145,38 @@ def _feature_set_label(features, role):
 
 
 def _selected_positions(source, filtered_data, selected_cells):
+    return _selected_positions_for_ids(
+        source.cell_ids,
+        filtered_data,
+        selected_cells,
+    )
+
+
+def _selected_positions_for_ids(cell_ids, filtered_data, selected_cells):
+    cell_ids = pd.Index(cell_ids)
     raw_indices = (filtered_data or {}).get("cell_indices")
     if raw_indices is None:
-        positions = np.arange(len(source.cell_ids), dtype=np.int64)
+        positions = np.arange(len(cell_ids), dtype=np.int64)
     else:
         positions = np.asarray(raw_indices, dtype=np.int64)
-        positions = positions[(positions >= 0) & (positions < len(source.cell_ids))]
+        positions = positions[(positions >= 0) & (positions < len(cell_ids))]
 
     if selected_cells:
-        selected_positions = source.cell_ids.get_indexer(
+        selected_positions = cell_ids.get_indexer(
             np.asarray(selected_cells, dtype=str)
         )
         selected_positions = selected_positions[selected_positions >= 0]
-        selected_mask = np.zeros(len(source.cell_ids), dtype=bool)
+        selected_mask = np.zeros(len(cell_ids), dtype=bool)
         selected_mask[selected_positions] = True
         positions = positions[selected_mask[positions]]
     return positions
+
+
+def _uses_pairwise_alignment(source):
+    return (
+        getattr(source, "base_adata", None) is None
+        and hasattr(source, "pairwise_feature_data")
+    )
 
 
 def _pair_data(source, feature_a, feature_b, filtered_data, selected_cells):
@@ -167,17 +184,41 @@ def _pair_data(source, feature_a, feature_b, filtered_data, selected_cells):
     feature_b = _feature_list(feature_b)
     if not feature_a or not feature_b:
         raise ValueError("Select at least one feature in both sets.")
-    positions = _selected_positions(source, filtered_data, selected_cells)
+    if _uses_pairwise_alignment(source):
+        frame, score_a, score_b = source.pairwise_feature_data(
+            feature_a,
+            feature_b,
+        )
+        # Positional global filters belong to one modality-specific scatter and
+        # cannot be reused for a dynamically intersected pair. Linked selections
+        # are ID-based and remain safe to apply.
+        positions = _selected_positions_for_ids(
+            frame.obs_names,
+            None,
+            selected_cells,
+        )
+    else:
+        frame = source.base_adata
+        score_a = source.score_features(feature_a)
+        score_b = source.score_features(feature_b)
+        positions = _selected_positions(source, filtered_data, selected_cells)
     if len(positions) < 3:
-        raise ValueError("At least three cells must remain after filtering.")
+        raise ValueError("At least three shared observations must remain.")
 
-    score_a = source.score_features(feature_a)
-    score_b = source.score_features(feature_b)
     analysis = analyze_concordance(
         np.asarray(score_a)[positions],
         np.asarray(score_b)[positions],
     )
-    return source.base_adata, positions, analysis
+    return frame, positions, analysis
+
+
+def _embedding_coordinates(source, embedding, frame, positions):
+    if getattr(source, "base_adata", None) is not None:
+        return np.asarray(source.base_adata.obsm[embedding])[positions]
+    if hasattr(source, "pairwise_embedding"):
+        coordinates = source.pairwise_embedding(embedding, frame.obs_names)
+        return np.asarray(coordinates)[positions]
+    raise ValueError("The selected embedding cannot be aligned to this comparison.")
 
 
 def register_unpaired_group_comparison_callbacks(app, source, prefix):
@@ -297,7 +338,7 @@ def register_cross_modal_concordance_callbacks(
     cached_figure_set=None,
 ):
     """Register the paired-feature concordance callbacks."""
-    if not getattr(source, "is_paired", True):
+    if getattr(source, "supports_pairwise_comparison", True) is False:
         return register_unpaired_group_comparison_callbacks(app, source, prefix)
 
     pair_cache = OrderedDict()
@@ -316,9 +357,12 @@ def register_cross_modal_concordance_callbacks(
                 (filtered_data or {}).get("cell_indices")
             )
 
+        cache_owner = getattr(source, "base_adata", None)
+        if cache_owner is None:
+            cache_owner = source
         return make_cache_key(
             kind,
-            source.base_adata,
+            cache_owner,
             prefix=prefix,
             feature_a=feature_a,
             feature_b=feature_b,
@@ -420,6 +464,30 @@ def register_cross_modal_concordance_callbacks(
     register_feature_search("a")
     register_feature_search("b")
 
+    if hasattr(source, "pairwise_embedding_options"):
+        @app.callback(
+            Output(f"{prefix}-concordance-embedding", "options"),
+            Output(f"{prefix}-concordance-embedding", "value"),
+            Input(f"{prefix}-concordance-committed-features", "data"),
+            State(f"{prefix}-concordance-embedding", "value"),
+        )
+        def update_pairwise_embedding_options(comparison, current):
+            try:
+                feature_a, feature_b = _committed_feature_sets(comparison)
+                embeddings = source.pairwise_embedding_options(
+                    feature_a,
+                    feature_b,
+                )
+            except ValueError:
+                embeddings = list(source.embedding_names)
+            selected = current if current in embeddings else (
+                embeddings[0] if embeddings else None
+            )
+            return (
+                [{"label": value, "value": value} for value in embeddings],
+                selected,
+            )
+
     app.clientside_callback(
         """
         function(featureA, featureB) {
@@ -454,15 +522,23 @@ def register_cross_modal_concordance_callbacks(
             if invalid:
                 raise ValueError(f"Feature not found: {invalid[0]}")
             # Validate and warm the score cache before replacing the active plots.
-            score_a = source.score_features(feature_a)
-            score_b = source.score_features(feature_b)
+            if _uses_pairwise_alignment(source):
+                frame, score_a, score_b = source.pairwise_feature_data(
+                    feature_a,
+                    feature_b,
+                )
+                status = f"Using {frame.n_obs:,} shared observations."
+            else:
+                score_a = source.score_features(feature_a)
+                score_b = source.score_features(feature_b)
+                status = ""
             analyze_concordance(score_a, score_b)
         except ValueError as exc:
             return no_update, f"Could not update: {exc}"
 
         return (
             {"feature_a": feature_a, "feature_b": feature_b},
-            "",
+            status,
         )
 
     app.clientside_callback(
@@ -491,7 +567,11 @@ def register_cross_modal_concordance_callbacks(
         Input(f"{prefix}-concordance-committed-features", "data"),
         Input(f"{prefix}-concordance-main-view-trigger", "data"),
         Input(f"{prefix}-concordance-embedding", "value"),
-        Input(f"{prefix}-global-filtered-data", "data"),
+        Input(
+            f"{prefix}-global-filtered-data",
+            "data",
+            allow_optional=True,
+        ),
         Input(f"{prefix}-selected-cells-hash", "data"),
         Input(f"{prefix}-visualization-workspace-tabs", "value"),
         Input(f"{prefix}-exploratory-tabs", "value"),
@@ -562,7 +642,7 @@ def register_cross_modal_concordance_callbacks(
                 else None
             )
             figure = build_concordance_embedding(
-                np.asarray(source.base_adata.obsm[embedding])[positions],
+                _embedding_coordinates(source, embedding, frame, positions),
                 analysis,
                 frame.obs_names.to_numpy()[positions],
                 _feature_set_label(feature_a, "A"),
@@ -582,7 +662,11 @@ def register_cross_modal_concordance_callbacks(
         Output(f"{prefix}-concordance-feature-plot", "figure"),
         Input(f"{prefix}-concordance-committed-features", "data"),
         Input(f"{prefix}-concordance-main-view-trigger", "data"),
-        Input(f"{prefix}-global-filtered-data", "data"),
+        Input(
+            f"{prefix}-global-filtered-data",
+            "data",
+            allow_optional=True,
+        ),
         Input(f"{prefix}-selected-cells-hash", "data"),
         Input(f"{prefix}-visualization-workspace-tabs", "value"),
         Input(f"{prefix}-exploratory-tabs", "value"),
@@ -666,7 +750,11 @@ def register_cross_modal_concordance_callbacks(
         Input(f"{prefix}-concordance-committed-features", "data"),
         Input(f"{prefix}-concordance-view-mode", "value"),
         Input(f"{prefix}-concordance-group-by", "value"),
-        Input(f"{prefix}-global-filtered-data", "data"),
+        Input(
+            f"{prefix}-global-filtered-data",
+            "data",
+            allow_optional=True,
+        ),
         Input(f"{prefix}-selected-cells-hash", "data"),
         Input(f"{prefix}-visualization-workspace-tabs", "value"),
         Input(f"{prefix}-exploratory-tabs", "value"),
@@ -749,7 +837,11 @@ def register_cross_modal_concordance_callbacks(
         Input(f"{prefix}-concordance-feature-plot", "selectedData"),
         Input(f"{prefix}-concordance-committed-features", "data"),
         Input(f"{prefix}-concordance-main-view-trigger", "data"),
-        Input(f"{prefix}-global-filtered-data", "data"),
+        Input(
+            f"{prefix}-global-filtered-data",
+            "data",
+            allow_optional=True,
+        ),
         prevent_initial_call=True,
     )
     app.clientside_callback(

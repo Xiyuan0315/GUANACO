@@ -7,6 +7,10 @@ from guanaco.pages.matrix.callbacks.unpaired_multiomics_callbacks import (
 from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
     register_cross_modal_concordance_callbacks,
 )
+from guanaco.pages.matrix.callbacks.multiomics_composition_callbacks import (
+    register_multiomics_composition_callbacks,
+)
+from guanaco.pages.visualizations.registry import multiomics_plot_components
 from guanaco.pages.visualizations.registry import resolve_plot_components
 
 
@@ -27,21 +31,6 @@ def register_visualization_callbacks(
     organism="human",
 ):
     """Register all available plots for one modality through one lifecycle."""
-    if multiomics_source is not None and not multiomics_source.is_paired:
-        register_unpaired_multiomics_callbacks(
-            app,
-            multiomics_source,
-            prefix,
-            embedding_render_backend=embedding_render_backend,
-            color_config=color_config,
-        )
-        register_cross_modal_concordance_callbacks(
-            app,
-            multiomics_source,
-            prefix,
-        )
-        return ()
-
     has_igv = bool(genome_tracks) and bool(ref_track)
     enabled = resolve_plot_components(
         adata,
@@ -56,14 +45,38 @@ def register_visualization_callbacks(
         else None,
     )
     if multiomics_source is not None:
-        enabled = tuple(
-            key
-            for key in enabled
-            if key in {"dotplot", "heatmap", "violin", "pseudotime"}
-        ) + ("cross-modal-concordance",)
+        enabled = multiomics_plot_components(enabled)
+
+    if multiomics_source is not None and "multiomics-composition" in enabled:
+        register_multiomics_composition_callbacks(
+            app,
+            multiomics_source,
+            prefix,
+            color_config=color_config,
+        )
+
+    if multiomics_source is not None and not multiomics_source.is_paired:
+        if multiomics_source.supports_embedding_view:
+            register_unpaired_multiomics_callbacks(
+                app,
+                multiomics_source,
+                prefix,
+                embedding_render_backend=embedding_render_backend,
+                color_config=color_config,
+            )
+        register_cross_modal_concordance_callbacks(
+            app,
+            multiomics_source,
+            prefix,
+        )
+        return enabled
 
     if adata is not None:
-        matrix_enabled = tuple(key for key in enabled if key != "igv")
+        matrix_enabled = tuple(
+            key
+            for key in enabled
+            if key not in {"igv", "multiomics-composition"}
+        )
         matrix_callbacks(
             app,
             adata,

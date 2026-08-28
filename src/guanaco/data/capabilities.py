@@ -139,7 +139,7 @@ def has_plot_capability(
     """Return whether one canonical plot can produce a useful data view."""
     if key == "igv":
         return has_igv
-    if key == "cross-modal-concordance":
+    if key in {"multiomics-composition", "cross-modal-concordance"}:
         return modality_name == "multiomics"
     if adata is None:
         return False

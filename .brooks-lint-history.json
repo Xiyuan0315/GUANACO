@@ -53,5 +53,16 @@
       "suggestion": 1
     },
     "scope": "marimo.py, widget.py"
+  },
+  {
+    "date": "2026-08-28",
+    "mode": "PR Review",
+    "score": 82,
+    "findings": {
+      "critical": 0,
+      "warning": 3,
+      "suggestion": 3
+    },
+    "scope": "V3 working-tree diff before Dash 4 and multi-omics submission"
   }
 ]

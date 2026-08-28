@@ -26,14 +26,29 @@ def _feature_control(prefix, role, feature):
 
 def generate_cross_modal_concordance_layout(source, prefix):
     """Build the paired or metadata-level unpaired comparison tab."""
-    if not source.is_paired:
+    if not source.supports_pairwise_comparison:
         return _generate_unpaired_comparison_layout(source, prefix)
 
-    modalities = list(source.modalities)
-    modality_a = modalities[0]
-    modality_b = modalities[1]
-    feature_a = source.first_feature(modality_a)
-    feature_b = source.first_feature(modality_b)
+    feature_a, feature_b = source.default_pairwise_features()
+    modality_a = source.feature_modality(feature_a) or source.modalities[0]
+    initial_embeddings = (
+        source.pairwise_embedding_options([feature_a], [feature_b])
+        if feature_a
+        and feature_b
+        and hasattr(source, "pairwise_embedding_options")
+        else source.embedding_names
+    )
+    overlap_status = ""
+    if (
+        source.base_adata is None
+        and feature_a
+        and feature_b
+        and hasattr(source, "pairwise_overlap_ids")
+    ):
+        overlap_status = (
+            f"Using {len(source.pairwise_overlap_ids([feature_a], [feature_b])):,} "
+            "shared observations."
+        )
 
     feature_controls = html.Div(
         [
@@ -74,6 +89,7 @@ def generate_cross_modal_concordance_layout(source, prefix):
         className="concordance-control-row concordance-controls",
     )
 
+    preferred_embedding = source.preferred_embedding(modality_a)
     analysis_controls = html.Div(
         [
             html.Div(
@@ -82,9 +98,13 @@ def generate_cross_modal_concordance_layout(source, prefix):
                     f"{prefix}-concordance-embedding",
                     [
                         {"label": embedding, "value": embedding}
-                        for embedding in source.embedding_names
+                        for embedding in initial_embeddings
                     ],
-                    value=source.preferred_embedding(modality_a),
+                    value=(
+                        preferred_embedding
+                        if preferred_embedding in initial_embeddings
+                        else (initial_embeddings[0] if initial_embeddings else None)
+                    ),
                     clearable=False,
                 ),
                 className="concordance-control concordance-control--embedding",
@@ -171,6 +191,7 @@ def generate_cross_modal_concordance_layout(source, prefix):
             dcc.Store(id=f"{prefix}-concordance-main-view-trigger"),
             feature_controls,
             html.Div(
+                overlap_status,
                 id=f"{prefix}-concordance-update-status",
                 className="concordance-update-status",
             ),

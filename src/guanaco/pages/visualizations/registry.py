@@ -43,6 +43,12 @@ PLOT_SPECS = (
     PlotSpec("peak-browser", "Peak Browser", EXPLORATION_WORKSPACE, True),
     PlotSpec("igv", "IGV", EXPLORATION_WORKSPACE),
     PlotSpec(
+        "multiomics-composition",
+        "Multi-omics coverage",
+        EXPLORATION_WORKSPACE,
+        True,
+    ),
+    PlotSpec(
         "cross-modal-concordance",
         "Omics comparison",
         EXPLORATION_WORKSPACE,
@@ -58,6 +64,17 @@ MARKER_PLOTS = tuple(
 EXPLORATORY_PLOTS = tuple(
     spec.key for spec in PLOT_SPECS if spec.workspace == EXPLORATION_WORKSPACE
 )
+
+
+def multiomics_plot_components(enabled) -> tuple[str, ...]:
+    """Keep valid joint-view plots in one stable, shared order."""
+    enabled = set(enabled)
+    return (
+        *(key for key in MARKER_PLOTS if key in enabled),
+        *(key for key in ("multiomics-composition",) if key in enabled),
+        "cross-modal-concordance",
+    )
+
 
 _COMPONENT_ALIASES = {
     "vocano": "volcano",
@@ -78,6 +95,8 @@ _COMPONENT_ALIASES = {
     "spatial-relations": "spatial-relationships",
     "omics-comparison": "cross-modal-concordance",
     "cross-modal-comparison": "cross-modal-concordance",
+    "multiomics-coverage": "multiomics-composition",
+    "omics-coverage": "multiomics-composition",
 }
 
 def is_plot_available(
