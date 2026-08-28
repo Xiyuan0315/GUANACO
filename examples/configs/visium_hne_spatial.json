@@ -1,6 +1,6 @@
 {
   "Visium H&E mouse brain": {
-    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/visium_hne_spatial.h5ad",
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v3/data/anndata/visium_hne_adata.h5ad",
     "organism": "mouse",
     "markers": [
       "Olfm1",
@@ -26,7 +26,7 @@
   "title": "Guanaco spatial omics example",
   "settings": {
     "host": "127.0.0.1",
-    "port": 4399,
+    "port": 4404,
     "max_cells": 10000,
     "lazy_load": true,
     "backed_mode": true,

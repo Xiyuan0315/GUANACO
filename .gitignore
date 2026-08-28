@@ -25,6 +25,8 @@ dist/
 dist-conda/
 .pytest_cache/
 .ruff_cache/
+vendor/dash_draggable/node_modules/
+vendor/dash_draggable/dash_draggable/
 
 # docs build artifacts
 docs/build/

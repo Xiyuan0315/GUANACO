@@ -15,20 +15,39 @@ _GRID_BREAKPOINTS = {"lg": 1200, "md": 996, "sm": 768, "xs": 480, "xxs": 0}
 _GRID_COLS = {bp: 12 for bp in _GRID_BREAKPOINTS}
 
 
-def responsive_graph_grid(grid_id, item_id, child, *, w=9, h=13,
-                          min_w=6, min_h=7, max_w=12, max_h=20):
+def responsive_graph_grid(
+    grid_id,
+    item_id,
+    child,
+    *,
+    w=9,
+    h=13,
+    min_w=6,
+    min_h=7,
+    max_w=12,
+    max_h=20,
+):
     """A width-responsive dash_draggable grid holding one resizable graph item.
 
     w/h are the default open size and min_*/max_* bound drag-resize, all in grid
     units (12 cols; rows are 30px). Because the grid is responsive, w is a
     fraction of the container width, so the plot scales with the screen. Small
     breakpoints open full-width (max_w) for readability. ``child`` must carry
-    ``id=item_id`` so dash_draggable keys it (key = child id) and the per-item
-    minW/minH/maxW/maxH pass through to react-grid-layout.
+    ``id=item_id`` so dash_draggable keys it and applies the per-item bounds.
     """
+
     def item(width):
-        return {"i": item_id, "x": 0, "y": 0, "w": width, "h": h,
-                "minW": min_w, "minH": min_h, "maxW": max_w, "maxH": max_h}
+        return {
+            "i": item_id,
+            "x": 0,
+            "y": 0,
+            "w": width,
+            "h": h,
+            "minW": min_w,
+            "minH": min_h,
+            "maxW": max_w,
+            "maxH": max_h,
+        }
 
     layouts = {
         "lg": [item(w)],
@@ -37,16 +56,25 @@ def responsive_graph_grid(grid_id, item_id, child, *, w=9, h=13,
         "xs": [item(max_w)],
         "xxs": [item(max_w)],
     }
+
     return dash_draggable.ResponsiveGridLayout(
         id=grid_id,
         className="grid-layout-no-border",
+        style={
+            "backgroundColor": "transparent",
+            "padding": "0px",
+            "border": "none",
+            "boxShadow": "none",
+        },
         layouts=layouts,
         breakpoints=dict(_GRID_BREAKPOINTS),
         gridCols=dict(_GRID_COLS),
         height=30,
         isResizable=True,
         isDraggable=True,
-        style={"backgroundColor": "transparent", "padding": "0px", "border": "none", "boxShadow": "none"},
+        resizeHandles=["se"],
+        save=True,
+        clearSavedLayout=False,
         children=[child],
     )
 
@@ -125,9 +153,8 @@ def switch_checklist(check_id, label):
 
 
 def graph_flex_container(graph_id, *, graph_style=None, config=None, container_id=None):
-    # container_id lets a dash_draggable GridLayout key this wrapper (key = child
-    # id) so a `layout` entry can target it by `i` and pass minW/minH/maxW/maxH
-    # through to react-grid-layout.
+    # container_id lets the responsive grid key this wrapper so its layout entry
+    # can target it by `i` and apply minW/minH/maxW/maxH constraints.
     div_kwargs = {"id": container_id} if container_id else {}
     return html.Div(
         children=[

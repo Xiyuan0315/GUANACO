@@ -46,7 +46,8 @@ cd guanaco-viz
 pixi install
 ```
 
-Python compatibility: `>=3.10,<3.13` (recommended: Python 3.11 or 3.12).
+Python compatibility: `>=3.11,<3.15`. The reproducible Pixi environment uses
+Python 3.12, Dash 4.3, and GUANACO's Dash 4-compatible dash-draggable fork.
 
 ### 3. Install GUANACO package into the Pixi environment
 
@@ -137,7 +138,9 @@ Runtime settings such as `port`, `host`, `max_cells`, `backed_mode`, and `embedd
 
 ## Configuration
 
-Create a configuration JSON file specifying your datasets. See `examples/configs/example_config.json` for a complete example configuration. Simpliest case for visualizing scRNA data(.h5ad) is:
+Create a configuration JSON file specifying your datasets. See
+`examples/configs/visium_hne_spatial.json` for a complete example. The simplest
+case for visualizing scRNA data (`.h5ad`) is:
 ```
 {
   "Demo": {"sc_data": "/absolute/path/to/PBMC_int.h5ad"},

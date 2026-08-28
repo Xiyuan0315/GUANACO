@@ -26,7 +26,7 @@ Jupyter/JupyterLab; classic ipywidgets are not currently supported in marimo.
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Sequence
 
 import plotly.graph_objects as go
 

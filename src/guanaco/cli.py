@@ -228,11 +228,11 @@ def main():
         spinner.start()
         try:
             with contextlib.redirect_stdout(io.StringIO()):
-                import anndata
-                import muon
+                import anndata  # noqa: F401
+                import muon  # noqa: F401
                 import matplotlib
                 matplotlib.use('Agg')
-                import plotly
+                import plotly  # noqa: F401
                 from guanaco.main import app
         finally:
             spinner.stop()
