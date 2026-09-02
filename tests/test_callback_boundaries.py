@@ -4,6 +4,7 @@ import pytest
 from anndata import AnnData
 from dash import Dash, html
 from dash.exceptions import PreventUpdate
+import plotly.graph_objects as go
 
 import guanaco.pages.visualizations.callbacks as visualization_callbacks
 import guanaco.pages.visualizations.plots.igv.callbacks as igv_callbacks
@@ -14,7 +15,10 @@ from guanaco.pages.matrix.callbacks.paga_callbacks import register_paga_callback
 from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import (
     register_stacked_bar_callbacks,
 )
-from guanaco.pages.matrix.callbacks.violin_callbacks import register_violin_callbacks
+from guanaco.pages.matrix.callbacks.violin_callbacks import (
+    register_ridge_callbacks,
+    register_violin_callbacks,
+)
 from guanaco.pages.visualizations.plots.igv.callbacks import register_igv_callbacks
 from guanaco.utils.obs_utils import SELECTION_GROUP
 
@@ -345,6 +349,76 @@ def test_comparative_violin_uses_local_layer_and_lasso_selection():
         "Others",
         "Others",
     ]
+
+
+def test_ridge_uses_shared_marker_metadata_layer_and_palette():
+    app = Dash(__name__)
+    adata = _adata()
+    rendered = {}
+
+    def plot_ridge(source, gene, groupby, **kwargs):
+        rendered.update(
+            n_obs=source.n_obs,
+            gene=gene,
+            groupby=groupby,
+            labels=kwargs["labels"],
+            layer=kwargs["layer"],
+            color_map=kwargs["groupby_label_color_map"],
+        )
+        return go.Figure()
+
+    register_ridge_callbacks(
+        app,
+        adata,
+        "p",
+        filter_data=lambda source, *_args: source,
+        plot_ridge=plot_ridge,
+        color_config=["red", "blue"],
+        make_cache_key=lambda *_args, **_kwargs: "ridge-key",
+        hash_list_signature=lambda values: tuple(values or []),
+        cached_figure_get=lambda _key: None,
+        cached_figure_set=lambda *_args: None,
+    )
+
+    inputs = _inputs_for(app, "p-ridge-plot.figure")
+    assert {
+        "p-marker-tabs",
+        "p-ridge-gene-selection",
+        "p-single-cell-annotation-dropdown",
+        "p-single-cell-label-selection",
+        "p-data-layer",
+        "p-discrete-color-map-dropdown",
+    } <= inputs
+
+    callback = next(
+        value
+        for key, value in app.callback_map.items()
+        if "p-ridge-plot.figure" in key
+    )["callback"].__wrapped__
+    callback(
+        "ridge-tab",
+        "G1",
+        "cell_type",
+        ["A", "B"],
+        "X",
+        [],
+        "missing-palette",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+
+    assert rendered == {
+        "n_obs": 4,
+        "gene": "G1",
+        "groupby": "cell_type",
+        "labels": ["A", "B"],
+        "layer": None,
+        "color_map": {"A": "red", "B": "blue"},
+    }
 
 
 def test_igv_uses_the_common_exploratory_workspace_guard():

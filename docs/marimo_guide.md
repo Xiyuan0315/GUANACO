@@ -174,16 +174,16 @@ files are slow this way — for big data, prefer the template's `DATA_PATH`
 
 ---
 
-## 8. PAGA & GRN
+## 8. PAGA
 
-PAGA and GRN are interactive **Cytoscape** networks, not Plotly figures. They are
-available as `gc.pl.paga(adata)` / `gc.pl.grn(adata)` in **Jupyter/JupyterLab**
-(via `pip install ipycytoscape`), and of course in the full web app
+PAGA is an interactive **Cytoscape** graph, not a Plotly figure. It is available
+as `gc.pl.paga(adata)` in **Jupyter/JupyterLab** (via
+`pip install ipycytoscape`), and in the full web app
 (`guanaco -c config.json`).
 
-They are **not** currently available in marimo — they're classic ipywidgets with
-their own JS extension, which marimo doesn't render. So in a marimo dashboard,
-use the web app for PAGA/GRN, or open those two in a Jupyter notebook.
+It is **not** currently available in marimo — it is a classic ipywidget with its
+own JS extension, which marimo doesn't render. In a marimo dashboard, use the
+web app for PAGA or open it in a Jupyter notebook.
 
 Everything else — embeddings, co-expression, violin, dotplot, heatmap, stacked
 bar, pseudotime, volcano — works identically in marimo, Jupyter, and the web app,

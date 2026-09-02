@@ -1,9 +1,14 @@
 {
   "Dataset1": {
-    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/PBMC.h5mu",
-    "genome": "hg38",
+    "sc_data": "/Users/xiyuanzhang/Documents/GUANACO_v2/data/pbmc_liana_demo.h5ad",
     "optional_plot_components": [
-      "peak-browser"
+      "dotplot",
+      "heatmap",
+      "violin",
+      "ridge",
+      "split-violin",
+      "stacked-bar",
+      "ligand-receptor"
     ]
   },
   "title": "GUANACO",

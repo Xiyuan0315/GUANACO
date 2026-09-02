@@ -215,6 +215,7 @@ def _make_expression_heatmap(matrix, genes, color_map, standardization, colorbar
         kwargs["x"] = x
     return go.Heatmap(
         z=matrix,
+        y=genes,
         colorscale=color_map,
         hoverinfo='skip',
         zmin=zmin,

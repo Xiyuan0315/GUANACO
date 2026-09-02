@@ -7,13 +7,18 @@ import pandas as pd
 import plotly.express as px
 from scipy.interpolate import UnivariateSpline
 
-from guanaco.utils.gene_extraction_utils import apply_transformation, extract_gene_expression, prewarm_gene_cache
+from guanaco.utils.gene_extraction_utils import (
+    apply_transformation,
+    extract_gene_expression,
+    prewarm_gene_cache,
+)
 from guanaco.data.loader import obs_col
 
 try:
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import PolynomialFeatures
     from sklearn.pipeline import make_pipeline
+
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -24,14 +29,16 @@ def _message_figure(text):
     fig = go.Figure()
     fig.add_annotation(
         text=text,
-        xref="paper", yref="paper",
-        x=0.5, y=0.5,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=0.5,
         showarrow=False,
         font=dict(size=14),
     )
     fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
+        plot_bgcolor="white",
+        paper_bgcolor="white",
         height=400,
     )
     return fig
@@ -40,10 +47,10 @@ def _message_figure(text):
 def plot_genes_in_pseudotime(
     adata,
     genes,
-    pseudotime_key='pseudotime',
+    pseudotime_key="pseudotime",
     groupby=None,
     min_expr=0.5,
-    transformation='none',
+    transformation="none",
     layer=None,
     color_map=None,
     marker_size=3,
@@ -51,7 +58,7 @@ def plot_genes_in_pseudotime(
     group_values=None,
 ):
     """Plot gene expression across a continuous observation variable with smoothed curves."""
-    
+
     # Filter out genes that don't exist in the dataset
     valid_genes = [gene for gene in genes if gene in adata.var_names]
     if not valid_genes:
@@ -67,193 +74,206 @@ def plot_genes_in_pseudotime(
     # One column slice for all genes so the per-gene reads below hit the cache.
     prewarm_gene_cache(adata, valid_genes, layer=layer, dtype=np.float32)
     expr_df = pd.DataFrame(
-        {gene: extract_gene_expression(adata, gene, layer=layer, dtype=np.float32) for gene in valid_genes},
+        {
+            gene: extract_gene_expression(adata, gene, layer=layer, dtype=np.float32)
+            for gene in valid_genes
+        },
         index=adata.obs_names,
     )
 
     # Apply transformation
-    if transformation == 'log':
-        expr_df = apply_transformation(expr_df, method='log', copy=True)
-    elif transformation == 'z_score':
-        expr_df = apply_transformation(expr_df, method='z_score', copy=True)
+    if transformation == "log":
+        expr_df = apply_transformation(expr_df, method="log", copy=True)
+    elif transformation == "z_score":
+        expr_df = apply_transformation(expr_df, method="z_score", copy=True)
 
     expr_df[valid_genes] = expr_df[valid_genes].replace([np.inf, -np.inf], np.nan)
-    expr_df['pseudotime'] = pd.to_numeric(obs_col(adata.obs, pseudotime_key).values, errors='coerce')
-    expr_df['pseudotime'] = expr_df['pseudotime'].replace([np.inf, -np.inf], np.nan)
+    expr_df["pseudotime"] = pd.to_numeric(
+        obs_col(adata.obs, pseudotime_key).values, errors="coerce"
+    )
+    expr_df["pseudotime"] = expr_df["pseudotime"].replace([np.inf, -np.inf], np.nan)
 
     if groupby and group_values is not None:
         expr_df[groupby] = np.asarray(group_values)
     elif groupby and groupby in adata.obs.columns:
         expr_df[groupby] = obs_col(adata.obs, groupby).values
 
-    # Filter cells based on minimum expression (per-cell: keep if any gene passes)
-    if min_expr > 0:
-        gene_expression_matrix = expr_df[valid_genes].to_numpy(dtype=np.float32, copy=False)
-        mask = (gene_expression_matrix >= min_expr).any(axis=1)
-        expr_df = expr_df[mask]
-
     # Remove cells with NaN pseudotime
-    expr_df = expr_df.dropna(subset=['pseudotime'])
-    
+    expr_df = expr_df.dropna(subset=["pseudotime"])
+
     if expr_df.empty:
         return _message_figure("No cells pass the filtering criteria")
 
     # Sort by pseudotime
-    expr_df = expr_df.sort_values('pseudotime')
-    
+    expr_df = expr_df.sort_values("pseudotime")
+    expression_masks = expr_df[valid_genes].ge(min_expr) if min_expr > 0 else None
+    if expression_masks is not None and not expression_masks.to_numpy().any():
+        return _message_figure("No cells pass the filtering criteria")
+
     # Setup colors
     if groupby and groupby in expr_df.columns:
         unique_groups = sorted(expr_df[groupby].unique())
         if color_map is None:
             colors = px.colors.qualitative.Plotly
-            color_map = dict(zip(unique_groups, colors[:len(unique_groups)]))
+            color_map = dict(zip(unique_groups, colors[: len(unique_groups)]))
     else:
-        unique_groups = ['All cells']
-        expr_df['_group'] = 'All cells'
-        groupby = '_group'
-        color_map = {'All cells': '#1f77b4'}
-    
+        unique_groups = ["All cells"]
+        expr_df["_group"] = "All cells"
+        groupby = "_group"
+        color_map = {"All cells": "#1f77b4"}
+
     # Create subplots
     n_genes = len(valid_genes)
     row_height = 300  # Height per gene plot
-    
+
     fig = make_subplots(
-        rows=n_genes, cols=1,
+        rows=n_genes,
+        cols=1,
         subplot_titles=valid_genes,
         shared_xaxes=True,
         vertical_spacing=0.05,
-        row_heights=[row_height] * n_genes
+        row_heights=[row_height] * n_genes,
     )
-    
+
     # Plot each gene
     for gene_idx, gene in enumerate(valid_genes):
         row = gene_idx + 1
-        
-        # Add scatter points for each group (skip zero-expression dots for
-        # performance — single-cell data is sparse, and plotting thousands of
-        # zeros adds no visual information while slowing down rendering.)
+        gene_data = (
+            expr_df if expression_masks is None else expr_df[expression_masks[gene]]
+        )
+
+        # Skip zero-expression dots once per gene for sparse-data rendering performance.
+        scatter_data = gene_data if min_expr > 0 else gene_data[gene_data[gene] > 0]
+
+        # Add scatter points for each group
         for group in unique_groups:
-            group_data = expr_df[expr_df[groupby] == group]
-            # Per-gene zero filter: keep only cells expressing this gene
-            group_data = group_data[group_data[gene] > 0]
+            group_data = scatter_data[scatter_data[groupby] == group]
 
             if not group_data.empty:
                 fig.add_trace(
                     go.Scattergl(
-                        x=group_data['pseudotime'],
+                        x=group_data["pseudotime"],
                         y=group_data[gene],
-                        mode='markers',
+                        mode="markers",
                         marker=dict(
-                            color=color_map[group],
-                            size=marker_size,
-                            opacity=opacity
+                            color=color_map[group], size=marker_size, opacity=opacity
                         ),
                         name=str(group),
                         legendgroup=str(group),
                         showlegend=(gene_idx == 0),  # Only show legend for first gene
-                        hoverinfo='skip'
+                        customdata=np.column_stack(
+                            [
+                                group_data.index.astype(str),
+                                np.full(len(group_data), gene, dtype=object),
+                                np.full(len(group_data), str(group), dtype=object),
+                            ]
+                        ),
+                        ids=group_data.index.astype(str),
+                        hovertemplate=(
+                            "Cell: %{customdata[0]}<br>"
+                            "Feature: %{customdata[1]}<br>"
+                            "Group: %{customdata[2]}<br>"
+                            f"{pseudotime_key}: %{{x:.3g}}<br>"
+                            "Expression: %{y:.3g}<extra></extra>"
+                        ),
                     ),
-                    row=row, col=1
+                    row=row,
+                    col=1,
                 )
-        
+
         # Add smoothed curve for all cells combined
-        gene_smooth_df = expr_df[['pseudotime', gene]].dropna()
-        finite_mask = np.isfinite(gene_smooth_df['pseudotime'].to_numpy()) & np.isfinite(gene_smooth_df[gene].to_numpy())
+        gene_smooth_df = gene_data[["pseudotime", gene]].dropna()
+        finite_mask = np.isfinite(
+            gene_smooth_df["pseudotime"].to_numpy()
+        ) & np.isfinite(gene_smooth_df[gene].to_numpy())
         gene_smooth_df = gene_smooth_df[finite_mask]
 
         if len(gene_smooth_df) > 10:  # Need enough points for smoothing
             # Prepare data for smoothing
-            x_smooth = gene_smooth_df['pseudotime'].to_numpy(dtype=np.float64)
+            x_smooth = gene_smooth_df["pseudotime"].to_numpy(dtype=np.float64)
             y_smooth = gene_smooth_df[gene].to_numpy(dtype=np.float64)
-            
+
             # Create smooth curve using polynomial regression
             try:
                 if SKLEARN_AVAILABLE:
                     # Use polynomial regression for smooth curve
                     poly_degree = min(5, len(expr_df) // 10)  # Adaptive degree
                     model = make_pipeline(
-                        PolynomialFeatures(poly_degree),
-                        Ridge(alpha=1.0)
+                        PolynomialFeatures(poly_degree), Ridge(alpha=1.0)
                     )
                     model.fit(x_smooth.reshape(-1, 1), y_smooth)
-                    
+
                     # Generate smooth curve
                     x_range = np.linspace(x_smooth.min(), x_smooth.max(), 200)
                     y_pred = model.predict(x_range.reshape(-1, 1))
                 else:
                     # Fallback to simple spline if sklearn not available
                     # Remove duplicates and sort
-                    df_smooth = pd.DataFrame({'x': x_smooth, 'y': y_smooth})
-                    df_smooth = df_smooth.groupby('x').mean().reset_index()
-                    
+                    df_smooth = pd.DataFrame({"x": x_smooth, "y": y_smooth})
+                    df_smooth = df_smooth.groupby("x").mean().reset_index()
+
                     if len(df_smooth) > 3:
-                        spline = UnivariateSpline(df_smooth['x'], df_smooth['y'], s=len(df_smooth))
+                        spline = UnivariateSpline(
+                            df_smooth["x"], df_smooth["y"], s=len(df_smooth)
+                        )
                         x_range = np.linspace(x_smooth.min(), x_smooth.max(), 200)
                         y_pred = spline(x_range)
                     else:
-                        x_range = df_smooth['x'].values
-                        y_pred = df_smooth['y'].values
-                
+                        x_range = df_smooth["x"].values
+                        y_pred = df_smooth["y"].values
+
                 # Add smoothed curve
                 fig.add_trace(
                     go.Scatter(
                         x=x_range,
                         y=y_pred,
-                        mode='lines',
-                        line=dict(
-                            color='black',
-                            width=3
-                        ),
-                        name='Smoothed',
-                        legendgroup='smoothed',
+                        mode="lines",
+                        line=dict(color="black", width=3),
+                        name="Smoothed",
+                        legendgroup="smoothed",
                         showlegend=(gene_idx == 0),
-                        hoverinfo='skip'
+                        hoverinfo="skip",
                     ),
-                    row=row, col=1
+                    row=row,
+                    col=1,
                 )
-                
+
             except Exception as e:
-                warnings.warn(f"Could not fit smooth curve for {gene}: {e}", RuntimeWarning)
-        
+                warnings.warn(
+                    f"Could not fit smooth curve for {gene}: {e}", RuntimeWarning
+                )
+
         fig.update_yaxes(title_text=None, row=row, col=1)
-    
+
     # Update layout
     fig.update_xaxes(title_text=pseudotime_key, row=n_genes, col=1)
-    
+
     fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
+        plot_bgcolor="white",
+        paper_bgcolor="white",
         height=row_height * n_genes,
         margin=dict(t=50, b=50, l=80, r=150),
         legend=dict(
-            orientation='v',
-            itemsizing='constant',
+            orientation="v",
+            itemsizing="constant",
             x=1.02,
             y=0.5,
-            xanchor='left',
-            bgcolor='rgba(0,0,0,0)',
-            itemclick='toggle',
-            itemdoubleclick='toggleothers',
-            font=dict(size=12)
+            xanchor="left",
+            bgcolor="rgba(0,0,0,0)",
+            itemclick="toggle",
+            itemdoubleclick="toggleothers",
+            font=dict(size=12),
         ),
-        hovermode='closest'
+        hovermode="closest",
     )
-    
+
     # Update all axes
     fig.update_xaxes(
-        showgrid=False,
-        showline=True,
-        linewidth=1,
-        linecolor='black',
-        zeroline=False
+        showgrid=False, showline=True, linewidth=1, linecolor="black", zeroline=False
     )
-    
+
     fig.update_yaxes(
-        showgrid=False,
-        showline=True,
-        linewidth=1,
-        linecolor='black',
-        zeroline=False
+        showgrid=False, showline=True, linewidth=1, linecolor="black", zeroline=False
     )
-    
+
     return fig

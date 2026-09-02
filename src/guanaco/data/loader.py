@@ -15,7 +15,12 @@ import pandas as pd
 import muon as mu
 from guanaco.utils.colors import DEFAULT_DISCRETE_COLORMAP, resolve_discrete_palette
 
-mu.set_options(pull_on_update=False)
+try:
+    # ``pull_on_update`` exists in recent MuData releases, but older MuData
+    # versions reject unknown options.  Loading AnnData must not depend on it.
+    mu.set_options(pull_on_update=False)
+except ValueError:
+    pass
 
 
 def _register_anndata_null_reader_compat() -> None:
@@ -46,6 +51,7 @@ GLOBAL_CONFIG_KEYS = {"title", "color", "genome", "settings"}
 # helpers can use it without importing the runtime registry.
 DEFAULT_COLORS = list(resolve_discrete_palette(DEFAULT_DISCRETE_COLORMAP) or [])
 
+
 class DatasetBundle:
     def __init__(
         self,
@@ -66,9 +72,7 @@ class DatasetBundle:
         expression_layer: str | None = None,
         gene_annotation_path: str | None = None,
         modality_configs: dict[str, dict] | None = None,
-        organism: str = "human",
     ):
-
         self.title = title
         self.description = description
         self._adata = adata
@@ -80,13 +84,14 @@ class DatasetBundle:
         self.adata_path = adata_path
         self.lazy_load = lazy_load
         self.backed_mode = backed_mode
-        self.optional_plot_components = optional_plot_components  # Dataset-level default
+        self.optional_plot_components = (
+            optional_plot_components  # Dataset-level default
+        )
         # Optional per-dataset scatter defaults: keys 'embedding', 'annotation', 'gene'.
         self.scatter_defaults = scatter_defaults or {}  # Dataset-level default
         self.max_cells = max_cells
         self.expression_layer = expression_layer
         self.gene_annotation_path = gene_annotation_path  # Dataset-level default
-        self.organism = organism
         # Per-modality overrides keyed by modality name (e.g. "rna", "atac").
         # Each value is a dict with optional keys: gene_markers, scatter_defaults,
         # optional_plot_components, gene_annotation_path.
@@ -118,26 +123,23 @@ class DatasetBundle:
             cells_info = "data not loaded (lazy)"
         else:
             cells_info = "no AnnData"
-        tracks_info = f"{len(self.genome_tracks)} genome tracks" if self.genome_tracks else "no genome tracks"
+        tracks_info = (
+            f"{len(self.genome_tracks)} genome tracks"
+            if self.genome_tracks
+            else "no genome tracks"
+        )
         return f"<DatasetBundle {self.title}: {cells_info}, {tracks_info}>"
+
 
 # ----------------------------------------------------------------------------
 # Config helpers
 # ----------------------------------------------------------------------------
 
+
 def load_config(json_path: Path) -> dict[str, Any]:
     if not json_path.exists():
         raise FileNotFoundError(f"Config file not found: {json_path}")
     return json.loads(json_path.read_text())
-
-
-def _organism_from_genome(genome: str | None) -> str:
-    normalized = str(genome or "").strip().lower()
-    if normalized.startswith("mm"):
-        return "mouse"
-    if normalized.startswith("rn"):
-        return "rat"
-    return "human"
 
 
 def _resolve_optional_local_path(value: str | None, base_dir: Path) -> str | None:
@@ -165,11 +167,16 @@ def _resolve_gene_annotation_config(value: str | None, base_dir: Path) -> str | 
     text = str(value).strip()
     from guanaco.pages.matrix.plots.gene_annotation import is_known_genome_id
 
-    if is_known_genome_id(text) or text.lower().startswith(("http://", "https://", "ftp://")):
+    if is_known_genome_id(text) or text.lower().startswith(
+        ("http://", "https://", "ftp://")
+    ):
         return text
     return _resolve_optional_local_path(text, base_dir)
 
-def _random_row_indices(n_obs: int, max_cells: int, rng: np.random.Generator) -> np.ndarray:
+
+def _random_row_indices(
+    n_obs: int, max_cells: int, rng: np.random.Generator
+) -> np.ndarray:
     """Sorted random subset of row indices (sorted for efficient backed reads)."""
     return np.sort(rng.choice(n_obs, size=max_cells, replace=False))
 
@@ -286,7 +293,10 @@ def _zarr_elem(group, path_parts):
 def _zarr_encoding(group, path_parts) -> str | None:
     """Encoding-type attr of a zarr element (e.g. 'csc_matrix'), or None if unreadable."""
     try:
-        return str(dict(_zarr_elem(group, path_parts).attrs).get("encoding-type", "")) or None
+        return (
+            str(dict(_zarr_elem(group, path_parts).attrs).get("encoding-type", ""))
+            or None
+        )
     except Exception:
         return None
 
@@ -316,7 +326,9 @@ def _zarr_is_mudata(store: str | Path) -> bool:
     try:
         return _group_is_mudata(_open_zarr_group(store))
     except Exception as exc:
-        print(f"[guanaco] could not introspect zarr store {store} ({exc}); assuming AnnData.")
+        print(
+            f"[guanaco] could not introspect zarr store {store} ({exc}); assuming AnnData."
+        )
         return False
 
 
@@ -376,7 +388,9 @@ def _eager_load_annotations(adata: ad.AnnData, group=None) -> None:
         arr = adata.obsm[key]
         if getattr(arr, "ndim", 2) != 2:
             adata.obsm[key] = (
-                arr.compute(scheduler="synchronous") if hasattr(arr, "compute") else np.asarray(arr)
+                arr.compute(scheduler="synchronous")
+                if hasattr(arr, "compute")
+                else np.asarray(arr)
             )
             continue
         ncol = min(MAX_EMBED_COLS, arr.shape[1])
@@ -404,7 +418,9 @@ def _backed_expression_layer(group, adata, preferred: str | None = None) -> str 
     if preferred:
         if preferred in layer_names:
             return preferred
-        print(f"[guanaco] expression_layer '{preferred}' not found in {layer_names}; using X.")
+        print(
+            f"[guanaco] expression_layer '{preferred}' not found in {layer_names}; using X."
+        )
         return None
     try:
         if _zarr_encoding(group, ("X",)) != "csr_matrix":
@@ -417,7 +433,9 @@ def _backed_expression_layer(group, adata, preferred: str | None = None) -> str 
     return None
 
 
-def _load_zarr_backed(store: str | Path, *, group=None, expression_layer: str | None = None) -> ad.AnnData:
+def _load_zarr_backed(
+    store: str | Path, *, group=None, expression_layer: str | None = None
+) -> ad.AnnData:
     """Open an AnnData ``.zarr`` store backed: ``X`` stays remote/on-disk, metadata in memory.
 
     This is the cloud-native form of "backed" access described in the anndata
@@ -455,7 +473,9 @@ def _load_zarr_backed(store: str | Path, *, group=None, expression_layer: str | 
     # Serve expression one gene per chunk so a single-gene read fetches one column.
     if _zarr_encoding(group, expr_path) == "csc_matrix":
         try:
-            adata.X = read_elem_lazy(_zarr_elem(group, expr_path), chunks=(adata.n_obs, 1))
+            adata.X = read_elem_lazy(
+                _zarr_elem(group, expr_path), chunks=(adata.n_obs, 1)
+            )
             if layer is not None:
                 del adata.layers[layer]
             print(
@@ -463,7 +483,9 @@ def _load_zarr_backed(store: str | Path, *, group=None, expression_layer: str | 
                 "rechunked to one gene per column (fast per-gene reads)"
             )
         except Exception as exc:
-            print(f"[guanaco] per-gene rechunk unavailable ({exc}); using default chunking.")
+            print(
+                f"[guanaco] per-gene rechunk unavailable ({exc}); using default chunking."
+            )
             if layer is not None:
                 adata.X = adata.layers[layer]
                 del adata.layers[layer]
@@ -512,7 +534,9 @@ def _load_zarr(
     try:
         group = _open_zarr_group(store)
     except Exception as exc:
-        print(f"[guanaco] could not open zarr store {store} ({exc}); deferring to in-memory read.")
+        print(
+            f"[guanaco] could not open zarr store {store} ({exc}); deferring to in-memory read."
+        )
         group = None
 
     is_mudata = _group_is_mudata(group) if group is not None else _zarr_is_mudata(store)
@@ -520,7 +544,9 @@ def _load_zarr(
     if is_mudata:
         # MuData has no lazy/group reader, so it always re-reads the store in memory.
         if backed:
-            print(f"[guanaco] cloud-backed lazy mode is not available for MuData .zarr ({store}); loaded in memory.")
+            print(
+                f"[guanaco] cloud-backed lazy mode is not available for MuData .zarr ({store}); loaded in memory."
+            )
         return _to_gene_major(_downsample(mu.read_zarr(store), max_cells, rng))
 
     if backed:
@@ -535,14 +561,18 @@ def _load_zarr(
     except Exception as exc:
         # dask/fsspec missing, or the store can't be opened lazily: degrade to a
         # full in-memory read so loading never hard-fails.
-        print(f"[guanaco] lazy zarr read unavailable for {store} ({exc}); using in-memory read_zarr.")
+        print(
+            f"[guanaco] lazy zarr read unavailable for {store} ({exc}); using in-memory read_zarr."
+        )
         return _to_gene_major(_downsample(ad.read_zarr(store), max_cells, rng))
 
     n_obs = lazy.n_obs
     if max_cells is not None and n_obs > max_cells:
         idx = _random_row_indices(n_obs, max_cells, rng)
         adata = lazy[idx, :].to_memory()
-        print(f"Loaded {store}: sampled {max_cells} of {n_obs} cells into memory (lazy zarr)")
+        print(
+            f"Loaded {store}: sampled {max_cells} of {n_obs} cells into memory (lazy zarr)"
+        )
     else:
         adata = lazy.to_memory()
         print(f"Loaded {store} into memory ({n_obs} cells, lazy zarr)")
@@ -590,6 +620,7 @@ def _close_backed_view(view) -> None:
     container plus one per modality, so close them all to avoid leaking handles
     (each backed load otherwise keeps the ``.h5mu`` open for the process lifetime).
     """
+
     def _close(obj):
         try:
             f = getattr(obj, "file", None)
@@ -656,7 +687,11 @@ def load_adata(
         # disk; keep the original URI string (do not Path()-mangle the scheme).
         if suffix == ".zarr":
             return _load_zarr(
-                str(file), max_cells=max_cells, seed=seed, backed=backed, expression_layer=expression_layer
+                str(file),
+                max_cells=max_cells,
+                seed=seed,
+                backed=backed,
+                expression_layer=expression_layer,
             )
         # HDF5 (.h5ad/.h5mu) can't be read lazily over the network, so download the
         # whole file once to a local cache and read it from disk via the local path
@@ -679,14 +714,22 @@ def load_adata(
 
     if suffix == ".zarr":
         return _load_zarr(
-            path, max_cells=max_cells, seed=seed, backed=backed, expression_layer=expression_layer
+            path,
+            max_cells=max_cells,
+            seed=seed,
+            backed=backed,
+            expression_layer=expression_layer,
         )
 
     is_mudata = suffix == ".h5mu"
 
     # Backed mode requested: keep everything on disk and serve all cells.
     if backed:
-        adata = mu.read_h5mu(path, backed=True) if is_mudata else ad.read_h5ad(path, backed="r")
+        adata = (
+            mu.read_h5mu(path, backed=True)
+            if is_mudata
+            else ad.read_h5ad(path, backed="r")
+        )
         print(f"Loaded {path} in backed mode (disk-based)")
         return adata
 
@@ -701,11 +744,15 @@ def load_adata(
             if max_cells is not None and n_obs > max_cells:
                 idx = _random_row_indices(n_obs, max_cells, rng)
                 adata = view[idx].copy()
-                print(f"Loaded {path}: sampled {max_cells} of {n_obs} cells (MuData) into memory")
+                print(
+                    f"Loaded {path}: sampled {max_cells} of {n_obs} cells (MuData) into memory"
+                )
             else:
                 adata = view.copy()
                 print(f"Loaded {path} (MuData) into memory ({n_obs} cells)")
-            _close_backed_view(view)  # release the backed .h5mu handle(s); data is in RAM
+            _close_backed_view(
+                view
+            )  # release the backed .h5mu handle(s); data is in RAM
             return _to_gene_major(adata)
 
         view = ad.read_h5ad(path, backed="r")
@@ -738,9 +785,11 @@ def load_adata(
             adata = adata[idx, :].copy()
         return _to_gene_major(adata)
 
+
 # ----------------------------------------------------------------------------
 # Discrete label helpers
 # ----------------------------------------------------------------------------
+
 
 def obs_col(obs, col: str) -> "pd.Series":
     """Get an obs column as a pandas Series from either a DataFrame or a lazy Dataset2D."""
@@ -780,10 +829,13 @@ def get_discrete_labels(adata: ad.AnnData, *, max_unique: int = 50) -> list[str]
     selected.sort(key=lambda item: item[1])
     return [col for col, _ in selected]
 
-def get_modality_variables(adata: ad.AnnData | None, modality: str = 'RNA', n_vars: int = 10) -> list[str]:
+
+def get_modality_variables(
+    adata: ad.AnnData | None, modality: str = "RNA", n_vars: int = 10
+) -> list[str]:
     """
     Get the first n variables for a specific modality.
-    
+
     Parameters:
     -----------
     adata : AnnData
@@ -792,46 +844,49 @@ def get_modality_variables(adata: ad.AnnData | None, modality: str = 'RNA', n_va
         The modality to get variables for ('RNA', 'Protein', etc.)
     n_vars : int
         Number of variables to return (default: 10)
-        
+
     Returns:
     --------
     list : List of variable names for the modality
     """
     if adata is None:
         return []
-    
-    if modality == 'RNA' or modality is None:
+
+    if modality == "RNA" or modality is None:
         # RNA modality - use var_names
-        return adata.var_names[:n_vars].tolist() if hasattr(adata, 'var_names') else []
-    
-    elif modality == 'Protein' and 'protein' in adata.obsm:
+        return adata.var_names[:n_vars].tolist() if hasattr(adata, "var_names") else []
+
+    elif modality == "Protein" and "protein" in adata.obsm:
         # Protein modality - check for feature names in uns
-        if 'protein' in adata.uns:
-            if 'features' in adata.uns['protein']:
-                return adata.uns['protein']['features'][:n_vars].tolist()
-            elif 'var_names' in adata.uns['protein']:
-                return adata.uns['protein']['var_names'][:n_vars].tolist()
+        if "protein" in adata.uns:
+            if "features" in adata.uns["protein"]:
+                return adata.uns["protein"]["features"][:n_vars].tolist()
+            elif "var_names" in adata.uns["protein"]:
+                return adata.uns["protein"]["var_names"][:n_vars].tolist()
         # Generate generic protein names if no names found
-        n_proteins = adata.obsm['protein'].shape[1]
-        return [f'Protein_{i+1}' for i in range(min(n_vars, n_proteins))]
-    
+        n_proteins = adata.obsm["protein"].shape[1]
+        return [f"Protein_{i + 1}" for i in range(min(n_vars, n_proteins))]
+
     elif modality in adata.layers:
         # Layer modality - use the same var_names as RNA
-        return adata.var_names[:n_vars].tolist() if hasattr(adata, 'var_names') else []
-    
+        return adata.var_names[:n_vars].tolist() if hasattr(adata, "var_names") else []
+
     else:
         # Check obsm for other modalities (like ATAC)
         for key in adata.obsm.keys():
-            if key.lower() == modality.lower() or (modality == 'ATAC' and key.lower() in ['atac', 'peaks', 'chromatin']):
+            if key.lower() == modality.lower() or (
+                modality == "ATAC" and key.lower() in ["atac", "peaks", "chromatin"]
+            ):
                 # Try to find feature names in uns
-                if key in adata.uns and 'features' in adata.uns[key]:
-                    return adata.uns[key]['features'][:n_vars].tolist()
+                if key in adata.uns and "features" in adata.uns[key]:
+                    return adata.uns[key]["features"][:n_vars].tolist()
                 # Generate generic names
                 n_features = adata.obsm[key].shape[1]
-                return [f'{modality}_{i+1}' for i in range(min(n_vars, n_features))]
-        
+                return [f"{modality}_{i + 1}" for i in range(min(n_vars, n_features))]
+
         # Fallback to RNA
-        return adata.var_names[:n_vars].tolist() if hasattr(adata, 'var_names') else []
+        return adata.var_names[:n_vars].tolist() if hasattr(adata, "var_names") else []
+
 
 # ----------------------------------------------------------------------------
 # S3 genome tracks
@@ -952,56 +1007,45 @@ def load_tracks_from_s3(
 
     return tracks_dict
 
+
 # Reference genomes
 _REF_URLS = {
     # Human
     "hg38": "https://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.2bit",
     "hg19": "https://hgdownload.cse.ucsc.edu/goldenPath/hg19/bigZips/hg19.2bit",
     "hg18": "https://hgdownload.cse.ucsc.edu/goldenPath/hg18/bigZips/hg18.2bit",
-
     # Mouse
     "mm39": "https://hgdownload.soe.ucsc.edu/goldenPath/mm39/bigZips/mm39.2bit",
     "mm10": "https://hgdownload.cse.ucsc.edu/goldenPath/mm10/bigZips/mm10.2bit",
     "mm9": "https://hgdownload.cse.ucsc.edu/goldenPath/mm9/bigZips/mm9.2bit",
-
     # Rat
     "rn6": "https://hgdownload.cse.ucsc.edu/goldenPath/rn6/bigZips/rn6.2bit",
     "rn5": "https://hgdownload.cse.ucsc.edu/goldenPath/rn5/bigZips/rn5.2bit",
-
     # Zebrafish
     "danRer11": "https://hgdownload.cse.ucsc.edu/goldenPath/danRer11/bigZips/danRer11.2bit",
     "danRer10": "https://hgdownload.cse.ucsc.edu/goldenPath/danRer10/bigZips/danRer10.2bit",
-
     # Fruit fly
     "dm6": "https://hgdownload.cse.ucsc.edu/goldenPath/dm6/bigZips/dm6.2bit",
     "dm3": "https://hgdownload.cse.ucsc.edu/goldenPath/dm3/bigZips/dm3.2bit",
-
     # Nematode (worm)
     "ce11": "https://hgdownload.cse.ucsc.edu/goldenPath/ce11/bigZips/ce11.2bit",
     "ce10": "https://hgdownload.cse.ucsc.edu/goldenPath/ce10/bigZips/ce10.2bit",
-
     # Yeast
     "sacCer3": "https://hgdownload.cse.ucsc.edu/goldenPath/sacCer3/bigZips/sacCer3.2bit",
-
     # Chicken
     "galGal6": "https://hgdownload.cse.ucsc.edu/goldenPath/galGal6/bigZips/galGal6.2bit",
-
     # Xenopus
     "xenTro9": "https://hgdownload.cse.ucsc.edu/goldenPath/xenTro9/bigZips/xenTro9.2bit",
-
     # Dog
     "canFam3": "https://hgdownload.cse.ucsc.edu/goldenPath/canFam3/bigZips/canFam3.2bit",
-
     # Cow
     "bosTau9": "https://hgdownload.cse.ucsc.edu/goldenPath/bosTau9/bigZips/bosTau9.2bit",
-
     # Pig
     "susScr11": "https://hgdownload.cse.ucsc.edu/goldenPath/susScr11/bigZips/susScr11.2bit",
-
     # Macaque
-    "rheMac10": "https://hgdownload.cse.ucsc.edu/goldenPath/rheMac10/bigZips/rheMac10.2bit"
-
+    "rheMac10": "https://hgdownload.cse.ucsc.edu/goldenPath/rheMac10/bigZips/rheMac10.2bit",
 }
+
 
 def get_ref_track(genome: str) -> dict[str, str]:
     try:
@@ -1010,9 +1054,11 @@ def get_ref_track(genome: str) -> dict[str, str]:
         raise ValueError(f"Unsupported genome: {genome}") from exc
     return {"label": genome, "url": url}
 
+
 # ----------------------------------------------------------------------------
 # Main data loader
 # ----------------------------------------------------------------------------
+
 
 def initialize_data(
     json_path: Path | None = None,
@@ -1036,16 +1082,16 @@ def initialize_data(
     for dataset_key, dataset_cfg in cfg.items():
         if dataset_key in GLOBAL_CONFIG_KEYS:
             continue
-        
+
         # Skip if not a dataset configuration (dict)
         if not isinstance(dataset_cfg, dict):
             continue
-            
+
         # Handle AnnData section (optional)
         adata = None
         gene_markers = None
         label_list = None
-                
+
         sc_data_source = None
         if "sc_data" in dataset_cfg and dataset_cfg["sc_data"]:
             adata_file = dataset_cfg["sc_data"]
@@ -1076,7 +1122,6 @@ def initialize_data(
                 gene_markers = dataset_cfg.get("markers", None)
                 label_list = get_discrete_labels(adata) if adata else None
 
-
         # Per-dataset color palette; fall back to the global/default palette.
         dataset_colors = list(dataset_cfg.get("color") or global_colors)
         gene_annotation_path = _resolve_gene_annotation_config(
@@ -1091,7 +1136,9 @@ def initialize_data(
         # browser's gene models.  Dataset-level genome trumps the global genome.
         if gene_annotation_path is None:
             dataset_genome = dataset_cfg.get("genome", genome)
-            gene_annotation_path = _resolve_gene_annotation_config(dataset_genome, config_base_dir)
+            gene_annotation_path = _resolve_gene_annotation_config(
+                dataset_genome, config_base_dir
+            )
 
         # --- per-modality overrides (modalities block) -----------------------
         modality_configs: dict[str, dict] = {}
@@ -1109,7 +1156,9 @@ def initialize_data(
                     config_base_dir,
                 )
                 if mod_ga is None:
-                    mod_ga = gene_annotation_path  # dataset-level (may be genome fallback)
+                    mod_ga = (
+                        gene_annotation_path  # dataset-level (may be genome fallback)
+                    )
 
                 # Per-modality markers: override the dataset-level list.
                 mod_markers = mod_cfg.get("markers")
@@ -1172,7 +1221,10 @@ def initialize_data(
         if "bucket_urls" in dataset_cfg and dataset_cfg["bucket_urls"]:
             # Use dataset-specific genome or global genome
             dataset_genome = dataset_cfg.get("genome", genome)
-            atac_names = dataset_cfg.get("ATAC_name", [f"Track_{i}" for i in range(len(dataset_cfg["bucket_urls"]))])
+            atac_names = dataset_cfg.get(
+                "ATAC_name",
+                [f"Track_{i}" for i in range(len(dataset_cfg["bucket_urls"]))],
+            )
 
             genome_tracks = load_tracks_from_s3(
                 dataset_cfg["bucket_urls"],
@@ -1185,8 +1237,12 @@ def initialize_data(
         has_modality_tracks = any(
             cfg.get("genome_tracks") for cfg in modality_configs.values()
         )
-        if (adata is not None or genome_tracks is not None or has_modality_tracks or
-            (lazy_load and "sc_data" in dataset_cfg and dataset_cfg["sc_data"])):
+        if (
+            adata is not None
+            or genome_tracks is not None
+            or has_modality_tracks
+            or (lazy_load and "sc_data" in dataset_cfg and dataset_cfg["sc_data"])
+        ):
             dataset_bundle = DatasetBundle(
                 title=dataset_key,
                 description=dataset_cfg.get("description", ""),
@@ -1210,10 +1266,11 @@ def initialize_data(
                 expression_layer=dataset_cfg.get("expression_layer"),
                 gene_annotation_path=gene_annotation_path,
                 modality_configs=modality_configs or None,
-                organism=dataset_cfg.get("organism", _organism_from_genome(dataset_cfg.get("genome", genome))),
             )
             datasets[dataset_key] = dataset_bundle
         else:
-            print(f"Warning: Dataset '{dataset_key}' has neither AnnData nor genome browser data. Skipping.")
+            print(
+                f"Warning: Dataset '{dataset_key}' has neither AnnData nor genome browser data. Skipping."
+            )
 
     return datasets

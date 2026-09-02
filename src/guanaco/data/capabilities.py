@@ -11,9 +11,7 @@ import pandas as pd
 from guanaco.data.capability_schema import PLOT_KEYS
 from guanaco.data.ligand_receptor import discover_ligand_receptor_results
 
-_PEAK_RE = re.compile(
-    r"^\s*([^:\s]+)\s*:\s*([0-9,]+)\s*-\s*([0-9,]+)\s*$"
-)
+_PEAK_RE = re.compile(r"^\s*([^:\s]+)\s*:\s*([0-9,]+)\s*-\s*([0-9,]+)\s*$")
 _NHOOD_SUFFIX = "_nhood_enrichment"
 _CO_OCCURRENCE_SUFFIX = "_co_occurrence"
 
@@ -114,19 +112,6 @@ def _has_spatial_relationships(adata) -> bool:
     return False
 
 
-def _is_rna_modality(modality_name: str | None) -> bool:
-    if modality_name is None:
-        return True
-    normalized = str(modality_name).strip().lower().replace("-", "_")
-    return normalized in {
-        "rna",
-        "gex",
-        "gene_expression",
-        "transcriptome",
-        "transcriptomics",
-    }
-
-
 def has_plot_capability(
     key: str,
     adata,
@@ -154,18 +139,12 @@ def has_plot_capability(
         if discrete_data_available is None
         else discrete_data_available
     )
-    if key in {"dotplot", "heatmap", "violin"}:
+    if key in {"dotplot", "heatmap", "violin", "ridge"}:
         return has_features and has_discrete
     if key == "pseudotime":
         return has_features and _has_continuous_observation(adata)
     if key in {"split-violin", "stacked-bar"}:
         return has_discrete
-    if key == "network":
-        return (
-            has_features
-            and _is_rna_modality(modality_name)
-            and not _has_genomic_peak_features(adata)
-        )
     if key == "ligand-receptor":
         return bool(discover_ligand_receptor_results(adata))
     if key == "peak-browser":

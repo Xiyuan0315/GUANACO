@@ -6,8 +6,11 @@ from anndata import AnnData
 from dash.exceptions import PreventUpdate
 
 from guanaco.pages.matrix.plots import violin1 as violin1_module
-from guanaco.pages.matrix.plots.violin1 import plot_violin1
-from guanaco.pages.matrix.callbacks.violin_callbacks import _violin1_graph_style
+from guanaco.pages.matrix.plots.violin1 import plot_ridge, plot_violin1
+from guanaco.pages.matrix.callbacks.violin_callbacks import (
+    _ridge_gene_options,
+    _violin1_graph_style,
+)
 from guanaco.utils.gene_extraction_utils import clear_gene_cache
 
 
@@ -106,6 +109,49 @@ def test_violin_constant_gene_gets_padded_y_range():
     )
 
     assert tuple(fig.layout.yaxis.range) == pytest.approx((4.75, 5.25))
+
+
+def test_ridge_plot_uses_horizontal_group_densities_and_violin_colors():
+    fig = plot_ridge(
+        _violin_adata(),
+        "GeneA",
+        "cell_type",
+        labels=["A", "B"],
+        show_box=True,
+        groupby_label_color_map={"A": "#E69F00", "B": "#56B4E9"},
+    )
+
+    ridges = [trace for trace in fig.data if trace.type == "violin"]
+    assert [trace.name for trace in ridges] == ["A", "B"]
+    assert all(trace.orientation == "h" for trace in ridges)
+    assert all(trace.side == "positive" for trace in ridges)
+    assert all(trace.box.visible is True for trace in ridges)
+    np.testing.assert_allclose(np.asarray(ridges[0].x), [0.0, 3.0])
+    np.testing.assert_allclose(np.asarray(ridges[1].x), [2.0, 4.0])
+    assert set(ridges[0].y) == {"A"}
+    assert set(ridges[1].y) == {"B"}
+    assert ridges[0].fillcolor == "rgba(230,159,0,0.6)"
+    assert ridges[1].fillcolor == "rgba(86,180,233,0.6)"
+    # Plotly lays y-axis categories out bottom-to-top, so reversing the axis
+    # array displays the included-group selection order from top-to-bottom.
+    assert tuple(fig.layout.yaxis.categoryarray) == ("B", "A")
+    assert fig.layout.title.text == "<b>GeneA</b>"
+    assert fig.layout.showlegend is True
+    assert fig.layout.legend.title.text == "cell_type"
+    assert fig.layout.legend.itemclick == "toggle"
+    assert fig.layout.legend.itemdoubleclick == "toggleothers"
+
+
+def test_ridge_gene_options_default_to_first_selected_gene_and_preserve_switch():
+    options, value = _ridge_gene_options(["GeneB", "GeneA", "GeneB"], None)
+    assert options == [
+        {"label": "GeneB", "value": "GeneB"},
+        {"label": "GeneA", "value": "GeneA"},
+    ]
+    assert value == "GeneB"
+
+    _, value = _ridge_gene_options(["GeneB", "GeneA"], "GeneA")
+    assert value == "GeneA"
 
 
 def test_violin_cache_limit_keeps_most_recent_fifty_entries():

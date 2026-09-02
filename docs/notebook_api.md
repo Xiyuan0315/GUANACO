@@ -10,9 +10,17 @@ gc.pl.umap(adata, color="cell_type")
 ```
 
 Every function takes an [AnnData](https://anndata.readthedocs.io) object and
-returns an **interactive Plotly figure** (zoom, pan, hover) — except `gc.pl.paga`
-and `gc.pl.grn`, which return interactive Cytoscape (`ipycytoscape`) networks
-(see [PAGA & GRN](#paga--grn-cytoscape-networks)).
+returns an **interactive Plotly figure** (zoom, pan, hover) — except `gc.pl.paga`,
+which returns an interactive Cytoscape (`ipycytoscape`) graph
+(see [PAGA](#paga-cytoscape-graph)).
+
+Named notebook functions and their declarative linked equivalents use the same
+registered plot adapter. For example, `gc.pl.umap(adata, color="cell_type")`
+and `gc.pl.view("umap", id="cells", color="cell_type")` therefore share the
+same data transformation, defaults, palette, bandwidth/layout rules, and
+GUANACO styling, including stable mark identities. Compiling the declarative
+form with `gc.pl.linked_view()` adds callback state and source/detail interaction
+roles; it does not rebuild the plot through a second renderer.
 
 ---
 
@@ -330,15 +338,14 @@ gc.pl.peak_browser(adata_atac, region="chr1:1,000,000-3,000,000",
 | `peak_browser` | peak-like `var_names` (`chr1:10000-10500`) or `var[["chrom","start","end"]]` |
 | `volcano` | `adata.uns["rank_genes_groups"]` or `adata.uns["volcano"]` |
 | `paga` | `adata.uns["paga"]` (run `sc.tl.paga`) |
-| `grn` | `adata.uns["grn"]` (a DataFrame: `source`, `target`, `regulation`, optional `weight`/context) |
 
 ---
 
-## PAGA & GRN (Cytoscape networks)
+## PAGA (Cytoscape graph)
 
-PAGA and GRN are interactive **Cytoscape** networks rather than Plotly figures, so
-`gc.pl.paga` / `gc.pl.grn` return an [`ipycytoscape`](https://ipycytoscape.readthedocs.io)
-widget. They:
+PAGA is an interactive **Cytoscape** graph rather than a Plotly figure, so
+`gc.pl.paga` returns an [`ipycytoscape`](https://ipycytoscape.readthedocs.io)
+widget. It:
 
 - need `pip install ipycytoscape`;
 - render in **Jupyter / JupyterLab** (and the full web app `guanaco -c config.json`);
@@ -365,19 +372,3 @@ gc.pl.paga(adata, gene="CD8A")          # mean gene expression per node
 | `palette` | `None` | Categorical palette; default uses the dataset's stored colors, else GUANACO's palette. |
 | `edge_threshold` | `0.03` | Hide connectivities below this weight. |
 | `annotation` / `labels` | `None` | Optionally restrict to a subset of cells. |
-
-### `gc.pl.grn(adata, context="All", ...)`
-
-Gene-regulatory-network graph from `adata.uns["grn"]` (source/target nodes,
-activation/repression edges).
-
-```python
-gc.pl.grn(adata)
-gc.pl.grn(adata, context="Monocyte", edge_threshold=0.5, layout="circle")
-```
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `context` | `"All"` | Filter edges to one cell-type/condition (`"All"` = every context). |
-| `edge_threshold` | `None` | Hide edges with `weight` below this. |
-| `layout` | `"cose"` | Any cytoscape.js layout: `"cose"`, `"circle"`, `"concentric"`, `"breadthfirst"`. |

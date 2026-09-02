@@ -82,6 +82,7 @@ def test_visualizations_share_one_workspace_with_feature_analysis_as_default():
         optional_plot_components=[
             "dotplot",
             "violin",
+            "ridge",
             "split-violin",
             "stacked-bar",
         ],
@@ -116,6 +117,17 @@ def test_visualizations_share_one_workspace_with_feature_analysis_as_default():
 
     assert marker_tabs.value == "dotplot-tab"
     assert marker_tabs.children[0].label == "Dot plot"
+    assert [tab.value for tab in marker_tabs.children] == [
+        "dotplot-tab",
+        "violin-tab",
+        "ridge-tab",
+    ]
+    assert _by_id(sections, f"{prefix}-ridge-gene-selection").value == "G1"
+    assert _by_id(sections, f"{prefix}-ridge-show-box").value == []
+    ridge_grid = _by_id(sections, f"{prefix}-ridge-grid")
+    assert ridge_grid.isDraggable is True
+    assert ridge_grid.isResizable is True
+    assert _by_id(sections, f"{prefix}-ridge-grid-item") is not None
     assert all(
         "visualization-plot-tab" in tab.className
         and "visualization-plot-tab--selected" in tab.selected_className

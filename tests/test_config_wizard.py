@@ -21,6 +21,7 @@ def test_wizard_plot_groups_match_dashboard_labels_and_keys():
         ("Dotplot", "dotplot"),
         ("Heatmap", "heatmap"),
         ("Violin Plot", "violin"),
+        ("Ridge Plot", "ridge"),
         ("Expression Trend", "expression-trend"),
     )
     assert EXPLORATORY_VISUALIZATION_PLOTS == (
@@ -28,7 +29,6 @@ def test_wizard_plot_groups_match_dashboard_labels_and_keys():
         ("Composition", "stacked-bar"),
         ("PAGA", "paga"),
         ("Volcano Plot", "volcano"),
-        ("Network", "network"),
         ("Ligand–receptor", "ligand-receptor"),
         ("Spatial relationships", "spatial-relationships"),
         ("Peak Browser", "peak-browser"),
@@ -79,10 +79,10 @@ def test_wizard_inspects_metadata_and_offers_only_compatible_plots(tmp_path):
         "dotplot",
         "heatmap",
         "violin",
+        "ridge",
         "expression-trend",
         "split-violin",
         "stacked-bar",
-        "network",
         "ligand-receptor",
     } <= inspection.available_plots
     assert {
@@ -134,10 +134,10 @@ def test_wizard_h5mu_modalities_inherit_shared_observation_metadata(tmp_path):
         "dotplot",
         "heatmap",
         "violin",
+        "ridge",
         "expression-trend",
         "split-violin",
         "stacked-bar",
-        "network",
         "multiomics-composition",
         "cross-modal-concordance",
     } <= inspection.available_plots

@@ -173,9 +173,7 @@ def _has_peak_features(var: h5py.Group | None, n_vars: int) -> bool:
     if not isinstance(index, h5py.Dataset):
         return False
     sample_size = min(2000, n_vars)
-    hits = sum(
-        _PEAK_RE.match(_text(name)) is not None for name in index[:sample_size]
-    )
+    hits = sum(_PEAK_RE.match(_text(name)) is not None for name in index[:sample_size])
     return hits >= 5
 
 
@@ -194,7 +192,10 @@ def _has_ligand_receptor_result(uns: h5py.Group | None) -> bool:
             continue
         if _encoding(value) == "dataframe":
             columns = _normalized_column_names(value)
-            if all(any(alias in columns for alias in aliases) for aliases in _IDENTITY_ALIASES.values()):
+            if all(
+                any(alias in columns for alias in aliases)
+                for aliases in _IDENTITY_ALIASES.values()
+            ):
                 return True
         for table_name in ("means", "significant_means"):
             table = value.get(table_name)
@@ -248,19 +249,6 @@ def _has_spatial_relationships(
     return False
 
 
-def _is_rna_modality(name: str | None) -> bool:
-    if name is None:
-        return True
-    normalized = name.strip().lower().replace("-", "_")
-    return normalized in {
-        "rna",
-        "gex",
-        "gene_expression",
-        "transcriptome",
-        "transcriptomics",
-    }
-
-
 def _scan_anndata_group(
     group: h5py.Group,
     modality_name: str | None,
@@ -281,16 +269,13 @@ def _scan_anndata_group(
 
     plots: set[str] = set()
     if has_features and has_discrete:
-        plots.update(("dotplot", "heatmap", "violin"))
+        plots.update(("dotplot", "heatmap", "violin", "ridge"))
     if has_features and (
-        _has_continuous_observation(obs)
-        or _has_continuous_observation(shared_obs)
+        _has_continuous_observation(obs) or _has_continuous_observation(shared_obs)
     ):
         plots.add("pseudotime")
     if has_discrete:
         plots.update(("split-violin", "stacked-bar"))
-    if has_features and _is_rna_modality(modality_name) and not has_peaks:
-        plots.add("network")
     if _has_ligand_receptor_result(uns):
         plots.add("ligand-receptor")
     if isinstance(uns, h5py.Group):

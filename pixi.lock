@@ -3207,7 +3207,7 @@ packages:
 - pypi: ./
   name: guanaco-viz
   version: '1.0'
-  sha256: 9b2a1da1e042b7eaf008373d0fc3266caa9becb38802fb1f1f3a1d9877f5cafe
+  sha256: 13f68fa16d58917c137459b42d111ecaa3d8c32c414ecabd00e277bbf38533b9
   requires_dist:
   - dash>=4.3,<4.4
   - dash-bootstrap-components>=2.0,<3

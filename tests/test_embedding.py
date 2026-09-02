@@ -72,7 +72,12 @@ def test_spatial_background_downscales_bitmap_without_changing_coordinate_space(
     assert image.sizey == 12
     assert image.opacity == 0.4
     assert tuple(fig.layout.xaxis.range) == (0, 20)
-    assert tuple(fig.layout.yaxis.range) == (12, 0)
+    assert tuple(fig.layout.yaxis.range) == (-12, 0)
+    assert fig.layout.xaxis.autorange is False
+    assert fig.layout.yaxis.autorange is False
+    assert fig.layout.xaxis.constrain == "domain"
+    assert fig.layout.yaxis.constrain == "domain"
+    assert fig.layout.yaxis.scaleanchor == "x"
 
 
 def test_continuous_embedding_order_uses_original_row_positions():
@@ -82,23 +87,19 @@ def test_continuous_embedding_order_uses_original_row_positions():
     assert fig.data[0].customdata.tolist() == [1, 0, 2]
 
 
-def test_categorical_embedding_customdata_exposes_cell_label_and_row_position():
+def test_categorical_embedding_customdata_exposes_source_row_position():
     fig = plot_embedding(
         _embedding_adata(),
         "X_umap",
         "cell_type",
         mode="categorical",
-        show_background_layer=True,
     )
 
-    data_traces = [trace for trace in fig.data if trace.name != "Background"]
-    assert data_traces
-    for trace in data_traces:
+    positions = set()
+    for trace in fig.data:
         assert isinstance(trace, go.Scattergl)
-        for row in trace.customdata:
-            assert row[0] in {"c1", "c2", "c3"}
-            assert row[1] in {"T", "B"}
-            assert row[2] in {0, 1, 2}
+        positions.update(np.asarray(trace.customdata).reshape(-1).tolist())
+    assert positions == {0, 1, 2}
 
 
 def test_spatial_categorical_embedding_keeps_original_image_extent():
@@ -109,7 +110,9 @@ def test_spatial_categorical_embedding_keeps_original_image_extent():
     assert fig.layout.images[0].sizex == 20
     assert fig.layout.images[0].sizey == 12
     assert tuple(fig.layout.xaxis.range) == (0, 20)
-    assert tuple(fig.layout.yaxis.range) == (12, 0)
+    assert tuple(fig.layout.yaxis.range) == (-12, 0)
+    assert fig.layout.xaxis.constrain == "domain"
+    assert fig.layout.yaxis.constrain == "domain"
 
 
 def test_categorical_embedding_accepts_mixed_labels_and_drops_missing_values():

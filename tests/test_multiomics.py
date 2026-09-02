@@ -286,6 +286,7 @@ def test_paired_joint_view_exposes_virtual_features_to_marker_plots():
         "dotplot-tab",
         "heatmap-tab",
         "violin-tab",
+        "ridge-tab",
     ]
 
 

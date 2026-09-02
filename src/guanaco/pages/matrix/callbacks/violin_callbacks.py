@@ -16,6 +16,7 @@ from guanaco.data.loader import obs_col
 
 _CURRENT_CACHE_KEY = "current_key"
 _MAX_VIOLIN_CACHE_ENTRIES = 10
+_RIDGE_TAB = "ridge-tab"
 
 _MODE_EXPLANATIONS = {
     "mode1": "Compare expression across groups in obs1 only. Obs2 will be ignored.",
@@ -79,15 +80,21 @@ def _test_options_for_mode(adata, mode, meta1, meta2):
     return options + _dropdown_options(_MODEL_TEST_OPTIONS.get(mode, ()))
 
 
-def _resolve_violin1_color_map(adata, annotation, palette_name):
-    if not palette_name or not annotation:
+def _resolve_marker_color_map(adata, annotation, palette_name, color_config=None):
+    if not annotation:
         return None
     unique_labels = (
         SELECTION_LABELS
         if annotation == SELECTION_GROUP
         else sorted_categories(adata, annotation)
     )
-    discrete_palette = resolve_discrete_palette(palette_name, len(unique_labels))
+    discrete_palette = resolve_discrete_palette(
+        palette_name,
+        len(unique_labels),
+        default=color_config,
+    )
+    if not discrete_palette:
+        return None
     return {
         label: discrete_palette[i % len(discrete_palette)]
         for i, label in enumerate(unique_labels)
@@ -153,6 +160,7 @@ def register_marker_violin_callbacks(
     *,
     filter_data,
     plot_violin1,
+    color_config=None,
     multiomics_source=None,
 ):
     @app.callback(
@@ -210,8 +218,11 @@ def register_marker_violin_callbacks(
             if multiomics_source is not None
             else adata
         )
-        color_map = _resolve_violin1_color_map(
-            source_adata, selected_annotation, discrete_color_map
+        color_map = _resolve_marker_color_map(
+            source_adata,
+            selected_annotation,
+            discrete_color_map,
+            color_config,
         )
         filtering_by_selection_group = selected_annotation == SELECTION_GROUP
         group_values = None
@@ -273,6 +284,140 @@ def register_marker_violin_callbacks(
         return no_update, no_update, no_update
 
 
+def _ridge_gene_options(selected_genes, current_gene):
+    genes = list(dict.fromkeys(selected_genes or []))
+    options = [{"label": gene, "value": gene} for gene in genes]
+    value = current_gene if current_gene in genes else (genes[0] if genes else None)
+    return options, value
+
+
+def register_ridge_callbacks(
+    app,
+    adata,
+    prefix,
+    *,
+    filter_data,
+    plot_ridge,
+    color_config,
+    make_cache_key,
+    hash_list_signature,
+    cached_figure_get,
+    cached_figure_set,
+    multiomics_source=None,
+):
+    @app.callback(
+        [
+            Output(f"{prefix}-ridge-gene-selection", "options"),
+            Output(f"{prefix}-ridge-gene-selection", "value"),
+        ],
+        Input(f"{prefix}-single-cell-genes-selection", "value"),
+        State(f"{prefix}-ridge-gene-selection", "value"),
+    )
+    def sync_ridge_gene_options(selected_genes, current_gene):
+        return _ridge_gene_options(selected_genes, current_gene)
+
+    @app.callback(
+        [
+            Output(f"{prefix}-ridge-plot", "figure"),
+            Output(f"{prefix}-ridge-rendered-key", "data"),
+        ],
+        [
+            Input(f"{prefix}-marker-tabs", "value"),
+            Input(f"{prefix}-ridge-gene-selection", "value"),
+            Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
+            Input(f"{prefix}-single-cell-label-selection", "value"),
+            Input(f"{prefix}-data-layer", "data"),
+            Input(f"{prefix}-ridge-show-box", "value"),
+            Input(f"{prefix}-discrete-color-map-dropdown", "value"),
+            Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
+        ],
+        [
+            State(f"{prefix}-ridge-plot", "figure"),
+            State(f"{prefix}-ridge-rendered-key", "data"),
+            State(f"{prefix}-selected-cells-store", "data"),
+            State(f"{prefix}-selection-group-store", "data"),
+        ],
+    )
+    def update_ridge_plot(
+        active_tab,
+        selected_gene,
+        selected_annotation,
+        selected_labels,
+        data_layer,
+        show_box,
+        discrete_color_map,
+        cells_hash,
+        selection_group_hash,
+        current_figure,
+        rendered_key,
+        selected_cells,
+        highlighted_cells,
+    ):
+        if active_tab != _RIDGE_TAB:
+            return no_update, no_update
+        if not selected_gene or not selected_annotation or not selected_labels:
+            raise PreventUpdate
+
+        cache_key = make_cache_key(
+            "ridge",
+            adata,
+            selected_gene=selected_gene,
+            selected_annotation=selected_annotation,
+            selected_labels=hash_list_signature(selected_labels),
+            data_layer=data_layer,
+            show_box=_has_checklist_value(show_box, "show"),
+            discrete_color_map=discrete_color_map,
+            selected_cells=cells_hash,
+            selection_group=selection_group_hash,
+        )
+        if rendered_key == cache_key and current_figure:
+            return no_update, no_update
+
+        cached_fig = cached_figure_get(cache_key)
+        if cached_fig is not None:
+            return cached_fig, cache_key
+
+        source_adata = (
+            multiomics_source.materialize([selected_gene])
+            if multiomics_source is not None
+            else adata
+        )
+        color_map = _resolve_marker_color_map(
+            source_adata,
+            selected_annotation,
+            discrete_color_map,
+            color_config,
+        )
+        filtering_by_selection_group = selected_annotation == SELECTION_GROUP
+        group_values = None
+        if filtering_by_selection_group and highlighted_cells:
+            source_adata, group_values = selection_group_context(
+                source_adata,
+                highlighted_cells,
+            )
+        filtered_adata = filter_data(
+            source_adata,
+            None if filtering_by_selection_group else selected_annotation,
+            None if filtering_by_selection_group else selected_labels,
+            selected_cells,
+        )
+        fig = plot_ridge(
+            filtered_adata,
+            selected_gene,
+            selected_annotation,
+            labels=selected_labels,
+            layer=_resolve_layer(data_layer),
+            show_box=_has_checklist_value(show_box, "show"),
+            groupby_label_color_map=color_map,
+            adata_obs=source_adata.obs,
+            data_already_filtered=True,
+            group_values=group_values,
+        )
+        cached_figure_set(cache_key, fig)
+        return fig, cache_key
+
+
 def register_comparative_violin_callbacks(
     app,
     adata,
@@ -285,6 +430,7 @@ def register_comparative_violin_callbacks(
     resolve_plot_adata_from_filter=None,
 ):
     if resolve_plot_adata_from_filter is None:
+
         def resolve_plot_adata_from_filter(_filtered):
             return adata
 
@@ -490,6 +636,7 @@ def register_violin_callbacks(
 ):
     """Compatibility wrapper registering both violin control models."""
     if resolve_plot_adata_from_filter is None:
+
         def resolve_plot_adata_from_filter(_filtered):
             return adata
 
@@ -499,6 +646,7 @@ def register_violin_callbacks(
         prefix,
         filter_data=filter_data,
         plot_violin1=plot_violin1,
+        color_config=color_config,
     )
     register_comparative_violin_callbacks(
         app,

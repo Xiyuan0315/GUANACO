@@ -60,7 +60,6 @@
       "split-violin",
       "stacked-bar",
       "volcano",
-      "network",
       "multiomics-composition",
       "cross-modal-concordance"
     ]

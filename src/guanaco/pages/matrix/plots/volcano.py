@@ -32,7 +32,11 @@ def decode_extra_value(value: Any) -> Any:
 def clipped_neglog10(padj: np.ndarray) -> tuple[np.ndarray, float]:
     padj = np.asarray(padj, dtype=float)
     finite_positive = padj[np.isfinite(padj) & (padj > 0)]
-    floor = float(finite_positive.min()) if finite_positive.size else float(np.finfo(float).tiny)
+    floor = (
+        float(finite_positive.min())
+        if finite_positive.size
+        else float(np.finfo(float).tiny)
+    )
     clipped = np.where(np.isfinite(padj) & (padj > 0), padj, floor)
     return -np.log10(clipped), floor
 
@@ -43,7 +47,9 @@ def normalize_lengths(entry_name: str, arrays: dict[str, Any]) -> None:
         raise ValueError(f"Entry '{entry_name}' has mismatched lengths: {lengths}")
 
 
-def extract_extra_columns(raw_entry: dict[str, Any], gene_count: int) -> dict[str, list[Any]]:
+def extract_extra_columns(
+    raw_entry: dict[str, Any], gene_count: int
+) -> dict[str, list[Any]]:
     extra_columns: dict[str, list[Any]] = {}
     for key, value in raw_entry.items():
         decoded_key = decode_value(key)
@@ -59,7 +65,10 @@ def extract_extra_columns(raw_entry: dict[str, Any], gene_count: int) -> dict[st
 
 
 def has_volcano_data(adata: Any) -> bool:
-    return bool(adata is not None and ("volcano" in adata.uns or "rank_genes_groups" in adata.uns))
+    return bool(
+        adata is not None
+        and ("volcano" in adata.uns or "rank_genes_groups" in adata.uns)
+    )
 
 
 def load_volcano_payload(adata: Any) -> dict[str, Any]:
@@ -67,10 +76,14 @@ def load_volcano_payload(adata: Any) -> dict[str, Any]:
         return extract_generic_volcano(adata, key="volcano")
     if "rank_genes_groups" in adata.uns:
         return extract_scanpy_rank_genes_groups(adata, key="rank_genes_groups")
-    raise ValueError("No supported DE result found. Expected adata.uns['volcano'] or adata.uns['rank_genes_groups'].")
+    raise ValueError(
+        "No supported DE result found. Expected adata.uns['volcano'] or adata.uns['rank_genes_groups']."
+    )
 
 
-def extract_scanpy_rank_genes_groups(adata: Any, key: str = "rank_genes_groups") -> dict[str, Any]:
+def extract_scanpy_rank_genes_groups(
+    adata: Any, key: str = "rank_genes_groups"
+) -> dict[str, Any]:
     rank_genes_groups = adata.uns[key]
     names = rank_genes_groups["names"]
     groups = list(names.dtype.names or [])
@@ -84,7 +97,9 @@ def extract_scanpy_rank_genes_groups(adata: Any, key: str = "rank_genes_groups")
     entries: dict[str, Any] = {}
     for group in groups:
         gene = [decode_value(item) for item in names[group]]
-        logfoldchange = np.asarray(rank_genes_groups["logfoldchanges"][group], dtype=float)
+        logfoldchange = np.asarray(
+            rank_genes_groups["logfoldchanges"][group], dtype=float
+        )
         score = (
             np.asarray(rank_genes_groups["scores"][group], dtype=float)
             if "scores" in rank_genes_groups
@@ -153,9 +168,13 @@ def extract_generic_volcano(adata: Any, key: str = "volcano") -> dict[str, Any]:
             neg_log10_padj = np.asarray(raw_entry["neg_log10_padj"], dtype=float)
             padj = np.power(10.0, -neg_log10_padj)
             finite_padj = padj[np.isfinite(padj)]
-            clipped_floor = float(finite_padj.min()) if finite_padj.size else float("nan")
+            clipped_floor = (
+                float(finite_padj.min()) if finite_padj.size else float("nan")
+            )
         else:
-            raise ValueError(f"Entry '{decoded_entry_name}' must contain either 'padj' or 'neg_log10_padj'.")
+            raise ValueError(
+                f"Entry '{decoded_entry_name}' must contain either 'padj' or 'neg_log10_padj'."
+            )
 
         entry = {
             "gene": gene,
@@ -200,7 +219,9 @@ def volcano_entry_options(adata: Any) -> tuple[list[dict[str, str]], str | None]
         payload = load_volcano_payload(adata)
     except Exception:
         return [], None
-    options = [{"label": entry_name, "value": entry_name} for entry_name in payload["entries"]]
+    options = [
+        {"label": entry_name, "value": entry_name} for entry_name in payload["entries"]
+    ]
     return options, payload["default_entry"]
 
 
@@ -218,7 +239,10 @@ def pvalue_axis_label(entry: dict[str, Any]) -> str:
 
 def x_axis_options(entry: dict[str, Any] | None = None) -> list[dict[str, str]]:
     options = [{"label": "log fold change", "value": "logfoldchange"}]
-    if entry is None or np.isfinite(np.asarray(entry.get("score", []), dtype=float)).any():
+    if (
+        entry is None
+        or np.isfinite(np.asarray(entry.get("score", []), dtype=float)).any()
+    ):
         options.append({"label": "score", "value": "score"})
     return options
 
@@ -231,8 +255,12 @@ def classify_points(
 ) -> np.ndarray:
     categories = np.full(len(x_values), "Not significant", dtype=object)
     significant = np.isfinite(padj) & (padj <= padj_threshold)
-    categories[significant & np.isfinite(x_values) & (x_values >= x_threshold)] = "Upregulated"
-    categories[significant & np.isfinite(x_values) & (x_values <= -x_threshold)] = "Downregulated"
+    categories[significant & np.isfinite(x_values) & (x_values >= x_threshold)] = (
+        "Upregulated"
+    )
+    categories[significant & np.isfinite(x_values) & (x_values <= -x_threshold)] = (
+        "Downregulated"
+    )
     return categories
 
 
@@ -323,7 +351,9 @@ def deg_rows(
     return rows
 
 
-def deg_summary(entry: dict[str, Any], x_field: str, padj_threshold: float, x_threshold: float) -> dict[str, Any]:
+def deg_summary(
+    entry: dict[str, Any], x_field: str, padj_threshold: float, x_threshold: float
+) -> dict[str, Any]:
     rows = deg_rows(entry, x_field, padj_threshold, x_threshold)
     up_count = sum(1 for row in rows if row["category"] == "Upregulated")
     down_count = sum(1 for row in rows if row["category"] == "Downregulated")
@@ -335,7 +365,9 @@ def deg_summary(entry: dict[str, Any], x_field: str, padj_threshold: float, x_th
     }
 
 
-def deg_csv(entry: dict[str, Any], x_field: str, padj_threshold: float, x_threshold: float) -> str:
+def deg_csv(
+    entry: dict[str, Any], x_field: str, padj_threshold: float, x_threshold: float
+) -> str:
     rows = deg_rows(entry, x_field, padj_threshold, x_threshold)
     default_columns = [
         "gene",
@@ -348,7 +380,9 @@ def deg_csv(entry: dict[str, Any], x_field: str, padj_threshold: float, x_thresh
         "neg_log10_padj",
     ]
     extra_columns = list((entry.get("extra_columns", {}) or {}).keys())
-    columns = default_columns + [column for column in extra_columns if column not in default_columns]
+    columns = default_columns + [
+        column for column in extra_columns if column not in default_columns
+    ]
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=columns)
     writer.writeheader()
@@ -412,7 +446,9 @@ _FRICTION = 0.7  # velocity damping per iteration (ggrepel's 0.7 momentum factor
 _MAX_ITER = 3000
 
 
-def _repel_force(dx: np.ndarray, dy: np.ndarray, force: float) -> tuple[np.ndarray, np.ndarray]:
+def _repel_force(
+    dx: np.ndarray, dy: np.ndarray, force: float
+) -> tuple[np.ndarray, np.ndarray]:
     """ggrepel repel_force: f = force * unit(d) / |d|^2  ==  force * d / |d|^3.
 
     Inverse-square repulsion directed along the centroid-to-centroid vector,
@@ -536,8 +572,12 @@ def label_annotations(
 
     xspan = (x_range[1] - x_range[0]) or 1.0
     yspan = (y_range[1] - y_range[0]) or 1.0
-    point_px = (np.asarray(label_x, dtype=float) - x_range[0]) / xspan * LABEL_PLOT_WIDTH_PX
-    point_py = (np.asarray(label_y, dtype=float) - y_range[0]) / yspan * LABEL_PLOT_HEIGHT_PX
+    point_px = (
+        (np.asarray(label_x, dtype=float) - x_range[0]) / xspan * LABEL_PLOT_WIDTH_PX
+    )
+    point_py = (
+        (np.asarray(label_y, dtype=float) - y_range[0]) / yspan * LABEL_PLOT_HEIGHT_PX
+    )
 
     char_w = font_size * 0.55
     half_w = np.array([max(len(str(t)), 1) * char_w / 2.0 for t in texts])
@@ -627,7 +667,9 @@ def plot_volcano(
                 mode="markers",
                 name=category_name,
                 marker={"size": 7, "opacity": 0.72, "color": colors[category_name]},
-                customdata=np.column_stack([gene[mask], logfoldchange[mask], score[mask], padj[mask]]),
+                customdata=np.column_stack(
+                    [gene[mask], logfoldchange[mask], score[mask], padj[mask]]
+                ),
                 hovertemplate=(
                     "Gene: %{customdata[0]}<br>"
                     f"{axis_labels[x_field]}: %{{x:.3f}}<br>"
@@ -653,6 +695,14 @@ def plot_volcano(
                 mode="markers",
                 marker={"size": 9, "color": "#111111"},
                 name=f"Top {label_idx.size} labels",
+                customdata=np.column_stack(
+                    [
+                        gene[label_idx],
+                        logfoldchange[label_idx],
+                        score[label_idx],
+                        padj[label_idx],
+                    ]
+                ),
                 hoverinfo="skip",
             )
         )

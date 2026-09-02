@@ -1,149 +1,127 @@
-# **GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization** 
+# GUANACO
+
 <table border="0" cellspacing="0" cellpadding="0">
   <tr>
     <td width="120" align="center" valign="top">
       <img src="src/guanaco/assets/logo.png" width="100" alt="GUANACO logo" />
     </td>
     <td style="padding-left: 20px;">
-      <strong>GUANACO</strong> (Graphical Unified Analysis and Navigation of Cellular Omics) is a Python-based platform that empowers biologists to explore multi-omics single-cell data directly in the browser with clicks<br><br>
-      <strong>GUANACO</strong> leverages interactive visualizations to make data exploration and figure customization effortless.
+      <strong>GUANACO</strong> (Graphical Unified Analysis and Navigation of
+      Cellular Omics) is a Python visualization platform for single-cell,
+      spatial, and multi-omics data. It provides a browser dashboard and a
+      general linked-view API for Python, Jupyter, and marimo.
     </td>
   </tr>
 </table>
 
-## Features
+For a normal notebook figure, use the familiar Scanpy-style API:
 
+```python
+import guanaco as gc
 
-- **Various visualization plot types** – Support for:
-  - Dimensionality reduction (UMAP / t-SNE)
-  - Heatmaps
-  - Violin plots
-  - Dot plots / Matrix plots
-  - Stacked plots
-  - Pseudotime plots
-  - Genome browser
-- **Free cell selection** – Select cells with a click or lasso, define custom subpopulations as easily as drawing on paper.
-- **Perception-aware tooltips** – Prevent misinterpretation by revealing actual values behind the visualization
-- **100+ color maps** – Choose from a wide range of continuous and discrete palettes, including options optimized for color vision deficiencies.
-- **Interactive layout** – Resize plots, reorder axes, and zoom in on details all directly in the browser
-
-<img alt="figure" src="docs/assets/guanaco-interface.png" />
-
-Example Interface: [Launch the interactive demo](https://guanaco-demo.chen-sysimeta-lab.com/)
-
-
-## Installation (Pixi Recommended)
-
-### 1. Clone the repository
-```bash
-git clone https://github.com/Systems-Immunometabolism-Lab/guanaco-viz.git
-cd guanaco-viz
+gc.pl.umap(adata, color="cell_type")
 ```
 
-### 2. Create the Pixi environment
+The same function creates a plot specification when it receives `id=`:
 
-```bash
-pixi install
+```python
+gc.pl.umap(id="cells", color="cell_type")
 ```
 
-Python compatibility: `>=3.11,<3.15`. The reproducible Pixi environment uses
-Python 3.12, Dash 4.3, and GUANACO's Dash 4-compatible dash-draggable fork.
+Both forms use the same GUANACO renderer, style, palette, transformations, and
+plot defaults. `gc.pl.view()` exposes additional registered Plotly types.
 
-### 3. Install GUANACO package into the Pixi environment
+## General linked views
 
-For normal use:
+Every linked plot uses the same model:
 
-```bash
-pixi run install
+```text
+selected mark  ->  row / cell / feature IDs  ->  detail plot
 ```
 
-For development (editable install):
+```python
+workspace = gc.pl.linked_view(
+    adata,
+    views=[
+        gc.pl.umap(id="cells", color="cell_type"),
+        gc.pl.violin(
+            id="expression",
+            keys=["CD4"],
+            groupby="cell_type",
+        ),
+    ],
+    links=[gc.pl.link("cells", "expression")],
+)
 
-```
-pixi run install-dev
-```
-
-### 4. Run GUANACO
-
-```bash
-pixi run guanaco -c config.json
-```
-
-Or use the predefined task:
-
-```bash
-pixi run run
-```
-
-### 5. Build distributable artifacts
-
-```bash
-pixi run build
+workspace.show_jupyter(port=8060, height=620)
 ```
 
-This produces wheel and source distributions in `dist/`.
+The complete link API is:
 
-### 6. Publish to PyPI
-
-1. Update `version` in `pyproject.toml`.
-2. Build and validate package files:
-
-```bash
-pixi run build
-pixi run pypi-check
+```python
+gc.pl.link(source, target, *, by=None, action=None, key=None)
 ```
 
-3. Upload to TestPyPI (recommended first):
+Defaults are intentionally small:
 
-```bash
-pixi run python -m twine upload --repository testpypi dist/*
+- `AnnData → AnnData`: link `obs_names` and highlight selected cells.
+- `DataFrame → DataFrame`: link the index and filter the detail.
+- Cross-container: declare `by="cell"` or `by="feature"`; an optional `key`
+  maps table rows to AnnData `obs_names` or `var_names`.
+- `action="filter"` removes unselected cells; `highlight` keeps them as context.
+- Feature links need no action; the selected feature becomes the target's
+  color, key, or feature set.
+
+The four supported data cases are AnnData cells, AnnData features, an external
+cell/feature-indexed table with AnnData, and two external indexed tables.
+External data should be an atomic long/tidy DataFrame: a stable unique index
+and one row per smallest retrievable record. An aggregated network edge or
+heatmap tile keeps the indices of all rows it represents.
+
+For one-to-many table links, `key` names a shared logical parent column. The
+atomic DataFrame index stays unique, while repeated values such as `pair_id`
+allow one overview row to update many spot or curve rows:
+
+```python
+gc.pl.link("neighborhoods", "locations", key="pair_id")
+gc.pl.link("neighborhoods", "cooccurrence", key="pair_id")
+# a table of spatial memberships can drive a native spatial AnnData view
+gc.pl.link("neighborhoods", "spatial", by="cell", key="cell_id", action="filter")
 ```
 
-4. Upload to PyPI:
+Links are overview → terminal detail. One overview can update several details
+and several overviews can update one detail; details are zoom-only and never
+become new sources.
 
-```bash
-pixi run python -m twine upload dist/*
+Jupyter and marimo are both supported. After interacting, rerun a notebook
+cell to retrieve the stable IDs:
+
+```python
+selection = workspace.get_selection("cells")
+print(selection.ids if selection else ())
 ```
 
-### Install from PyPI (for users)
+See the [linked-view guide](docs/linked_views.md) for all four data cases and
+the [runnable notebook](examples/notebooks/Linked_views_demo.ipynb) for demos.
 
-```bash
-pip install guanaco-viz
-guanaco --help
-```
+## Full GUANACO dashboard
 
-## Usage
-```bash
-guanaco -c config.json
-```
+The declarative API complements GUANACO's complete browser dashboard, which
+includes dimensionality reduction, heatmaps, violin/ridge plots, dot and matrix
+plots, composition, pseudotime, genome browsing, spatial visualization, free
+cell selection, color-map controls, and interactive layouts.
 
-To create a config file with a GUI:
+<img alt="GUANACO dashboard" src="docs/assets/guanaco-interface.png" />
 
-```bash
-guanaco --config-wizard
-```
+[Launch the hosted interactive demo](https://guanaco-demo.chen-sysimeta-lab.com/)
 
-You can also choose the output path up front:
+Create a minimal dashboard configuration:
 
-```bash
-guanaco --config-wizard -c /absolute/path/to/guanaco.json
-```
-
-### Command-line Options
-
-- `-c, --config`: Path to the configuration JSON file (default: guanaco.json)
-- `--config-wizard`, `--generate-config`: Open a GUI wizard to create a GUANACO config file
-
-Runtime settings such as `port`, `host`, `max_cells`, `backed_mode`, and `embedding_render_backend` are defined in the top-level `settings` block of the config file.
-
-## Configuration
-
-Create a configuration JSON file specifying your datasets. See
-`examples/configs/visium_hne_spatial.json` for a complete example. The simplest
-case for visualizing scRNA data (`.h5ad`) is:
-```
+```json
 {
-  "Demo": {"sc_data": "/absolute/path/to/PBMC_int.h5ad"},
+  "Demo": {
+    "sc_data": "/absolute/path/to/PBMC_int.h5ad"
+  },
   "settings": {
     "port": 4399,
     "max_cells": 10000,
@@ -153,20 +131,58 @@ case for visualizing scRNA data (`.h5ad`) is:
 }
 ```
 
-A complete user guide with detailed instructions, tutorials, and examples is available at: [**GUANACO User Guide**](https://systems-immunometabolism-lab.github.io/guanaco-viz/?utm_source=chatgpt.com)
+Then run:
+
+```bash
+guanaco -c config.json
+```
+
+To create the configuration with a GUI:
+
+```bash
+guanaco --config-wizard -c /absolute/path/to/guanaco.json
+```
+
+## Installation
+
+Python compatibility: `>=3.11,<3.15`.
+
+```bash
+pip install guanaco-viz
+pip install "guanaco-viz[notebook]"  # Jupyter + marimo support
+```
+
+### Reproducible development environment with Pixi
+
+```bash
+git clone https://github.com/Systems-Immunometabolism-Lab/guanaco-viz.git
+cd guanaco-viz
+pixi install
+pixi run install-dev
+
+pixi run test
+pixi run lint
+pixi run build
+```
+
+## Documentation
+
+- [Linked-view concepts and extension API](docs/linked_views.md)
+- [Interactive linked-view notebook](examples/notebooks/Linked_views_demo.ipynb)
+- [Complete user guide](https://systems-immunometabolism-lab.github.io/guanaco-viz/)
+
 ## License
 
-This project is licensed under the GNU General Public License v3.0 (GPLv3).  
-You may freely redistribute and/or modify it under the terms of the license.  
-
-See the [LICENSE](LICENSE) file for the full text.
+GUANACO is distributed under the GNU General Public License v3.0. See
+[LICENSE](LICENSE).
 
 ## Citation
 
-If you use **GUANACO** in your research, please cite our preprint:
+If you use GUANACO in your research, please cite:
 
 > **Zhang X, Kuddus M, Xia Q, Hu Y, Chen P.**  
 > *GUANACO: A Unified Web-Based Platform for Single-Cell Multi-Omics Data Visualization*  
-> bioRxiv 2025.09.18.677070; doi: [https://doi.org/10.1101/2025.09.18.677070](https://doi.org/10.1101/2025.09.18.677070)
+> bioRxiv 2025.09.18.677070;
+> [https://doi.org/10.1101/2025.09.18.677070](https://doi.org/10.1101/2025.09.18.677070)
 
-*The full citation will be updated onces the peer-reviewed publication becomes available.*
+The citation will be updated after peer-reviewed publication.

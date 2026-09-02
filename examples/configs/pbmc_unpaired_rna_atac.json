@@ -29,7 +29,6 @@
       "dotplot",
       "heatmap",
       "violin",
-      "network",
       "peak-browser",
       "cross-modal-concordance"
     ]

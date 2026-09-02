@@ -23,7 +23,6 @@ from guanaco.pages.matrix.layouts.ligand_receptor_layout import (
 from guanaco.pages.matrix.layouts.multiomics_composition_layout import (
     generate_multiomics_composition_layout,
 )
-from guanaco.pages.matrix.layouts.network_layout import generate_network_layout
 from guanaco.pages.matrix.layouts.paga_layout import generate_paga_layout
 from guanaco.pages.matrix.layouts.pseudotime_layout import generate_pseudotime_layout
 from guanaco.pages.matrix.layouts.spatial_relationships_layout import (
@@ -32,6 +31,7 @@ from guanaco.pages.matrix.layouts.spatial_relationships_layout import (
 from guanaco.pages.matrix.layouts.stacked_bar_layout import generate_stacked_bar_layout
 from guanaco.pages.matrix.layouts.violin_layout import (
     generate_split_violin_layout,
+    generate_ridge_layout,
     generate_violin_layout,
 )
 from guanaco.pages.matrix.layouts.volcano_layout import generate_volcano_layout
@@ -96,9 +96,7 @@ def generate_left_control(default_gene_markers, label_list, prefix):
 
     return html.Div(
         [
-            html.Label(
-                "Features", style={"fontWeight": "bold", "marginBottom": "5px"}
-            ),
+            html.Label("Features", style={"fontWeight": "bold", "marginBottom": "5px"}),
             genes_selection,
             html.Label(
                 "Group cells by",
@@ -139,6 +137,7 @@ def _marker_tabs(adata, markers, labels, prefix, enabled):
         "dotplot": lambda: generate_dotplot_layout(prefix),
         "heatmap": lambda: generate_heatmap_layout(adata, prefix),
         "violin": lambda: generate_violin_layout(markers, labels, prefix),
+        "ridge": lambda: generate_ridge_layout(markers, prefix),
         "pseudotime": lambda: generate_pseudotime_layout(prefix),
     }
     children = []
@@ -174,7 +173,6 @@ def _exploratory_tabs(
     gene_annotation_path,
     genome_tracks,
     multiomics_source=None,
-    organism="human",
 ):
     factories = {
         "split-violin": lambda: generate_split_violin_layout(
@@ -186,7 +184,6 @@ def _exploratory_tabs(
         "stacked-bar": lambda: generate_stacked_bar_layout(adata, labels, prefix),
         "paga": lambda: generate_paga_layout(adata, prefix),
         "volcano": lambda: generate_volcano_layout(adata, prefix),
-        "network": lambda: generate_network_layout(prefix),
         "ligand-receptor": lambda: generate_ligand_receptor_layout(adata, prefix),
         "spatial-relationships": lambda: generate_spatial_relationships_layout(
             adata,
@@ -268,7 +265,6 @@ def generate_visualization_sections(
     ref_track=None,
     multiomics_source=None,
     modality_name=None,
-    organism="human",
 ):
     """Build one modality-scoped workspace with two control models."""
     has_igv = bool(genome_tracks) and bool(ref_track)
@@ -286,9 +282,7 @@ def generate_visualization_sections(
             bool(paired_multiomics.feature_names) if paired_multiomics else None
         ),
         discrete_data_available=(
-            bool(paired_multiomics.discrete_obs_names)
-            if paired_multiomics
-            else None
+            bool(paired_multiomics.discrete_obs_names) if paired_multiomics else None
         ),
     )
     if multiomics_source is not None:
@@ -305,7 +299,6 @@ def generate_visualization_sections(
         gene_annotation_path,
         genome_tracks,
         multiomics_source,
-        organism,
     )
 
     if marker_tabs is None and exploratory_tabs is None:
@@ -340,27 +333,29 @@ def generate_visualization_sections(
         )
     )
 
-    is_unpaired = (
-        multiomics_source is not None and not multiomics_source.is_paired
+    is_unpaired = multiomics_source is not None and not multiomics_source.is_paired
+    workspace_children = (
+        [
+            _workspace_tab(
+                "Exploratory visualization",
+                EXPLORATION_WORKSPACE,
+                exploration_content,
+            )
+        ]
+        if is_unpaired
+        else [
+            _workspace_tab(
+                "Markers visualization",
+                FEATURE_WORKSPACE,
+                feature_content,
+            ),
+            _workspace_tab(
+                "Exploratory visualization",
+                EXPLORATION_WORKSPACE,
+                exploration_content,
+            ),
+        ]
     )
-    workspace_children = [
-        _workspace_tab(
-            "Exploratory visualization",
-            EXPLORATION_WORKSPACE,
-            exploration_content,
-        )
-    ] if is_unpaired else [
-        _workspace_tab(
-            "Markers visualization",
-            FEATURE_WORKSPACE,
-            feature_content,
-        ),
-        _workspace_tab(
-            "Exploratory visualization",
-            EXPLORATION_WORKSPACE,
-            exploration_content,
-        ),
-    ]
     workspace = dcc.Tabs(
         workspace_children,
         id=f"{prefix}-visualization-workspace-tabs",

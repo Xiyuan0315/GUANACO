@@ -28,12 +28,12 @@ PLOT_SPECS = (
     PlotSpec("dotplot", "Dot plot", FEATURE_WORKSPACE, True),
     PlotSpec("heatmap", "Heatmap", FEATURE_WORKSPACE, True),
     PlotSpec("violin", "Violin Plot", FEATURE_WORKSPACE, True),
+    PlotSpec("ridge", "Ridge Plot", FEATURE_WORKSPACE, True),
     PlotSpec("pseudotime", "Expression Trend", FEATURE_WORKSPACE),
     PlotSpec("split-violin", "Comparative Violin", EXPLORATION_WORKSPACE, True),
     PlotSpec("stacked-bar", "Composition", EXPLORATION_WORKSPACE, True),
     PlotSpec("paga", "PAGA", EXPLORATION_WORKSPACE),
     PlotSpec("volcano", "Volcano Plot", EXPLORATION_WORKSPACE),
-    PlotSpec("network", "Network", EXPLORATION_WORKSPACE),
     PlotSpec("ligand-receptor", "Ligand–receptor", EXPLORATION_WORKSPACE),
     PlotSpec(
         "spatial-relationships",
@@ -98,6 +98,7 @@ _COMPONENT_ALIASES = {
     "multiomics-coverage": "multiomics-composition",
     "omics-coverage": "multiomics-composition",
 }
+
 
 def is_plot_available(
     key,

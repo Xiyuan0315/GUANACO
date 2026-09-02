@@ -134,7 +134,7 @@ GUANACO is driven by a small JSON config that points at your data. Minimal examp
 {
   "MyDataset": {
     "sc_data": "/absolute/path/to/your_data.h5ad",
-    "optional_plot_components": ["heatmap", "violin", "dotplot", "stacked-bar"],
+    "optional_plot_components": ["heatmap", "violin", "ridge", "dotplot", "stacked-bar"],
     "markers": ["CD3D", "CD8A", "MS4A1"]
   },
   "title": "My single-cell dataset"

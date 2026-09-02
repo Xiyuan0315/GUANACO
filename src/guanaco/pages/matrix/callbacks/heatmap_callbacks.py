@@ -37,20 +37,19 @@ class _HeatmapRequest:
 
 # Clientside double-click reset for the heatmap. Plotly's own reset is unreliable
 # here: the axes use constrain='domain' and are linked via shared_xaxes, so the
-# default 'reset+autosize' can leave the view partly zoomed. On a double-click
-# (relayout emits *.autorange:true) we force every axis back to the figure's
-# configured range -- the full heatmap extent -- which always restores cleanly.
+# default pass can leave matched axes inconsistent and collapse the map. On a
+# double-click (relayout emits *.autorange:true) we autorange each *anchor* axis
+# -- re-fitting the full data extent, exactly like a freshly rendered figure --
+# and let the matched follower axes track their anchor, which restores cleanly.
 # Output is a throwaway store; the real work is the Plotly.relayout side effect.
 _HEATMAP_RESET_JS = r"""
 function(relayout, figure) {
     const noUpdate = window.dash_clientside.no_update;
     if (!relayout || !figure) return noUpdate;
-    // This is a shared-axis subplot.  Plotly emits autorange on whichever row has
-    // no explicit initial range (usually yaxis2/yaxis3), not necessarily on the
-    // first xaxis/yaxis.  Watching only those first two axes lets Plotly's native
-    // reset leave the matched axes in inconsistent states and collapse the map.
     // Zoom/pan emits explicit ranges and responsive resize emits only `autosize`,
     // so an autorange=true event on any Cartesian subplot axis identifies reset.
+    // Watch every axis, not just the first: Plotly emits autorange on whichever
+    // rows lack an explicit initial range (usually yaxis2/yaxis3).
     const isReset = Object.keys(relayout).some(function(key) {
         return /^[xy]axis\d*\.autorange$/.test(key) && relayout[key] === true;
     });
@@ -65,20 +64,23 @@ function(relayout, figure) {
     const gd = wrap.classList.contains('js-plotly-plot') ? wrap : wrap.querySelector('.js-plotly-plot');
     if (!gd) return noUpdate;
 
-    // figure.layout holds the server-set (original) ranges -- the full view.
+    // Reset == re-fit to the full data extent, exactly like a freshly rendered
+    // figure.  Autorange each anchor axis; this is robust even when the figure
+    // State no longer holds the original ranges (which is why restoring explicit
+    // .range values was unreliable -- and why removing the autorange path broke
+    // reset entirely).
     const lay = (figure && figure.layout) || {};
     const upd = {};
     Object.keys(lay).filter(function(key) {
         return /^[xy]axis\d*$/.test(key);
     }).forEach(function(ax) {
-        if (lay[ax].range) {
-            upd[ax + '.range'] = lay[ax].range.slice();
-            upd[ax + '.autorange'] = false;
-        } else {
-            // Annotation rows normally use autorange.  Restore that state too so
-            // a previous failed reset can be repaired by double-clicking again.
-            upd[ax + '.autorange'] = true;
-        }
+        // Skip matched *follower* axes.  The heatmap's own x-axis is linked via
+        // shared_xaxes and matches the bottom annotation row; autorange-ing a
+        // follower fights its anchor and -- with constrain:'domain' -- collapses
+        // the shared-axis subplot.  Autorange-ing only the anchors pulls every
+        // follower back with them.
+        if (lay[ax].matches) return;
+        upd[ax + '.autorange'] = true;
     });
     if (Object.keys(upd).length > 0) window.Plotly.relayout(gd, upd);
     return noUpdate;
@@ -168,7 +170,9 @@ def _heatmap_label_color_maps(adata, request):
         request.discrete_color_map,
     )
     secondary_color_map = None
-    if _uses_secondary_annotation(request.selected_annotation, request.secondary_annotation):
+    if _uses_secondary_annotation(
+        request.selected_annotation, request.secondary_annotation
+    ):
         secondary_color_map = _label_color_map(
             adata,
             request.secondary_annotation,
@@ -194,7 +198,9 @@ def _heatmap_kwargs(
         genes=request.selected_genes,
         groupby1=request.selected_annotation,
         groupby2=request.secondary_annotation
-        if _uses_secondary_annotation(request.selected_annotation, request.secondary_annotation)
+        if _uses_secondary_annotation(
+            request.selected_annotation, request.secondary_annotation
+        )
         else None,
         labels=request.selected_labels,
         standardization=request.standardization,
@@ -325,10 +331,20 @@ def register_heatmap_callbacks(
         highlighted_cells,
     ):
         request = _HeatmapRequest(
-            selected_genes, selected_annotation, selected_labels, standardization,
-            data_layer, heatmap_color, secondary_annotation, discrete_color_map,
-            secondary_colormap, cells_hash, selection_group_hash, active_tab,
-            selected_cells, highlighted_cells,
+            selected_genes,
+            selected_annotation,
+            selected_labels,
+            standardization,
+            data_layer,
+            heatmap_color,
+            secondary_annotation,
+            discrete_color_map,
+            secondary_colormap,
+            cells_hash,
+            selection_group_hash,
+            active_tab,
+            selected_cells,
+            highlighted_cells,
         )
         if request.active_tab != _HEATMAP_TAB:
             return no_update, no_update

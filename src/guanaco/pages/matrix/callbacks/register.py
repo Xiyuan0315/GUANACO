@@ -15,7 +15,7 @@ from guanaco.pages.matrix.plots.embedding import (
 from guanaco.pages.matrix.plots.heatmap import (
     plot_unified_heatmap,
 )
-from guanaco.pages.matrix.plots.violin1 import plot_violin1
+from guanaco.pages.matrix.plots.violin1 import plot_ridge, plot_violin1
 from guanaco.pages.matrix.plots.violin2 import plot_violin2_new
 from guanaco.pages.matrix.plots.stacked_bar import (
     plot_composition_differential_abundance,
@@ -35,22 +35,28 @@ from guanaco.pages.matrix.layouts.embedding_layout import (
 from guanaco.pages.matrix.callbacks.scatter_callbacks import register_scatter_callbacks
 from guanaco.pages.matrix.callbacks.heatmap_callbacks import register_heatmap_callbacks
 from guanaco.pages.matrix.callbacks.dotplot_callbacks import register_dotplot_callbacks
-from guanaco.pages.matrix.callbacks.pseudotime_callbacks import register_pseudotime_callbacks
+from guanaco.pages.matrix.callbacks.pseudotime_callbacks import (
+    register_pseudotime_callbacks,
+)
 from guanaco.pages.matrix.callbacks.violin_callbacks import (
     register_comparative_violin_callbacks,
     register_marker_violin_callbacks,
+    register_ridge_callbacks,
 )
-from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import register_stacked_bar_callbacks
+from guanaco.pages.matrix.callbacks.stacked_bar_callbacks import (
+    register_stacked_bar_callbacks,
+)
 from guanaco.pages.matrix.callbacks.paga_callbacks import register_paga_callbacks
 from guanaco.pages.matrix.callbacks.volcano_callbacks import register_volcano_callbacks
-from guanaco.pages.matrix.callbacks.network_callbacks import register_network_callbacks
 from guanaco.pages.matrix.callbacks.ligand_receptor_callbacks import (
     register_ligand_receptor_callbacks,
 )
 from guanaco.pages.matrix.callbacks.spatial_relationships_callbacks import (
     register_spatial_relationships_callbacks,
 )
-from guanaco.pages.matrix.callbacks.atac_browser_callbacks import register_atac_browser_callbacks
+from guanaco.pages.matrix.callbacks.atac_browser_callbacks import (
+    register_atac_browser_callbacks,
+)
 from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
     register_cross_modal_concordance_callbacks,
 )
@@ -66,7 +72,8 @@ from guanaco.utils.obs_utils import (
 from guanaco.utils.search import ranked_substring_matches
 from guanaco.data.registry import color_config as _default_color_config
 from guanaco.data.loader import obs_col
-warnings.filterwarnings('ignore', message='.*observed=False.*')
+
+warnings.filterwarnings("ignore", message=".*observed=False.*")
 
 palette_json = discrete_palette_config()
 
@@ -81,7 +88,9 @@ class FigureMemoCache:
 
     def _prune_expired(self):
         now = time.time()
-        expired = [k for k, (_, ts) in self._store.items() if now - ts > self.ttl_seconds]
+        expired = [
+            k for k, (_, ts) in self._store.items() if now - ts > self.ttl_seconds
+        ]
         for k in expired:
             self._store.pop(k, None)
 
@@ -132,11 +141,18 @@ class _FilteredDataCache:
         adata_id = id(adata)
         if selected_cells is not None and len(selected_cells) > 0:
             n = len(selected_cells)
-            payload = json.dumps(list(selected_cells), separators=(",", ":"), default=str)
+            payload = json.dumps(
+                list(selected_cells), separators=(",", ":"), default=str
+            )
             digest = hashlib.md5(payload.encode()).hexdigest()
             return (adata_id, "cells", n, digest)
         if selected_labels and annotation:
-            return (adata_id, "labels", annotation, tuple(sorted(str(label) for label in selected_labels)))
+            return (
+                adata_id,
+                "labels",
+                annotation,
+                tuple(sorted(str(label) for label in selected_labels)),
+            )
         return None
 
     def get_or_create(self, adata, annotation, selected_labels, selected_cells):
@@ -171,14 +187,18 @@ def _hash_list_signature(values):
     if n == 0:
         return {"len": 0, "hash": None}
     # Hash full content for correctness while keeping key compact.
-    payload = json.dumps(list(values), sort_keys=False, default=str, separators=(",", ":"))
+    payload = json.dumps(
+        list(values), sort_keys=False, default=str, separators=(",", ":")
+    )
     digest = hashlib.md5(payload.encode("utf-8")).hexdigest()
     return {"len": n, "hash": digest}
 
 
 def _make_cache_key(kind, adata, **kwargs):
     payload = {"kind": kind, "adata_id": id(adata), **kwargs}
-    payload_json = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    payload_json = json.dumps(
+        payload, sort_keys=True, default=str, separators=(",", ":")
+    )
     return hashlib.md5(payload_json.encode("utf-8")).hexdigest()
 
 
@@ -197,7 +217,15 @@ def apply_relayout(fig, relayout):
     if not relayout:
         return fig
 
-    if all(k in relayout for k in ["xaxis.range[0]", "xaxis.range[1]", "yaxis.range[0]", "yaxis.range[1]"]):
+    if all(
+        k in relayout
+        for k in [
+            "xaxis.range[0]",
+            "xaxis.range[1]",
+            "yaxis.range[0]",
+            "yaxis.range[1]",
+        ]
+    ):
         fig.update_layout(
             xaxis=dict(range=[relayout["xaxis.range[0]"], relayout["xaxis.range[1]"]]),
             yaxis=dict(range=[relayout["yaxis.range[0]"], relayout["yaxis.range[1]"]]),
@@ -213,7 +241,6 @@ def apply_relayout(fig, relayout):
 
     # 3) Reset axes (autorange)
     if "xaxis.autorange" in relayout or "autosize" in relayout:
-
         fig.update_layout(
             xaxis=dict(autorange=True),
             yaxis=dict(autorange=True),
@@ -229,10 +256,13 @@ def generate_embedding_plots(adata, prefix):
 
 
 def filter_data(adata, annotation, selected_labels, selected_cells=None):
-    return _filter_data_cache.get_or_create(adata, annotation, selected_labels, selected_cells)
+    return _filter_data_cache.get_or_create(
+        adata, annotation, selected_labels, selected_cells
+    )
 
 
 # ============= Helper Functions =============
+
 
 def is_continuous_annotation(adata, annotation, threshold=50):
     """Check if an annotation is continuous based on unique value count and data type."""
@@ -297,6 +327,20 @@ def register_marker_plot_callbacks(
             cached_figure_set=_cached_figure_set,
             multiomics_source=multiomics_source,
         )
+    if "ridge" in enabled:
+        register_ridge_callbacks(
+            app,
+            adata,
+            prefix,
+            filter_data=filter_data,
+            plot_ridge=plot_ridge,
+            color_config=color_config,
+            make_cache_key=_make_cache_key,
+            hash_list_signature=_hash_list_signature,
+            cached_figure_get=_cached_figure_get,
+            cached_figure_set=_cached_figure_set,
+            multiomics_source=multiomics_source,
+        )
     if "violin" in enabled:
         register_marker_violin_callbacks(
             app,
@@ -304,6 +348,7 @@ def register_marker_plot_callbacks(
             prefix,
             filter_data=filter_data,
             plot_violin1=plot_violin1,
+            color_config=color_config,
             multiomics_source=multiomics_source,
         )
 
@@ -321,7 +366,6 @@ def register_exploratory_plot_callbacks(
     resolve_plot_adata_from_filter,
     hash_list_signature,
     multiomics_source=None,
-    organism="human",
 ):
     """Register plots whose data selections are owned by their own tab."""
     if "split-violin" in enabled:
@@ -361,15 +405,6 @@ def register_exploratory_plot_callbacks(
         )
     if "volcano" in enabled:
         register_volcano_callbacks(app, adata, prefix)
-    if "network" in enabled:
-        register_network_callbacks(
-            app,
-            adata,
-            prefix,
-            organism=organism,
-            resolve_plot_adata_from_filter=resolve_plot_adata_from_filter,
-            hash_list_signature=hash_list_signature,
-        )
     if "ligand-receptor" in enabled:
         register_ligand_receptor_callbacks(
             app,
@@ -406,6 +441,7 @@ def register_exploratory_plot_callbacks(
 
 # ============= Main Callback Functions =============
 
+
 def matrix_callbacks(
     app,
     adata,
@@ -415,7 +451,6 @@ def matrix_callbacks(
     color_config=None,
     gene_annotation_path=None,
     multiomics_source=None,
-    organism="human",
 ):
     """Compose shared, marker-driven, and exploratory callback registrars."""
     embedding_render_backend = str(embedding_render_backend).lower()
@@ -440,13 +475,15 @@ def matrix_callbacks(
     def _resolve_plot_adata_from_filter(filtered_data):
         if (
             filtered_data
-            and filtered_data.get('cell_indices') is not None
-            and filtered_data.get('n_cells', adata.n_obs) < adata.n_obs
+            and filtered_data.get("cell_indices") is not None
+            and filtered_data.get("n_cells", adata.n_obs) < adata.n_obs
         ):
-            return adata[filtered_data['cell_indices']]
+            return adata[filtered_data["cell_indices"]]
         return adata
 
-    def _search_combined(primary, primary_lower, secondary, secondary_lower, query, limit=10):
+    def _search_combined(
+        primary, primary_lower, secondary, secondary_lower, query, limit=10
+    ):
         return ranked_substring_matches(
             [*primary, *secondary],
             query,
@@ -458,8 +495,8 @@ def matrix_callbacks(
     # Pre-compute a compact hash of selected_cells once, so downstream plot
     # callbacks can use it from State instead of serialising 50k+ IDs themselves.
     @app.callback(
-        Output(f'{prefix}-selected-cells-hash', 'data'),
-        Input(f'{prefix}-selected-cells-store', 'data'),
+        Output(f"{prefix}-selected-cells-hash", "data"),
+        Input(f"{prefix}-selected-cells-store", "data"),
     )
     def update_cells_hash(selected_cells):
         if not selected_cells:
@@ -470,8 +507,8 @@ def matrix_callbacks(
         return {"len": n, "hash": digest}
 
     @app.callback(
-        Output(f'{prefix}-selection-group-hash', 'data'),
-        Input(f'{prefix}-selection-group-store', 'data'),
+        Output(f"{prefix}-selection-group-hash", "data"),
+        Input(f"{prefix}-selection-group-store", "data"),
     )
     def update_selection_group_hash(selected_cells):
         return selection_group_signature(selected_cells)
@@ -479,14 +516,18 @@ def matrix_callbacks(
     # ===== Global Filter Callbacks =====
 
     @app.callback(
-        [Output(f'{prefix}-global-filter-collapse', 'style'),
-         Output(f'{prefix}-global-filter-collapse', 'children'),
-         Output(f'{prefix}-toggle-global-filter', 'children'),
-         Output(f'{prefix}-global-filter-built', 'data')],
-        Input(f'{prefix}-toggle-global-filter', 'n_clicks'),
-        [State(f'{prefix}-global-filter-collapse', 'style'),
-         State(f'{prefix}-global-filter-built', 'data')],
-        prevent_initial_call=True
+        [
+            Output(f"{prefix}-global-filter-collapse", "style"),
+            Output(f"{prefix}-global-filter-collapse", "children"),
+            Output(f"{prefix}-toggle-global-filter", "children"),
+            Output(f"{prefix}-global-filter-built", "data"),
+        ],
+        Input(f"{prefix}-toggle-global-filter", "n_clicks"),
+        [
+            State(f"{prefix}-global-filter-collapse", "style"),
+            State(f"{prefix}-global-filter-built", "data"),
+        ],
+        prevent_initial_call=True,
     )
     def toggle_global_filter(n_clicks, style, built):
         # The filter body (one tag-heavy multi-select per categorical column) is
@@ -494,164 +535,209 @@ def matrix_callbacks(
         # build it once; afterwards we only flip `display` (no re-render, no
         # height animation), keeping the already-mounted dropdowns in the DOM.
         style = dict(style or {})
-        is_open = style.get('display') != 'none'
+        is_open = style.get("display") != "none"
         if is_open:
-            style['display'] = 'none'
+            style["display"] = "none"
             return style, no_update, "▼ Show Filters", no_update
 
-        style['display'] = 'block'
+        style["display"] = "block"
         if not built:
-            return style, build_global_filter_body(adata, prefix), "▲ Hide Filters", True
+            return (
+                style,
+                build_global_filter_body(adata, prefix),
+                "▲ Hide Filters",
+                True,
+            )
         return style, no_update, "▲ Hide Filters", no_update
-    
+
     @app.callback(
-        [Output({'type': f'{prefix}-global-metadata-filter', 'column': ALL}, 'value'),
-         Output(f'{prefix}-filter-preview', 'children')],
-        [Input(f'{prefix}-select-all-filters', 'n_clicks'),
-         Input(f'{prefix}-clear-all-filters', 'n_clicks'),
-         Input({'type': f'{prefix}-global-metadata-filter', 'column': ALL}, 'value')],
-        [State({'type': f'{prefix}-global-metadata-filter', 'column': ALL}, 'options'),
-         State({'type': f'{prefix}-global-metadata-filter', 'column': ALL}, 'id')],
-        prevent_initial_call=True
+        [
+            Output(
+                {"type": f"{prefix}-global-metadata-filter", "column": ALL}, "value"
+            ),
+            Output(f"{prefix}-filter-preview", "children"),
+        ],
+        [
+            Input(f"{prefix}-select-all-filters", "n_clicks"),
+            Input(f"{prefix}-clear-all-filters", "n_clicks"),
+            Input({"type": f"{prefix}-global-metadata-filter", "column": ALL}, "value"),
+        ],
+        [
+            State(
+                {"type": f"{prefix}-global-metadata-filter", "column": ALL}, "options"
+            ),
+            State({"type": f"{prefix}-global-metadata-filter", "column": ALL}, "id"),
+        ],
+        prevent_initial_call=True,
     )
-    def update_all_filters_and_preview(select_clicks, clear_clicks, current_values, all_options, all_ids):
+    def update_all_filters_and_preview(
+        select_clicks, clear_clicks, current_values, all_options, all_ids
+    ):
         ctx = callback_context
         if not ctx.triggered:
             raise PreventUpdate
-        
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        
+
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
         values = []
-        
-        if f'{prefix}-select-all-filters' in trigger_id:
+
+        if f"{prefix}-select-all-filters" in trigger_id:
             # Select all values for each filter
             for options in all_options:
                 if options:
-                    values.append([opt['value'] for opt in options])
+                    values.append([opt["value"] for opt in options])
                 else:
                     values.append([])
-        elif f'{prefix}-clear-all-filters' in trigger_id:
+        elif f"{prefix}-clear-all-filters" in trigger_id:
             # Clear all filters
             values = [[] for _ in all_options]
         else:
             # Use current values for real-time preview
             values = current_values or []
-        
+
         # Calculate preview cell count in real-time
         if values and all_ids:
             mask = np.ones(adata.n_obs, dtype=bool)
-            
+
             # Apply each filter
             for i, (filter_values, filter_id) in enumerate(zip(values, all_ids)):
                 if filter_values:  # Only apply if values are selected
-                    column = filter_id['column']
+                    column = filter_id["column"]
                     col_values = obs_col(adata.obs, column).astype(str).to_numpy()
                     mask &= np.isin(col_values, filter_values)
-            
+
             # Get preview count
             preview_count = int(mask.sum())
             preview_text = f"Preview: {preview_count:,} cells will be selected"
         else:
             preview_text = ""
-        
+
         return values, preview_text
-    
+
     @app.callback(
-        [Output(f'{prefix}-global-filtered-data', 'data'),
-         Output(f'{prefix}-global-cell-count', 'children'),
-         Output(f'{prefix}-filter-preview', 'children', allow_duplicate=True)],
-        Input(f'{prefix}-apply-global-filter', 'n_clicks'),
-        [State({'type': f'{prefix}-global-metadata-filter', 'column': ALL}, 'value'),
-         State({'type': f'{prefix}-global-metadata-filter', 'column': ALL}, 'id')],
-        prevent_initial_call=True
+        [
+            Output(f"{prefix}-global-filtered-data", "data"),
+            Output(f"{prefix}-global-cell-count", "children"),
+            Output(f"{prefix}-filter-preview", "children", allow_duplicate=True),
+        ],
+        Input(f"{prefix}-apply-global-filter", "n_clicks"),
+        [
+            State({"type": f"{prefix}-global-metadata-filter", "column": ALL}, "value"),
+            State({"type": f"{prefix}-global-metadata-filter", "column": ALL}, "id"),
+        ],
+        prevent_initial_call=True,
     )
     def apply_global_filter(n_clicks, filter_values, filter_ids):
         if not n_clicks:
             raise PreventUpdate
-        
+
         # Start with all cells
         mask = np.ones(adata.n_obs, dtype=bool)
-        
+
         # Apply each filter
         for i, (values, filter_id) in enumerate(zip(filter_values, filter_ids)):
             if values:  # Only apply if values are selected
-                column = filter_id['column']
+                column = filter_id["column"]
                 col_values = obs_col(adata.obs, column).astype(str).to_numpy()
                 mask &= np.isin(col_values, values)
-        
+
         # Store positional indices (smaller than index labels in payload and faster to apply)
         filtered_indices = np.flatnonzero(mask).astype(np.int32).tolist()
         n_filtered = len(filtered_indices)
-        
+
         # Simple status message without "Filtered by:" details
         preview_text = f"Applied: {n_filtered:,} cells selected"
-        
+
         # Update cell count display
         cell_count_text = f"{n_filtered:,}"
-        
-        return {
-            'cell_indices': filtered_indices,
-            'cell_indices_hash': _hash_list_signature(filtered_indices),
-            'n_cells': n_filtered
-        }, cell_count_text, preview_text
-    
+
+        return (
+            {
+                "cell_indices": filtered_indices,
+                "cell_indices_hash": _hash_list_signature(filtered_indices),
+                "n_cells": n_filtered,
+            },
+            cell_count_text,
+            preview_text,
+        )
+
     # ===== Gene Selection Callbacks =====
-    
+
     @app.callback(
-        [Output(f'{prefix}-single-cell-genes-selection', 'style'),
-         Output(f'{prefix}-single-cell-genes-textarea', 'style'),
-         Output(f'{prefix}-single-cell-genes-selection', 'options', allow_duplicate=True)],
-        [Input(f'{prefix}-gene-input-mode', 'value'),
-         Input(f'{prefix}-single-cell-genes-selection', 'value')],
-        prevent_initial_call=True
+        [
+            Output(f"{prefix}-single-cell-genes-selection", "style"),
+            Output(f"{prefix}-single-cell-genes-textarea", "style"),
+            Output(
+                f"{prefix}-single-cell-genes-selection", "options", allow_duplicate=True
+            ),
+        ],
+        [
+            Input(f"{prefix}-gene-input-mode", "value"),
+            Input(f"{prefix}-single-cell-genes-selection", "value"),
+        ],
+        prevent_initial_call=True,
     )
     def toggle_gene_input_display(input_mode, selected_genes):
-        if input_mode == 'dropdown':
+        if input_mode == "dropdown":
             # When switching to dropdown, make sure the currently selected
             # genes appear as options so the dropdown displays them.
-            options = [{'label': g, 'value': g} for g in (selected_genes or [])]
-            return {'marginBottom': '15px', 'font-size': '12px'}, {'display': 'none'}, options
+            options = [{"label": g, "value": g} for g in (selected_genes or [])]
+            return (
+                {"marginBottom": "15px", "font-size": "12px"},
+                {"display": "none"},
+                options,
+            )
         else:
-            return {'display': 'none'}, {'width': '100%', 'height': '80px', 'marginBottom': '10px'}, no_update
-    
+            return (
+                {"display": "none"},
+                {"width": "100%", "height": "80px", "marginBottom": "10px"},
+                no_update,
+            )
+
     @app.callback(
-        [Output(f'{prefix}-single-cell-genes-selection', 'value', allow_duplicate=True),
-         Output(f'{prefix}-gene-input-error', 'children')],
-        [Input(f'{prefix}-single-cell-genes-textarea', 'value'),
-         Input(f'{prefix}-gene-input-mode', 'value')],
-        prevent_initial_call=True
+        [
+            Output(
+                f"{prefix}-single-cell-genes-selection", "value", allow_duplicate=True
+            ),
+            Output(f"{prefix}-gene-input-error", "children"),
+        ],
+        [
+            Input(f"{prefix}-single-cell-genes-textarea", "value"),
+            Input(f"{prefix}-gene-input-mode", "value"),
+        ],
+        prevent_initial_call=True,
     )
     def validate_gene_input(textarea_value, input_mode):
-        if input_mode != 'text' or not textarea_value:
-            return no_update, ''
-        
+        if input_mode != "text" or not textarea_value:
+            return no_update, ""
+
         # Parse the textarea input - handle various formats
         # First, check if it looks like a Python list (has brackets)
         text = textarea_value.strip()
-        if text.startswith('[') and text.endswith(']'):
+        if text.startswith("[") and text.endswith("]"):
             text = text[1:-1]  # Remove brackets
-        elif text.startswith('(') and text.endswith(')'):
+        elif text.startswith("(") and text.endswith(")"):
             text = text[1:-1]  # Remove parentheses
-        
+
         # Split by comma and clean each gene name
         input_genes = []
-        for item in text.split(','):
+        for item in text.split(","):
             # Remove various quote types and whitespace
             gene = item.strip()
             # Remove quotes (single, double, backticks, smart quotes)
-            gene = gene.strip('"\'`''""')
+            gene = gene.strip('"\'`""')
             if gene:  # Only add non-empty strings
                 input_genes.append(gene)
-        
+
         # Get all available genes (case-insensitive mapping)
         available_genes = var_names
         gene_map = {gene.upper(): gene for gene in available_genes}
-        
+
         valid_genes = []
         invalid_genes = []
         seen_genes = set()
         duplicate_genes = []
-        
+
         for gene in input_genes:
             gene_upper = gene.upper()
             if multiomics_source is not None:
@@ -666,28 +752,32 @@ def matrix_callbacks(
                     duplicate_genes.append(gene)
             else:
                 invalid_genes.append(gene)
-        
+
         error_messages = []
         if invalid_genes:
-            error_messages.append(f"Invalid genes not found: {', '.join(invalid_genes)}")
+            error_messages.append(
+                f"Invalid genes not found: {', '.join(invalid_genes)}"
+            )
         if duplicate_genes:
-            error_messages.append(f"Duplicate genes removed: {', '.join(duplicate_genes)}")
-        
-        error_message = ' | '.join(error_messages)
-        
+            error_messages.append(
+                f"Duplicate genes removed: {', '.join(duplicate_genes)}"
+            )
+
+        error_message = " | ".join(error_messages)
+
         return valid_genes, error_message
-    
+
     @app.callback(
-        Output(f'{prefix}-single-cell-genes-textarea', 'value'),
-        Input(f'{prefix}-single-cell-genes-selection', 'value'),
-        State(f'{prefix}-gene-input-mode', 'value'),
-        prevent_initial_call=True
+        Output(f"{prefix}-single-cell-genes-textarea", "value"),
+        Input(f"{prefix}-single-cell-genes-selection", "value"),
+        State(f"{prefix}-gene-input-mode", "value"),
+        prevent_initial_call=True,
     )
     def sync_dropdown_to_textarea(dropdown_value, input_mode):
-        if input_mode == 'dropdown' and dropdown_value:
-            return ', '.join(dropdown_value)
+        if input_mode == "dropdown" and dropdown_value:
+            return ", ".join(dropdown_value)
         return no_update
-    
+
     # ===== Scatter Plot Callbacks =====
     register_scatter_callbacks(
         app,
@@ -713,10 +803,12 @@ def matrix_callbacks(
     # ===== Other Plots Callbacks =====
 
     @app.callback(
-        Output(f'{prefix}-single-cell-genes-selection', 'options', allow_duplicate=True),
-        Input(f'{prefix}-single-cell-genes-selection', 'search_value'),
-        State(f'{prefix}-single-cell-genes-selection', 'value'),
-        prevent_initial_call=True
+        Output(
+            f"{prefix}-single-cell-genes-selection", "options", allow_duplicate=True
+        ),
+        Input(f"{prefix}-single-cell-genes-selection", "search_value"),
+        State(f"{prefix}-single-cell-genes-selection", "value"),
+        prevent_initial_call=True,
     )
     def update_genes_dropdown(search_value, value):
         if not search_value:
@@ -729,18 +821,18 @@ def matrix_callbacks(
         )
         selected_labels = value if value else []
         all_labels = list(dict.fromkeys(selected_labels + matching_labels))
-        return [{'label': label, 'value': label} for label in all_labels]
-    
+        return [{"label": label, "value": label} for label in all_labels]
+
     @app.callback(
         [
-            Output(f'{prefix}-single-cell-annotation-dropdown', 'options'),
-            Output(f'{prefix}-single-cell-annotation-dropdown', 'value'),
+            Output(f"{prefix}-single-cell-annotation-dropdown", "options"),
+            Output(f"{prefix}-single-cell-annotation-dropdown", "value"),
         ],
-        Input(f'{prefix}-selection-group-hash', 'data'),
+        Input(f"{prefix}-selection-group-hash", "data"),
         [
-            State(f'{prefix}-selection-group-store', 'data'),
-            State(f'{prefix}-single-cell-annotation-dropdown', 'options'),
-            State(f'{prefix}-single-cell-annotation-dropdown', 'value'),
+            State(f"{prefix}-selection-group-store", "data"),
+            State(f"{prefix}-single-cell-annotation-dropdown", "options"),
+            State(f"{prefix}-single-cell-annotation-dropdown", "value"),
         ],
     )
     def update_selection_annotation(
@@ -752,27 +844,31 @@ def matrix_callbacks(
         base_options = [
             option
             for option in (current_options or [])
-            if option.get('value') != SELECTION_GROUP
+            if option.get("value") != SELECTION_GROUP
         ]
         if highlighted_cells:
             return [
-                {'label': SELECTION_GROUP_LABEL, 'value': SELECTION_GROUP},
+                {"label": SELECTION_GROUP_LABEL, "value": SELECTION_GROUP},
                 *base_options,
             ], SELECTION_GROUP
         if current_value == SELECTION_GROUP:
-            fallback = base_options[0]['value'] if base_options else None
+            fallback = base_options[0]["value"] if base_options else None
             return base_options, fallback
         return base_options, current_value
 
     @app.callback(
-        [Output(f'{prefix}-single-cell-label-selection', 'options'),
-         Output(f'{prefix}-single-cell-label-selection', 'value')],
-        [Input(f'{prefix}-single-cell-annotation-dropdown', 'value'),
-         Input(f'{prefix}-selected-cells-hash', 'data'),
-         Input(f'{prefix}-selection-group-hash', 'data')],
         [
-            State(f'{prefix}-selected-cells-store', 'data'),
-            State(f'{prefix}-selection-group-store', 'data'),
+            Output(f"{prefix}-single-cell-label-selection", "options"),
+            Output(f"{prefix}-single-cell-label-selection", "value"),
+        ],
+        [
+            Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
+            Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
+        ],
+        [
+            State(f"{prefix}-selected-cells-store", "data"),
+            State(f"{prefix}-selection-group-store", "data"),
         ],
     )
     def update_labels_based_on_annotation(
@@ -783,12 +879,12 @@ def matrix_callbacks(
         highlighted_cells,
     ):
         if selected_annotation == SELECTION_GROUP and highlighted_cells:
-            options = [{'label': label, 'value': label} for label in SELECTION_LABELS]
+            options = [{"label": label, "value": label} for label in SELECTION_LABELS]
             return options, list(SELECTION_LABELS)
         # Filter adata if cells are selected
         src = adata[selected_cells] if selected_cells else adata
         unique_labels = sorted_categories(src, selected_annotation)
-        label_options = [{'label': label, 'value': label} for label in unique_labels]
+        label_options = [{"label": label, "value": label} for label in unique_labels]
         return label_options, list(unique_labels)
 
     register_marker_plot_callbacks(
@@ -811,33 +907,32 @@ def matrix_callbacks(
         resolve_plot_adata_from_filter=_resolve_plot_adata_from_filter,
         hash_list_signature=_hash_list_signature,
         multiomics_source=multiomics_source,
-        organism=organism,
     )
 
     # Add callback to update filter status
     @app.callback(
-        Output(f'{prefix}-filter-status', 'children'),
+        Output(f"{prefix}-filter-status", "children"),
         [
-            Input(f'{prefix}-selected-cells-hash', 'data'),
-            Input(f'{prefix}-selection-group-hash', 'data'),
+            Input(f"{prefix}-selected-cells-hash", "data"),
+            Input(f"{prefix}-selection-group-hash", "data"),
         ],
     )
     def update_filter_status(selected_cells_hash, selection_group_hash):
         if selected_cells_hash:
-            n_selected = selected_cells_hash['len']
+            n_selected = selected_cells_hash["len"]
             n_total = adata.n_obs
             return dbc.Alert(
-                f"Showing {n_selected} of {n_total} cells ({n_selected/n_total*100:.1f}%) based on scatter plot selection",
+                f"Showing {n_selected} of {n_total} cells ({n_selected / n_total * 100:.1f}%) based on scatter plot selection",
                 color="info",
                 dismissable=False,
-                style={'margin': '0'}
+                style={"margin": "0"},
             )
         if selection_group_hash:
-            selected_signature = selection_group_hash.get('selected') or {}
-            universe_signature = selection_group_hash.get('universe')
-            n_selected = selected_signature.get('len', 0)
+            selected_signature = selection_group_hash.get("selected") or {}
+            universe_signature = selection_group_hash.get("universe")
+            n_selected = selected_signature.get("len", 0)
             n_total = (
-                universe_signature['len']
+                universe_signature["len"]
                 if universe_signature is not None
                 else adata.n_obs
             )
@@ -846,6 +941,6 @@ def matrix_callbacks(
                 f"{max(n_total - n_selected, 0)} Others",
                 color="info",
                 dismissable=False,
-                style={'margin': '0'},
+                style={"margin": "0"},
             )
         return None

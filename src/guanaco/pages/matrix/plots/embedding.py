@@ -5,7 +5,10 @@ import plotly.express as px
 from PIL import Image
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.embeddings import embedding_to_numpy
-from guanaco.utils.gene_extraction_utils import extract_gene_expression, apply_transformation
+from guanaco.utils.gene_extraction_utils import (
+    extract_gene_expression,
+    apply_transformation,
+)
 from guanaco.utils.obs_utils import sorted_categories
 from guanaco.data.loader import obs_col
 
@@ -40,7 +43,9 @@ def _resolve_spatial_context(
         if len(spatial) == 1:
             library_id = next(iter(spatial.keys()))
         elif "library_id" in adata.obs.columns:
-            obs_library_ids = [str(x) for x in obs_col(adata.obs, "library_id").dropna().unique()]
+            obs_library_ids = [
+                str(x) for x in obs_col(adata.obs, "library_id").dropna().unique()
+            ]
             matching = [lib for lib in obs_library_ids if lib in spatial]
             if len(matching) == 1:
                 library_id = matching[0]
@@ -48,7 +53,9 @@ def _resolve_spatial_context(
             if auto_select:
                 library_id = sorted(spatial.keys())[0]
             else:
-                raise ValueError("Multiple spatial libraries found; please provide library_id.")
+                raise ValueError(
+                    "Multiple spatial libraries found; please provide library_id."
+                )
 
     if library_id not in spatial:
         raise KeyError(f"library_id '{library_id}' not found in adata.uns['spatial'].")
@@ -108,8 +115,12 @@ def _resolve_embedding_coords(
 ):
     """Return (x_values, y_values, x_axis, y_axis, embedding_columns, spatial_image)."""
     embedding_data = embedding_to_numpy(adata.obsm[embedding_key])
-    embedding_prefix = EMBEDDING_PREFIXES.get(embedding_key, embedding_key.removeprefix("X_"))
-    embedding_columns = [f"{embedding_prefix}{i + 1}" for i in range(embedding_data.shape[1])]
+    embedding_prefix = EMBEDDING_PREFIXES.get(
+        embedding_key, embedding_key.removeprefix("X_")
+    )
+    embedding_columns = [
+        f"{embedding_prefix}{i + 1}" for i in range(embedding_data.shape[1])
+    ]
     col_to_idx = {name: i for i, name in enumerate(embedding_columns)}
 
     spatial_image, spatial_scale = _resolve_spatial_context(
@@ -120,10 +131,14 @@ def _resolve_embedding_coords(
         auto_select=auto_select_spatial,
     )
     x_axis = x_axis or embedding_columns[0]
-    y_axis = y_axis or (embedding_columns[1] if len(embedding_columns) > 1 else embedding_columns[0])
+    y_axis = y_axis or (
+        embedding_columns[1] if len(embedding_columns) > 1 else embedding_columns[0]
+    )
 
     if x_axis not in col_to_idx or y_axis not in col_to_idx:
-        raise ValueError(f"Invalid x/y axis for {embedding_key}: x={x_axis}, y={y_axis}")
+        raise ValueError(
+            f"Invalid x/y axis for {embedding_key}: x={x_axis}, y={y_axis}"
+        )
 
     x_values = np.asarray(embedding_data[:, col_to_idx[x_axis]], dtype=np.float32)
     if y_axis == x_axis:
@@ -149,7 +164,9 @@ def _resolve_embedding_coords(
     return x_values, y_values, x_axis, y_axis, embedding_columns, spatial_image
 
 
-def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=None, layer=None):
+def _resolve_continuous_values(
+    adata, key, *, source_adata=None, cell_indices=None, layer=None
+):
     if source_adata is None:
         source_adata = adata
     row_idx = None if cell_indices is None else np.asarray(cell_indices, dtype=np.int64)
@@ -170,7 +187,9 @@ def _resolve_continuous_values(adata, key, *, source_adata=None, cell_indices=No
     if values.size == 0:
         raise ValueError(f"Key '{key}' resolved to an empty vector.")
     if np.isnan(values).all():
-        raise ValueError(f"Key '{key}' does not contain numeric values for continuous plotting.")
+        raise ValueError(
+            f"Key '{key}' does not contain numeric values for continuous plotting."
+        )
     return values
 
 
@@ -200,8 +219,9 @@ def _embedding_scatter_trace():
     return go.Scattergl
 
 
-
-def _order_continuous_points(x_values, y_values, color_values, cell_idx, highlighted_mask, order):
+def _order_continuous_points(
+    x_values, y_values, color_values, cell_idx, highlighted_mask, order
+):
     if order == "max":
         order_idx = np.argsort(color_values, kind="mergesort")
     elif order == "min":
@@ -249,34 +269,71 @@ def _apply_spatial_background(fig, spatial_image, img_alpha=1.0):
         )
 
     fig.update_layout(
-        images=[dict(
-            source=display_image,
-            xref="x", yref="y",
-            x=0, y=0,
-            sizex=img_w, sizey=img_h,
-            xanchor="left", yanchor="top",
-            opacity=img_alpha,
-            layer="below",
-        )]
+        images=[
+            dict(
+                source=display_image,
+                xref="x",
+                yref="y",
+                x=0,
+                y=0,
+                sizex=img_w,
+                sizey=img_h,
+                xanchor="left",
+                yanchor="top",
+                opacity=img_alpha,
+                layer="below",
+            )
+        ]
     )
-    fig.update_xaxes(range=[0, img_w])
+    # Keep the image coordinate extent invariant when the figure is redrawn.
+    # ``scaleanchor`` otherwise defaults to constraining an axis *range* in a
+    # scatter plot. A changing title or legend can then make Plotly expand that
+    # range to preserve square pixels, so the tissue appears to shrink after a
+    # linked selection. Constrain the plotting domain instead: the numeric
+    # coordinates stay fixed while the canvas absorbs the aspect-ratio change.
+    # ``fixedrange`` deliberately remains false so users can still zoom.
+    fig.update_xaxes(
+        range=[0, img_w],
+        autorange=False,
+        constrain="domain",
+    )
     # Ascending y-axis spanning [-img_h, 0]. The points carry NEGATED spatial-y (see
     # _resolve_embedding_coords), and the image, anchored top at y=0, extends down to
     # y=-img_h on this ascending axis -- so points and tissue share the exact data
     # range. A reversed axis ([img_h, 0]) would look the same until a double-click /
     # home reset autoranges and flips it, flinging the points off the image.
-    fig.update_yaxes(range=[-img_h, 0], scaleanchor="x", scaleratio=1)
+    fig.update_yaxes(
+        range=[-img_h, 0],
+        autorange=False,
+        constrain="domain",
+        scaleanchor="x",
+        scaleratio=1,
+    )
 
 
-def _apply_embedding_layout(fig, *, title_text, x_axis, y_axis, axis_show, margin, legend=None):
+def _apply_embedding_layout(
+    fig, *, title_text, x_axis, y_axis, axis_show, margin, legend=None
+):
     tick_color = "black" if axis_show else "rgba(0,0,0,0)"
     layout_kwargs = dict(
         autosize=True,
         plot_bgcolor="white",
         paper_bgcolor="white",
-        title=dict(text=f"<b>{title_text}</b>", x=0.5, y=0.98, xanchor="center", yanchor="top"),
-        xaxis=dict(title=x_axis, showgrid=False, zeroline=False, tickfont=dict(color=tick_color)),
-        yaxis=dict(title=y_axis, showgrid=False, zeroline=False, tickfont=dict(color=tick_color)),
+        title=dict(
+            text=f"<b>{title_text}</b>", x=0.5, y=0.98, xanchor="center", yanchor="top"
+        ),
+        xaxis=dict(
+            title=x_axis,
+            showgrid=False,
+            zeroline=False,
+            tickfont=dict(color=tick_color),
+        ),
+        yaxis=dict(
+            title=y_axis,
+            showgrid=False,
+            zeroline=False,
+            tickfont=dict(color=tick_color),
+        ),
         margin=margin,
     )
     if legend is not None:
@@ -347,7 +404,9 @@ def _build_datashader_continuous_figure(
     except Exception as exc:
         return None, f"datashader unavailable: {exc}"
 
-    valid_mask = np.isfinite(x_values) & np.isfinite(y_values) & np.isfinite(color_values)
+    valid_mask = (
+        np.isfinite(x_values) & np.isfinite(y_values) & np.isfinite(color_values)
+    )
     if not np.any(valid_mask):
         return None, "all values are NaN/inf after filtering"
 
@@ -371,7 +430,9 @@ def _build_datashader_continuous_figure(
     # Resolve Plotly colorscale to a hex list for tf.shade.
     resolved = resolve_continuous_colorscale(color_map)
     if isinstance(resolved, str):
-        scale_list = pcolors.PLOTLY_SCALES.get(resolved, pcolors.PLOTLY_SCALES["Viridis"])
+        scale_list = pcolors.PLOTLY_SCALES.get(
+            resolved, pcolors.PLOTLY_SCALES["Viridis"]
+        )
     else:
         scale_list = resolved
     hex_cmap = []
@@ -391,33 +452,43 @@ def _build_datashader_continuous_figure(
 
     fig = go.Figure()
     fig.update_layout(
-        images=[dict(
-            source=pil_img,
-            xref="x", yref="y",
-            x=x_min, y=y_max,
-            sizex=x_span, sizey=y_span,
-            xanchor="left", yanchor="top",
-            sizing="stretch",
-            layer="below",
-        )]
+        images=[
+            dict(
+                source=pil_img,
+                xref="x",
+                yref="y",
+                x=x_min,
+                y=y_max,
+                sizex=x_span,
+                sizey=y_span,
+                xanchor="left",
+                yanchor="top",
+                sizing="stretch",
+                layer="below",
+            )
+        ]
     )
     # Invisible dummy trace to display the colorbar.
-    fig.add_trace(go.Scattergl(
-        x=[None], y=[None],
-        mode="markers",
-        marker=dict(
-            colorscale=scale_list,
-            cmin=cmin, cmax=cmax,
-            # No colorbar title: the value name is already the figure title above the
-            # plot, and a colorbar title steals horizontal width from the image.
-            colorbar=dict(len=0.8),
-            color=[cmin],
-            showscale=True,
-            size=1,
-        ),
-        showlegend=False,
-        hoverinfo="skip",
-    ))
+    fig.add_trace(
+        go.Scattergl(
+            x=[None],
+            y=[None],
+            mode="markers",
+            marker=dict(
+                colorscale=scale_list,
+                cmin=cmin,
+                cmax=cmax,
+                # No colorbar title: the value name is already the figure title above the
+                # plot, and a colorbar title steals horizontal width from the image.
+                colorbar=dict(len=0.8),
+                color=[cmin],
+                showscale=True,
+                size=1,
+            ),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
 
     _apply_embedding_layout(
         fig,
@@ -497,7 +568,9 @@ def _build_datashader_categorical_figure(
     }
 
     agg = canvas.points(df, "x", "y", agg=ds.count_cat("cat"))
-    del df  # free before tf.shade to avoid holding DataFrame and agg tensor simultaneously
+    del (
+        df
+    )  # free before tf.shade to avoid holding DataFrame and agg tensor simultaneously
     if int(agg.sum()) == 0:
         return None, "datashader aggregation produced empty grid"
 
@@ -510,30 +583,38 @@ def _build_datashader_categorical_figure(
     fig = go.Figure()
     # The rasterized embedding as a single background image at data coordinates.
     fig.update_layout(
-        images=[dict(
-            source=pil_img,
-            xref="x", yref="y",
-            x=x_min, y=y_max,
-            sizex=x_span, sizey=y_span,
-            xanchor="left", yanchor="top",
-            sizing="stretch",
-            layer="below",
-        )]
+        images=[
+            dict(
+                source=pil_img,
+                xref="x",
+                yref="y",
+                x=x_min,
+                y=y_max,
+                sizex=x_span,
+                sizey=y_span,
+                xanchor="left",
+                yanchor="top",
+                sizing="stretch",
+                layer="below",
+            )
+        ]
     )
 
     on_data = legend_show == "on data"
     # Zero-point dummy traces give a categorical legend without any per-cell data.
     if not on_data:
         for cat in present_categories:
-            fig.add_trace(go.Scattergl(
-                x=[None],
-                y=[None],
-                mode="markers",
-                marker=dict(size=marker_size, color=color_key[cat]),
-                name=str(cat),
-                showlegend=True,
-                hoverinfo="skip",
-            ))
+            fig.add_trace(
+                go.Scattergl(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker=dict(size=marker_size, color=color_key[cat]),
+                    name=str(cat),
+                    showlegend=True,
+                    hoverinfo="skip",
+                )
+            )
     else:
         # Label each category at its centroid directly on the plot.
         for cat in present_categories:
@@ -625,7 +706,11 @@ def _build_continuous_embedding_figure(
                 x=x_values,
                 y=y_values,
                 mode="markers",
-                marker=dict(size=marker_size, color="lightgrey", opacity=max(0.15, opacity * 0.3)),
+                marker=dict(
+                    size=marker_size,
+                    color="lightgrey",
+                    opacity=max(0.15, opacity * 0.3),
+                ),
                 hoverinfo="skip",
                 showlegend=False,
                 selectedpoints=None,
@@ -738,7 +823,9 @@ def plot_embedding(
     if mode == "auto":
         mode = "continuous" if _color_is_continuous(adata, color) else "categorical"
     if mode not in {"continuous", "categorical"}:
-        raise ValueError(f"Unsupported mode '{mode}'. Expected 'continuous' or 'categorical'.")
+        raise ValueError(
+            f"Unsupported mode '{mode}'. Expected 'continuous' or 'categorical'."
+        )
 
     x_values, y_values, x_axis, y_axis, _, spatial_image = _resolve_embedding_coords(
         adata,
@@ -768,7 +855,7 @@ def plot_embedding(
             None,
             order,
         )
-        return _build_continuous_embedding_figure(
+        fig = _build_continuous_embedding_figure(
             x_values,
             y_values,
             color_values,
@@ -785,6 +872,7 @@ def plot_embedding(
             render_backend=render_backend,
             highlighted_mask=None,
         )
+        return fig
 
     adata_full = adata if adata_full is None else adata_full
     # Metadata can contain mixed Python types or missing values. A plain sorted()
@@ -793,8 +881,7 @@ def plot_embedding(
     all_unique_labels = sorted_categories(adata_full, color)
     palette = discrete_color_map or px.colors.qualitative.Plotly
     label_to_color_dict = {
-        label: palette[i % len(palette)]
-        for i, label in enumerate(all_unique_labels)
+        label: palette[i % len(palette)] for i, label in enumerate(all_unique_labels)
     }
     on_data = legend_show == "on data"
 
@@ -835,24 +922,26 @@ def plot_embedding(
         indices = label_to_indices.get(label)
         if indices is None or indices.size == 0:
             continue
-        fig.add_trace(ScatterTrace(
-            x=x_values[indices],
-            y=y_values[indices],
-            mode="markers",
-            marker=dict(
-                size=marker_size,
-                color=label_to_color_dict[label],
-                opacity=opacity,
-            ),
-            name=str(label),
-            customdata=indices,
-            hoverinfo="skip",
-            showlegend=not on_data,
-            legendgroup=str(label),
-            selectedpoints=None,
-            selected=dict(marker=dict(opacity=opacity)),
-            unselected=dict(marker=dict(color="lightgrey", opacity=0.5)),
-        ))
+        fig.add_trace(
+            ScatterTrace(
+                x=x_values[indices],
+                y=y_values[indices],
+                mode="markers",
+                marker=dict(
+                    size=marker_size,
+                    color=label_to_color_dict[label],
+                    opacity=opacity,
+                ),
+                name=str(label),
+                customdata=indices,
+                hoverinfo="skip",
+                showlegend=not on_data,
+                legendgroup=str(label),
+                selectedpoints=None,
+                selected=dict(marker=dict(opacity=opacity)),
+                unselected=dict(marker=dict(color="lightgrey", opacity=0.5)),
+            )
+        )
 
     if on_data:
         for label in unique_labels_filtered:
@@ -886,7 +975,9 @@ def plot_embedding(
             itemclick="toggle",
             itemdoubleclick="toggleothers",
             font=dict(size=12),
-        ) if not on_data else None,
+        )
+        if not on_data
+        else None,
     )
 
     if embedding_key == "spatial":
@@ -896,16 +987,26 @@ def plot_embedding(
 
 
 def plot_coexpression_embedding(
-    adata, embedding_key, gene1, gene2,
-    x_axis=None, y_axis=None,
-    threshold1=0.5, threshold2=0.5,
+    adata,
+    embedding_key,
+    gene1,
+    gene2,
+    x_axis=None,
+    y_axis=None,
+    threshold1=0.5,
+    threshold2=0.5,
     transformation=None,
     layer=None,
     color_map=None,
-    marker_size=5, opacity=1,
-    legend_show='right', axis_show=True,
-    img_key=None, library_id=None, img_alpha=1.0,
-    source_adata=None, cell_indices=None,
+    marker_size=5,
+    opacity=1,
+    legend_show="right",
+    axis_show=True,
+    img_key=None,
+    library_id=None,
+    img_alpha=1.0,
+    source_adata=None,
+    cell_indices=None,
 ):
     """
     Plot co-expression of two genes on a 2D embedding.
@@ -915,8 +1016,13 @@ def plot_coexpression_embedding(
     # scales the coords into the image's pixel space); without it the image is
     # dropped and the points float on a white background.
     x_values, y_values, x_axis, y_axis, _, spatial_image = _resolve_embedding_coords(
-        adata, embedding_key, x_axis=x_axis, y_axis=y_axis,
-        img_key=img_key, library_id=library_id, auto_select_spatial=True,
+        adata,
+        embedding_key,
+        x_axis=x_axis,
+        y_axis=y_axis,
+        img_key=img_key,
+        library_id=library_id,
+        auto_select_spatial=True,
     )
 
     if source_adata is None:
@@ -929,7 +1035,7 @@ def plot_coexpression_embedding(
     if row_idx is not None:
         gene1_expr = gene1_expr[row_idx]
         gene2_expr = gene2_expr[row_idx]
-    
+
     # Apply transformation if specified
     if transformation:
         gene1_expr = apply_transformation(gene1_expr, transformation, copy=True)
@@ -939,32 +1045,32 @@ def plot_coexpression_embedding(
     # Use threshold values directly (they are already actual expression values from the callback)
     gene1_threshold = threshold1
     gene2_threshold = threshold2
-    
+
     # Categorize cells
     gene1_expressed = gene1_expr > gene1_threshold
     gene2_expressed = gene2_expr > gene2_threshold
-    
+
     # Create category labels
     categories = np.zeros(len(adata), dtype=object)
-    categories[:] = 'Neither'
-    categories[gene1_expressed & ~gene2_expressed] = f'{gene1} only'
-    categories[~gene1_expressed & gene2_expressed] = f'{gene2} only'
-    categories[gene1_expressed & gene2_expressed] = 'Co-expressed'
-    
+    categories[:] = "Neither"
+    categories[gene1_expressed & ~gene2_expressed] = f"{gene1} only"
+    categories[~gene1_expressed & gene2_expressed] = f"{gene2} only"
+    categories[gene1_expressed & gene2_expressed] = "Co-expressed"
+
     all_cell_idx = np.arange(len(adata), dtype=np.int32)
 
     # Define color mapping for 4 categories
     if color_map is None:
         color_map = {
-            'Neither': '#E8E8E8',  # Light gray
-            f'{gene1} only': '#648fff',  # Blue (color-blind friendly)
-            f'{gene2} only': '#ffb000',  # Orange (color-blind friendly)
-            'Co-expressed': '#dc267f'  # Magenta (color-blind friendly)
+            "Neither": "#E8E8E8",  # Light gray
+            f"{gene1} only": "#648fff",  # Blue (color-blind friendly)
+            f"{gene2} only": "#ffb000",  # Orange (color-blind friendly)
+            "Co-expressed": "#dc267f",  # Magenta (color-blind friendly)
         }
-    
+
     # Ensure all 4 categories appear in order
-    category_order = ['Neither', f'{gene1} only', f'{gene2} only', 'Co-expressed']
-    
+    category_order = ["Neither", f"{gene1} only", f"{gene2} only", "Co-expressed"]
+
     ScatterTrace = _embedding_scatter_trace()
 
     fig = go.Figure()
@@ -972,36 +1078,40 @@ def plot_coexpression_embedding(
     for category in category_order:
         mask = categories == category
         if mask.any():
-            fig.add_trace(ScatterTrace(
-                x=x_values[mask],
-                y=y_values[mask],
-                mode='markers',
-                marker=dict(
-                    size=marker_size,
-                    color=color_map.get(category, '#808080'),
-                    opacity=opacity,
-                ),
-                name=category,
-                customdata=all_cell_idx[mask],
-                showlegend=(legend_show == 'right'),
-                hoverinfo='skip',
-                selectedpoints=None,
-                selected=dict(marker=dict(opacity=1)),
-                unselected=dict(marker=dict(color="lightgrey", opacity=0.5))
-            ))
+            fig.add_trace(
+                ScatterTrace(
+                    x=x_values[mask],
+                    y=y_values[mask],
+                    mode="markers",
+                    marker=dict(
+                        size=marker_size,
+                        color=color_map.get(category, "#808080"),
+                        opacity=opacity,
+                    ),
+                    name=category,
+                    customdata=all_cell_idx[mask],
+                    showlegend=(legend_show == "right"),
+                    hoverinfo="skip",
+                    selectedpoints=None,
+                    selected=dict(marker=dict(opacity=1)),
+                    unselected=dict(marker=dict(color="lightgrey", opacity=0.5)),
+                )
+            )
 
-    if legend_show == 'on data':
+    if legend_show == "on data":
         for category in category_order:
             mask = categories == category
             if mask.any():
                 median_x = float(np.median(x_values[mask]))
                 median_y = float(np.median(y_values[mask]))
                 fig.add_annotation(
-                    x=median_x, y=median_y,
-                    text=f'<b>{category}</b>',
+                    x=median_x,
+                    y=median_y,
+                    text=f"<b>{category}</b>",
                     showarrow=False,
-                    font=dict(size=10, color='black'),
-                    xanchor='center', yanchor='middle',
+                    font=dict(size=10, color="black"),
+                    xanchor="center",
+                    yanchor="middle",
                     opacity=0.9,
                 )
 
@@ -1013,14 +1123,17 @@ def plot_coexpression_embedding(
         axis_show=axis_show,
         margin=dict(t=40, r=100, l=50, b=50),
         legend=dict(
-            orientation='v',
-            itemsizing='constant',
-            x=1.02, y=0.5,
-            bgcolor='rgba(0,0,0,0)',
-            itemclick='toggle',
-            itemdoubleclick='toggleothers',
+            orientation="v",
+            itemsizing="constant",
+            x=1.02,
+            y=0.5,
+            bgcolor="rgba(0,0,0,0)",
+            itemclick="toggle",
+            itemdoubleclick="toggleothers",
             font=dict(size=10),
-        ) if legend_show == 'right' else None,
+        )
+        if legend_show == "right"
+        else None,
     )
 
     # Draw the tissue image beneath the points for a spatial basis (matches

@@ -7,12 +7,21 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from tkinter import BooleanVar, Canvas, StringVar, Text, Tk, Toplevel, filedialog, messagebox
+from tkinter import (
+    BooleanVar,
+    Canvas,
+    StringVar,
+    Text,
+    Tk,
+    Toplevel,
+    filedialog,
+    messagebox,
+)
 from tkinter import ttk
 
 try:
     from PIL import Image, ImageTk
-except Exception: 
+except Exception:
     Image = ImageTk = None
 
 LOGO_PATH = Path(__file__).parent / "assets" / "configguanaco.png"
@@ -22,6 +31,7 @@ MARKER_VISUALIZATION_PLOTS = (
     ("Dotplot", "dotplot"),
     ("Heatmap", "heatmap"),
     ("Violin Plot", "violin"),
+    ("Ridge Plot", "ridge"),
     ("Expression Trend", "expression-trend"),
 )
 
@@ -30,7 +40,6 @@ EXPLORATORY_VISUALIZATION_PLOTS = (
     ("Composition", "stacked-bar"),
     ("PAGA", "paga"),
     ("Volcano Plot", "volcano"),
-    ("Network", "network"),
     ("Ligand–receptor", "ligand-receptor"),
     ("Spatial relationships", "spatial-relationships"),
     ("Peak Browser", "peak-browser"),
@@ -43,14 +52,13 @@ OPTIONAL_PLOTS = MARKER_VISUALIZATION_PLOTS + EXPLORATORY_VISUALIZATION_PLOTS
 DEFAULT_PLOTS = {
     "heatmap",
     "violin",
+    "ridge",
     "split-violin",
     "dotplot",
     "stacked-bar",
     "peak-browser",
     "multiomics-composition",
 }
-
-ORGANISM_OPTIONS = ("human", "mouse", "rat")
 
 # Top-level keys reserved for global config; a dataset cannot use these names.
 RESERVED_NAMES = {"title", "color", "genome", "settings"}
@@ -64,7 +72,14 @@ NOTEBOOK_PANE_MARGIN = 7
 
 
 class CollapsibleSection(ttk.Frame):
-    def __init__(self, parent, title: str, *, open_by_default: bool = False, header_style: str = "Toggle.TLabel"):
+    def __init__(
+        self,
+        parent,
+        title: str,
+        *,
+        open_by_default: bool = False,
+        header_style: str = "Toggle.TLabel",
+    ):
         super().__init__(parent)
         self._title = title
         self._open = open_by_default
@@ -91,19 +106,25 @@ class CollapsibleSection(ttk.Frame):
         self._render_header()
 
 
-def _entry_row(parent, row: int, label: str, variable: StringVar, *, browse=None, example=None):
+def _entry_row(
+    parent, row: int, label: str, variable: StringVar, *, browse=None, example=None
+):
     if example:
         # Field name in normal text, with a small grey example beside it.
         label_cell = ttk.Frame(parent)
         label_cell.grid(row=row, column=0, sticky="w", pady=4)
         ttk.Label(label_cell, text=label).pack(side="left")
-        ttk.Label(label_cell, text=f"  {example}", style="Hint.TLabel").pack(side="left")
+        ttk.Label(label_cell, text=f"  {example}", style="Hint.TLabel").pack(
+            side="left"
+        )
     else:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=4)
     entry = ttk.Entry(parent, textvariable=variable)
     entry.grid(row=row, column=1, sticky="ew", pady=4)
     if browse is not None:
-        ttk.Button(parent, text="Browse", command=browse).grid(row=row, column=2, sticky="e", padx=(8, 0))
+        ttk.Button(parent, text="Browse", command=browse).grid(
+            row=row, column=2, sticky="e", padx=(8, 0)
+        )
     return entry
 
 
@@ -141,7 +162,16 @@ def _split_values(raw: str) -> list[str]:
 
 
 # Cloud/remote URI schemes accepted for sc_data (mirrors guanaco.data.loader).
-_REMOTE_SCHEMES = ("s3://", "gs://", "gcs://", "az://", "abfs://", "abfss://", "http://", "https://")
+_REMOTE_SCHEMES = (
+    "s3://",
+    "gs://",
+    "gcs://",
+    "az://",
+    "abfs://",
+    "abfss://",
+    "http://",
+    "https://",
+)
 
 
 def _is_remote_uri(value: str) -> bool:
@@ -229,7 +259,11 @@ class ViewBlock:
 
         row = 0
         _entry_row(
-            self.frame, row, "Left embedding", self.embedding_left, example="e.g. X_umap"
+            self.frame,
+            row,
+            "Left embedding",
+            self.embedding_left,
+            example="e.g. X_umap",
         )
         row += 1
         _entry_row(
@@ -237,7 +271,11 @@ class ViewBlock:
         )
         row += 1
         _entry_row(
-            self.frame, row, "Right embedding", self.embedding_right, example="e.g. X_umap"
+            self.frame,
+            row,
+            "Right embedding",
+            self.embedding_right,
+            example="e.g. X_umap",
         )
         row += 1
         _entry_row(
@@ -258,7 +296,9 @@ class ViewBlock:
         )
         row += 1
         self.markers_text = _text_box(self.frame, height=2)
-        self.markers_text.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(2, 0))
+        self.markers_text.grid(
+            row=row, column=0, columnspan=3, sticky="ew", pady=(2, 0)
+        )
 
     def to_dict(self) -> dict:
         """Config fragment for this block (empty keys omitted)."""
@@ -295,7 +335,6 @@ class DatasetTab:
         self.description = StringVar()
 
         self.genome = StringVar()
-        self.organism = StringVar(value="human")
         self.atac_names = StringVar()
 
         # Plot choices are populated only after inspecting the selected dataset.
@@ -322,7 +361,9 @@ class DatasetTab:
         basics.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         basics.columnconfigure(1, weight=1)
         _entry_row(basics, 0, "Dataset name *", self.name)
-        self.sc_data_entry = _entry_row(basics, 1, "Data file/URL *", self.sc_data, browse=self._browse_sc_data)
+        self.sc_data_entry = _entry_row(
+            basics, 1, "Data file/URL *", self.sc_data, browse=self._browse_sc_data
+        )
         _entry_row(basics, 2, "Description", self.description)
         # Reference genome is a dataset-wide property (species/assembly), but only
         # peak data (ATAC/ChIP) needs it -- so the row is hidden until something that
@@ -330,19 +371,14 @@ class DatasetTab:
         self._genome_row = ttk.Frame(basics)
         self._genome_row.grid(row=8, column=0, columnspan=3, sticky="ew")
         self._genome_row.columnconfigure(1, weight=1)
-        _entry_row(self._genome_row, 0, "Reference genome", self.genome, example="e.g. hg38 — for ATAC/peak data")
+        _entry_row(
+            self._genome_row,
+            0,
+            "Reference genome",
+            self.genome,
+            example="e.g. hg38 — for ATAC/peak data",
+        )
         self._genome_row.grid_remove()
-        self._organism_row = ttk.Frame(basics)
-        self._organism_row.grid(row=4, column=0, columnspan=3, sticky="ew")
-        self._organism_row.columnconfigure(1, weight=1)
-        ttk.Label(self._organism_row, text="Organism").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Combobox(
-            self._organism_row,
-            textvariable=self.organism,
-            values=ORGANISM_OPTIONS,
-            state="readonly",
-        ).grid(row=0, column=1, sticky="ew", pady=4)
-        self._organism_row.grid_remove()
         ttk.Label(basics, text="Compatible visualizations").grid(
             row=5, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
@@ -353,9 +389,7 @@ class DatasetTab:
             wraplength=560,
         ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(2, 2))
         self._plot_box = ttk.Frame(basics)
-        self._plot_box.grid(
-            row=7, column=0, columnspan=3, sticky="ew", pady=(4, 0)
-        )
+        self._plot_box.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         self._plot_box.columnconfigure(0, weight=1)
         self._render_plot_options()
         # Re-read the modality layout when the data file changes (MuData -> one
@@ -393,17 +427,19 @@ class DatasetTab:
             text="Add bucket URLs to enable the IGV genome browser; leave empty to disable it.",
             style="Hint.TLabel",
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ttk.Label(igv.body, text="Bucket URLs, one per line").grid(row=1, column=0, sticky="nw", pady=4)
+        ttk.Label(igv.body, text="Bucket URLs, one per line").grid(
+            row=1, column=0, sticky="nw", pady=4
+        )
         self.bucket_text = _text_box(igv.body, height=3)
         self.bucket_text.grid(row=1, column=1, sticky="ew", pady=4)
         _entry_row(igv.body, 2, "Track names", self.atac_names)
 
         # Reveal Reference genome only when Peak Browser or IGV is enabled.
-        self.plot_vars["peak-browser"].trace_add("write", lambda *_: self._sync_genome_visibility())
-        self.plot_vars["network"].trace_add("write", lambda *_: self._sync_organism_visibility())
+        self.plot_vars["peak-browser"].trace_add(
+            "write", lambda *_: self._sync_genome_visibility()
+        )
         self.bucket_text.bind("<FocusOut>", lambda _e: self._sync_genome_visibility())
         self._sync_genome_visibility()
-        self._sync_organism_visibility()
 
     def _build_plot_group(self, parent, row, title, plots):
         group = ttk.LabelFrame(parent, text=title, padding=(10, 6))
@@ -455,13 +491,11 @@ class DatasetTab:
         self.plot_status.set(message)
         self._render_plot_options()
         self._sync_genome_visibility()
-        self._sync_organism_visibility()
 
     def _genome_needed(self) -> bool:
         """True when an enabled visualization needs a reference genome."""
-        return (
-            self.plot_vars["peak-browser"].get()
-            or bool(_split_values(self.bucket_text.get("1.0", "end")))
+        return self.plot_vars["peak-browser"].get() or bool(
+            _split_values(self.bucket_text.get("1.0", "end"))
         )
 
     def _sync_genome_visibility(self, *_):
@@ -470,12 +504,6 @@ class DatasetTab:
             self._genome_row.grid()
         else:
             self._genome_row.grid_remove()
-
-    def _sync_organism_visibility(self, *_):
-        if self.plot_vars["network"].get():
-            self._organism_row.grid()
-        else:
-            self._organism_row.grid_remove()
 
     def _rebuild_view_blocks(self, modalities: list[str] | None):
         """(Re)build the Default-Views blocks: one per modality, or a single block."""
@@ -541,7 +569,6 @@ class DatasetTab:
         self.plot_status.set("")
         self._render_plot_options()
         self._sync_genome_visibility()
-        self._sync_organism_visibility()
 
     def _browse_sc_data(self):
         path = filedialog.askopenfilename(
@@ -584,7 +611,9 @@ class DatasetTab:
         else:
             sc_data_path = Path(sc_data).expanduser().resolve()
             if not sc_data_path.exists():
-                raise ValueError(f"Dataset '{name}': file does not exist: {sc_data_path}")
+                raise ValueError(
+                    f"Dataset '{name}': file does not exist: {sc_data_path}"
+                )
             dataset = {"sc_data": str(sc_data_path)}
 
         description = self.description.get().strip()
@@ -604,9 +633,6 @@ class DatasetTab:
                 for _, value in OPTIONAL_PLOTS
                 if value in self._available_plot_keys and self.plot_vars[value].get()
             ]
-        if self.plot_vars["network"].get():
-            dataset["organism"] = self.organism.get().strip() or "human"
-
         # Default views. A single block writes dataset-level keys (default_*, markers);
         # modality blocks write a `modalities` map (each with default_*, markers,
         # gene_annotation).
@@ -633,7 +659,9 @@ class DatasetTab:
             names = _split_values(self.atac_names.get())
             if names:
                 if len(names) != len(bucket_urls):
-                    raise ValueError(f"Dataset '{name}': track names must match the number of bucket URLs.")
+                    raise ValueError(
+                        f"Dataset '{name}': track names must match the number of bucket URLs."
+                    )
                 dataset["ATAC_name"] = names
 
         return name, dataset
@@ -658,7 +686,10 @@ class ConfigWizard:
         # Highlighted primary action button (bold accent text, theme-safe).
         style.configure("Action.TButton", font=("", 13))
         style.configure("Accent.TButton", font=("", 13, "bold"), foreground="#0a7d2c")
-        style.map("Accent.TButton", foreground=[("active", "#0a7d2c"), ("disabled", "#9aa0a6")])
+        style.map(
+            "Accent.TButton",
+            foreground=[("active", "#0a7d2c"), ("disabled", "#9aa0a6")],
+        )
 
         self._logo_img = self._load_logo()
 
@@ -699,7 +730,9 @@ class ConfigWizard:
         container.pack(fill="both", expand=True)
 
         scroll_canvas = Canvas(container, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=scroll_canvas.yview)
+        scrollbar = ttk.Scrollbar(
+            container, orient="vertical", command=scroll_canvas.yview
+        )
         canvas = ttk.Frame(scroll_canvas)
         content_window = scroll_canvas.create_window((0, 0), window=canvas, anchor="nw")
         scroll_canvas.configure(yscrollcommand=scrollbar.set)
@@ -770,7 +803,9 @@ class ConfigWizard:
         ).grid(row=1, column=1, sticky="nw", pady=(2, 0))
 
         # Dataset Settings: header + toolbar + notebook of dataset tabs.
-        self._dataset_title = ttk.Label(canvas, text="Dataset Settings", style="Header.TLabel")
+        self._dataset_title = ttk.Label(
+            canvas, text="Dataset Settings", style="Header.TLabel"
+        )
         self._dataset_title.grid(row=2, column=0, sticky="w", pady=(4, 6))
         datasets_frame = ttk.Frame(canvas)
         datasets_frame.grid(row=3, column=0, sticky="ew", pady=(0, 12))
@@ -778,16 +813,22 @@ class ConfigWizard:
 
         self._dataset_toolbar = ttk.Frame(datasets_frame)
         self._dataset_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(self._dataset_toolbar, text="+ Add Dataset", command=self._add_dataset).pack(side="left")
         ttk.Button(
-            self._dataset_toolbar, text="Remove Current Dataset", command=self._remove_current_dataset
+            self._dataset_toolbar, text="+ Add Dataset", command=self._add_dataset
+        ).pack(side="left")
+        ttk.Button(
+            self._dataset_toolbar,
+            text="Remove Current Dataset",
+            command=self._remove_current_dataset,
         ).pack(side="left", padx=(8, 0))
 
         self.notebook = ttk.Notebook(datasets_frame)
         self.notebook.grid(row=1, column=0, sticky="ew")
 
         # App Settings (global): output + title + runtime options, ordered by importance.
-        runtime = CollapsibleSection(canvas, "App Settings", open_by_default=False, header_style="Header.TLabel")
+        runtime = CollapsibleSection(
+            canvas, "App Settings", open_by_default=False, header_style="Header.TLabel"
+        )
         self._app_section = runtime
         runtime.grid(row=4, column=0, sticky="ew")
         runtime.body.columnconfigure(0, weight=1)
@@ -795,7 +836,9 @@ class ConfigWizard:
         card = ttk.LabelFrame(runtime.body, padding=12)
         card.grid(row=0, column=0, sticky="ew")
         card.columnconfigure(1, weight=1)
-        _entry_row(card, 0, "Config output *", self.config_path, browse=self._browse_config)
+        _entry_row(
+            card, 0, "Config output *", self.config_path, browse=self._browse_config
+        )
         _entry_row(card, 1, "App title", self.title)
         ttk.Label(card, text="Backed mode").grid(row=2, column=0, sticky="w", pady=4)
         ttk.Combobox(
@@ -805,7 +848,9 @@ class ConfigWizard:
             state="readonly",
             width=14,
         ).grid(row=2, column=1, sticky="w", pady=4)
-        ttk.Label(card, text="Embedding backend").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(card, text="Embedding backend").grid(
+            row=3, column=0, sticky="w", pady=4
+        )
         ttk.Combobox(
             card,
             textvariable=self.embedding_backend,
@@ -813,9 +858,13 @@ class ConfigWizard:
             state="readonly",
             width=18,
         ).grid(row=3, column=1, sticky="w", pady=4)
-        self.max_cells_entry = _entry_row(card, 4, "Max cells", self.max_cells, example="(blank = all)")
+        self.max_cells_entry = _entry_row(
+            card, 4, "Max cells", self.max_cells, example="(blank = all)"
+        )
         self.max_cells_hint = ttk.Label(
-            card, text="Ignored in backed mode (all cells served from disk)", style="Hint.TLabel"
+            card,
+            text="Ignored in backed mode (all cells served from disk)",
+            style="Hint.TLabel",
         )
         self.max_cells_hint.grid(row=5, column=1, sticky="w")
         _entry_row(card, 6, "Port", self.port)
@@ -836,8 +885,12 @@ class ConfigWizard:
         self.share_fields = ttk.Frame(card)
         self.share_fields.grid(row=8, column=0, columnspan=2, sticky="ew")
         self.share_fields.columnconfigure(1, weight=1)
-        self.share_user_entry = _entry_row(self.share_fields, 0, "Share username", self.share_username)
-        self.share_pass_entry = _entry_row(self.share_fields, 1, "Share password", self.share_password)
+        self.share_user_entry = _entry_row(
+            self.share_fields, 0, "Share username", self.share_username
+        )
+        self.share_pass_entry = _entry_row(
+            self.share_fields, 1, "Share password", self.share_password
+        )
         self.share_hint = ttk.Label(
             self.share_fields,
             text="Blank password = a random one is generated and shown in the console at launch",
@@ -870,7 +923,9 @@ class ConfigWizard:
         actions = ttk.Frame(canvas)
         self._actions = actions
         actions.grid(row=5, column=0, sticky="ew", pady=(18, 0))
-        ttk.Button(actions, text="Preview JSON", command=self._preview, style="Action.TButton").pack(side="left")
+        ttk.Button(
+            actions, text="Preview JSON", command=self._preview, style="Action.TButton"
+        ).pack(side="left")
         ttk.Button(
             actions,
             text="Save And Launch GUANACO",
@@ -878,7 +933,10 @@ class ConfigWizard:
             style="Accent.TButton",
         ).pack(side="right")
         ttk.Button(
-            actions, text="Save Config", command=lambda: self._save(launch=False), style="Action.TButton"
+            actions,
+            text="Save Config",
+            command=lambda: self._save(launch=False),
+            style="Action.TButton",
         ).pack(side="right", padx=(0, 8))
 
         # Align all major blocks to the notebook's visible pane edge once rendered.
@@ -924,7 +982,11 @@ class ConfigWizard:
 
     def _remove_current_dataset(self):
         if len(self.dataset_tabs) <= 1:
-            messagebox.showinfo("Keep One Dataset", "At least one dataset is required.", parent=self.root)
+            messagebox.showinfo(
+                "Keep One Dataset",
+                "At least one dataset is required.",
+                parent=self.root,
+            )
             return
         current = self.notebook.select()
         for tab in self.dataset_tabs:
@@ -946,7 +1008,9 @@ class ConfigWizard:
         for tab in self.dataset_tabs:
             name, dataset = tab.build_dataset()
             if name in RESERVED_NAMES:
-                raise ValueError(f"Dataset name '{name}' is reserved; choose another name.")
+                raise ValueError(
+                    f"Dataset name '{name}' is reserved; choose another name."
+                )
             if name in datasets:
                 raise ValueError(f"Duplicate dataset name: '{name}'.")
             datasets[name] = dataset
@@ -1013,7 +1077,9 @@ class ConfigWizard:
             self.result = (path, True)
             self.root.destroy()
         else:
-            messagebox.showinfo("Config Saved", f"Saved config to:\n{path}", parent=self.root)
+            messagebox.showinfo(
+                "Config Saved", f"Saved config to:\n{path}", parent=self.root
+            )
             self.result = (path, False)
 
     def run(self) -> tuple[Path, bool] | None:

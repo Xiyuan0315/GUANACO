@@ -64,5 +64,27 @@
       "suggestion": 3
     },
     "scope": "V3 working-tree diff before Dash 4 and multi-omics submission"
+  },
+  {
+    "date": "2026-08-30",
+    "mode": "Architecture Audit",
+    "score": 79,
+    "findings": {
+      "critical": 0,
+      "warning": 4,
+      "suggestion": 1
+    },
+    "scope": "src/guanaco/linking, public linked-view API, registry, and linking tests/examples"
+  },
+  {
+    "date": "2026-08-30",
+    "mode": "Full Sweep",
+    "score": 96,
+    "findings": {
+      "critical": 0,
+      "warning": 1,
+      "suggestion": 1
+    },
+    "scope": "declarative linking package, shared plot style, violin density behavior, public docs, and eight linked-view demos"
   }
 ]

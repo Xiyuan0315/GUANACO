@@ -49,6 +49,21 @@ def test_basic_plot_builds_one_subplot_row_per_gene():
     assert len(fig.data) > 0
 
 
+def test_each_gene_trend_uses_its_own_expression_filter():
+    adata = _pseudotime_adata()
+    pseudotime = adata.obs["pseudotime"].to_numpy()
+    adata.X[:, 0] = np.where(pseudotime < 0.5, 0.2, 1.0)
+    adata.X[:, 1] = np.where(pseudotime < 0.5, 1.0, 0.0)
+
+    single_gene = plot_genes_in_pseudotime(adata, ["GeneA"], min_expr=0.5)
+    multiple_genes = plot_genes_in_pseudotime(adata, ["GeneA", "GeneB"], min_expr=0.5)
+    single_trend = next(trace for trace in single_gene.data if trace.name == "Smoothed")
+    multiple_trend = next(trace for trace in multiple_genes.data if trace.name == "Smoothed")
+
+    np.testing.assert_allclose(single_trend.x, multiple_trend.x)
+    np.testing.assert_allclose(single_trend.y, multiple_trend.y)
+
+
 def test_message_figure_helper_centers_text():
     fig = pseudotime_module._message_figure("hello")
 

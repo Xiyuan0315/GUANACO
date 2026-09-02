@@ -174,7 +174,7 @@ def generate_ligand_receptor_layout(adata, prefix: str):
         "⬇ Download SVG",
         id=f"{prefix}-lr-download-svg",
         n_clicks=0,
-        className="network-download-button network-download-button--overlay",
+        className="lr-download-button lr-download-button--overlay",
     )
     return html.Div(
         [
@@ -194,7 +194,7 @@ def generate_ligand_receptor_layout(adata, prefix: str):
                             ),
                             download_button,
                         ],
-                        className="network-graph-shell lr-linked-panel",
+                        className="lr-graph-shell lr-linked-panel",
                     ),
                     html.Div(
                         dcc.Graph(

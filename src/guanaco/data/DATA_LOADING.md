@@ -166,8 +166,8 @@ If backed reading raises (notably some MuData), it degrades to a full in-memory
 **Annotations** (`obs`/`var`/`obsm`/`uns`) are consumed **directly as pandas/numpy**
 by the plots — e.g. `adata.obsm[key].shape` (`embedding_layout.py:21`),
 `adata.obs[groupby].isin(...)` / `adata.obs.iloc[...]` (`violin1.py`, `heatmap.py`),
-`adata.uns['paga' | 'volcano' | 'grn' | 'spatial']` (`paga.py`, `volcano.py`,
-`grn_demo.py`, `embedding.py`). This is why every loader produces concrete
+`adata.uns['paga' | 'volcano' | 'spatial']` (`paga.py`, `volcano.py`,
+`embedding.py`). This is why every loader produces concrete
 pandas/numpy annotations even when `X` stays lazy.
 
 Several modules branch on `adata.isbacked` / `adata.filename` to choose

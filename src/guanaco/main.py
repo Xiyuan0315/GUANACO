@@ -24,7 +24,10 @@ import muon as mu
 warnings.filterwarnings(
     "ignore", category=FutureWarning, message=".*__version__.*deprecated.*"
 )
-mu.set_options(pull_on_update=False)
+try:
+    mu.set_options(pull_on_update=False)
+except ValueError:
+    pass
 
 _label_cache: dict[tuple[int, int, int], list[str]] = {}
 _multiomics_sources = {}
@@ -119,7 +122,6 @@ for name, dataset in datasets.items():
                     genome_tracks=mod_cfg["genome_tracks"],
                     ref_track=mod_cfg["ref_track"],
                     modality_name=mod,
-                    organism=dataset.organism,
                 )
             if multiomics_source is not None:
                 _multiomics_sources[name] = multiomics_source
@@ -132,7 +134,6 @@ for name, dataset in datasets.items():
                     optional_plot_components=dataset.optional_plot_components,
                     multiomics_source=multiomics_source,
                     modality_name=JOINT_TAB_ID,
-                    organism=dataset.organism,
                 )
             elif unavailable_reason:
                 print(
@@ -156,7 +157,6 @@ for name, dataset in datasets.items():
                 genome_tracks=mod_cfg["genome_tracks"],
                 ref_track=mod_cfg["ref_track"],
                 modality_name="rna",
-                organism=dataset.organism,
             )
     else:
         # Legacy tracks-only datasets use a synthetic genome modality. Explicit
@@ -178,7 +178,6 @@ for name, dataset in datasets.items():
                 ref_track=mod_cfg["ref_track"],
                 has_palette_control=False,
                 modality_name=mod,
-                organism=dataset.organism,
             )
 
 
@@ -258,10 +257,7 @@ def update_anndata_layout(selected_modality, active_tab):
             "genome_tracks": None,
             "ref_track": None,
         }
-    elif (
-        multiomics_source is not None
-        and multiomics_source.supports_embedding_view
-    ):
+    elif multiomics_source is not None and multiomics_source.supports_embedding_view:
         embedding_modalities = [
             modality
             for modality in multiomics_source.modalities
@@ -277,18 +273,14 @@ def update_anndata_layout(selected_modality, active_tab):
             modality_adata = multiomics_source.modality_adata(modality)
             if configured in modality_adata.obs.columns:
                 return configured
-            return multiomics_source.resolve_text_feature(
-                f"{modality}::{configured}"
-            )
+            return multiomics_source.resolve_text_feature(f"{modality}::{configured}")
 
         modality_markers = []
         label_list = []
         mod_cfg = {
             **mod_cfg,
             "scatter_defaults": {
-                "embedding_left": multiomics_source.preferred_embedding(
-                    left_modality
-                ),
+                "embedding_left": multiomics_source.preferred_embedding(left_modality),
                 "embedding_right": multiomics_source.preferred_embedding(
                     right_modality
                 ),
@@ -334,7 +326,6 @@ def update_anndata_layout(selected_modality, active_tab):
         ref_track=mod_cfg["ref_track"],
         multiomics_source=multiomics_source,
         modality_name=selected_modality,
-        organism=dataset.organism,
     )
 
 

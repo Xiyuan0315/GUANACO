@@ -340,8 +340,8 @@ def _(mo):
         **Notes**
         - Same `gc.pl` API as the Jupyter notebook; see `docs/notebook_api.md` for every
           function and parameter, and `docs/marimo_guide.md` for this app.
-        - PAGA and GRN are Cytoscape networks (not Plotly), so they live in the full
-          web app (`guanaco -c config.json`), not here.
+        - PAGA is a Cytoscape graph (not Plotly), so it lives in the full web app
+          (`guanaco -c config.json`), not here.
         """
     )
     return

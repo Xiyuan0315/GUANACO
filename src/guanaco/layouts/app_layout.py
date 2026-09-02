@@ -4,6 +4,7 @@ from guanaco.pages.matrix.layouts.embedding_layout import generate_embedding_plo
 from guanaco.pages.visualizations import generate_visualization_sections
 import muon as mu
 
+
 # tip
 def resize_tip_toast():
     return dbc.Toast(
@@ -38,33 +39,41 @@ def resize_tip_toast():
         },
     )
 
+
 # Footer and footprint
 footprint = html.Div(
     role="presentation",
     style={
-        'backgroundImage': 'url("/assets/footprint.png")',
-        'backgroundRepeat': 'repeat-x',
-        'backgroundPosition': 'left',
-        'backgroundSize': 'contain',
-        'width': '100%',
-        'height': '10px',
-        'margin': '20px 0'
-    }
+        "backgroundImage": 'url("/assets/footprint.png")',
+        "backgroundRepeat": "repeat-x",
+        "backgroundPosition": "left",
+        "backgroundSize": "contain",
+        "width": "100%",
+        "height": "10px",
+        "margin": "20px 0",
+    },
 )
 
 guanaco_footer = html.Footer(
-    html.Div([
-        "This webpage was made using ",
-        html.A("GUANACO", href="https://github.com/Systems-Immunometabolism-Lab/guanaco-viz", target="_blank"),
-        "."
-    ],
-    style={
-        "textAlign": "center",
-        "fontSize": "14px",
-        "padding": "10px",
-        "color": "#6c757d"
-    })
+    html.Div(
+        [
+            "This webpage was made using ",
+            html.A(
+                "GUANACO",
+                href="https://github.com/Systems-Immunometabolism-Lab/guanaco-viz",
+                target="_blank",
+            ),
+            ".",
+        ],
+        style={
+            "textAlign": "center",
+            "fontSize": "14px",
+            "padding": "10px",
+            "color": "#6c757d",
+        },
+    )
 )
+
 
 # Navbar layout
 def navbar(datasets):
@@ -73,20 +82,28 @@ def navbar(datasets):
             dbc.Container(
                 dbc.Row(
                     [
-                        dbc.Col(html.Img(src="/assets/logo.png", alt="GUANACO logo", height="70px"), width="auto", align="center"),
+                        dbc.Col(
+                            html.Img(
+                                src="/assets/logo.png",
+                                alt="GUANACO logo",
+                                height="70px",
+                            ),
+                            width="auto",
+                            align="center",
+                        ),
                         dbc.Col(
                             dbc.NavLink(
                                 "GUANACO",
                                 href="/",
                                 style={
-                                    'fontSize': '36px',
-                                    'fontWeight': 'bold',
-                                    'color': 'white',
-                                    'textDecoration': 'none'
-                                }
+                                    "fontSize": "36px",
+                                    "fontWeight": "bold",
+                                    "color": "white",
+                                    "textDecoration": "none",
+                                },
                             ),
                             width="auto",
-                            align="center"
+                            align="center",
                         ),
                         dbc.Col(width=True),
                         dbc.Col(
@@ -97,35 +114,31 @@ def navbar(datasets):
                                     dbc.Tab(label=dataset.title, tab_id=name)
                                     for name, dataset in datasets.items()
                                 ],
-                                className="dataset-tabs"
+                                className="dataset-tabs",
                             ),
                             width="auto",
-                            className="tabs-align-bottom"
+                            className="tabs-align-bottom",
                         ),
                     ],
                     align="center",
                     justify="between",
-                    className="w-100"
+                    className="w-100",
                 )
             ),
             color="grey",
             dark=True,
-            className="px-3 custom-navbar"
+            className="px-3 custom-navbar",
         ),
-        style={
-            "position": "fixed",
-            "top": 0,
-            "width": "100%",
-            "zIndex": 1000
-        }
+        style={"position": "fixed", "top": 0, "width": "100%", "zIndex": 1000},
     )
+
 
 def description_layout(dataset):
     summary_items = []
-    
+
     # Add description
     summary_items.append(html.P(dataset.description))
-    
+
     # Add AnnData information if available
     if dataset.adata is not None:
         adata = dataset.adata
@@ -140,27 +153,29 @@ def description_layout(dataset):
             for mod_name, mod_adata in adata.mod.items():
                 meta_list.extend([k for k in mod_adata.obs.keys()])
                 summary_items.append(
-                    html.P([
-                        html.B(f"{mod_name.upper()} - N. Variables: "),
-                        f"{mod_adata.n_vars:,}"
-                    ], className="summary-item")
+                    html.P(
+                        [
+                            html.B(f"{mod_name.upper()} - N. Variables: "),
+                            f"{mod_adata.n_vars:,}",
+                        ],
+                        className="summary-item",
+                    )
                 )
         else:
             meta_list.extend([k for k in adata.obs.keys()])
             summary_items.append(
-                html.P([
-                    html.B("N. Variables: "),
-                    f"{adata.n_vars:,}"
-                ], className="summary-item")
+                html.P(
+                    [html.B("N. Variables: "), f"{adata.n_vars:,}"],
+                    className="summary-item",
+                )
             )
         meta_list = list(set(meta_list))  # Remove duplicates
         summary_items.append(
-            html.P([
-                html.B("Metadata: "),
-                ", ".join(meta_list)
-            ], className="summary-item")
+            html.P(
+                [html.B("Metadata: "), ", ".join(meta_list)], className="summary-item"
+            )
         )
-    
+
     # Add genome browser information if available
     modality_track_sets = [
         cfg.get("genome_tracks")
@@ -183,13 +198,8 @@ def description_layout(dataset):
             )
         )
 
-
     # Final layout
-    return html.Div(
-        summary_items,
-        className="content-container"
-    )
-
+    return html.Div(summary_items, className="content-container")
 
 
 def create_modality_tabs(dataset, tab, multiomics_source=None):
@@ -214,9 +224,7 @@ def create_modality_tabs(dataset, tab, multiomics_source=None):
     modalities = list(modalities)
     tabs = [dbc.Tab(label=mod.upper(), tab_id=mod) for mod in modalities]
     if multiomics_source is not None:
-        tabs.append(
-            dbc.Tab(label=multiomics_source.label, tab_id="multiomics")
-        )
+        tabs.append(dbc.Tab(label=multiomics_source.label, tab_id="multiomics"))
 
     # Wrap the tabs in a Card to match style
     return dbc.Container(
@@ -248,7 +256,6 @@ def anndata_layout(
     ref_track=None,
     multiomics_source=None,
     modality_name=None,
-    organism="human",
 ):
     is_unpaired_multiomics = (
         multiomics_source is not None and not multiomics_source.is_paired
@@ -264,7 +271,6 @@ def anndata_layout(
         ref_track=ref_track,
         multiomics_source=multiomics_source,
         modality_name=modality_name,
-        organism=organism,
     )
     children = []
     has_embedding_workspace = (

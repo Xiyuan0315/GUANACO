@@ -4,6 +4,7 @@ from dash import dcc, html
 from guanaco.utils.plot_config import common_config
 from guanaco.utils.ui_helpers import (
     LOADING_OVERLAY_STYLE,
+    graph_flex_container,
     labeled_dropdown,
     responsive_graph_grid,
     switch_checklist,
@@ -36,6 +37,53 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
                 config=common_config,
                 responsive=True,
                 style={"width": "100%", "minHeight": "400px"},
+            ),
+        ],
+        style={"padding": "20px", "marginBottom": "15px"},
+    )
+
+
+def generate_ridge_layout(default_gene_markers, prefix):
+    """Single-gene ridgeline plot driven by the shared annotation and label controls."""
+    genes = list(default_gene_markers or [])
+    gene_selection = labeled_dropdown(
+        "Gene:",
+        f"{prefix}-ridge-gene-selection",
+        [{"label": gene, "value": gene} for gene in genes],
+        value=genes[0] if genes else None,
+        clearable=False,
+        placeholder="Select one of the chosen genes",
+        wrapper_style={"flex": "1", "minWidth": "240px"},
+    )
+    show_box = switch_checklist(f"{prefix}-ridge-show-box", "Show Box Plot")
+
+    return html.Div(
+        [
+            html.Div(
+                [gene_selection, show_box],
+                style={
+                    "display": "flex",
+                    "alignItems": "end",
+                    "gap": "20px",
+                    "marginBottom": "15px",
+                },
+            ),
+            dcc.Store(id=f"{prefix}-ridge-rendered-key"),
+            dcc.Loading(
+                id=f"{prefix}-ridge-loading",
+                type="circle",
+                overlay_style=LOADING_OVERLAY_STYLE,
+                children=[
+                    responsive_graph_grid(
+                        f"{prefix}-ridge-grid",
+                        f"{prefix}-ridge-grid-item",
+                        graph_flex_container(
+                            f"{prefix}-ridge-plot",
+                            container_id=f"{prefix}-ridge-grid-item",
+                            config=common_config,
+                        ),
+                    )
+                ],
             ),
         ],
         style={"padding": "20px", "marginBottom": "15px"},

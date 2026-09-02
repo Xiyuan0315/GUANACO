@@ -28,7 +28,6 @@ def register_visualization_callbacks(
     has_palette_control=None,
     multiomics_source=None,
     modality_name=None,
-    organism="human",
 ):
     """Register all available plots for one modality through one lifecycle."""
     has_igv = bool(genome_tracks) and bool(ref_track)
@@ -73,9 +72,7 @@ def register_visualization_callbacks(
 
     if adata is not None:
         matrix_enabled = tuple(
-            key
-            for key in enabled
-            if key not in {"igv", "multiomics-composition"}
+            key for key in enabled if key not in {"igv", "multiomics-composition"}
         )
         matrix_callbacks(
             app,
@@ -86,7 +83,6 @@ def register_visualization_callbacks(
             color_config=color_config,
             gene_annotation_path=gene_annotation_path,
             multiomics_source=multiomics_source,
-            organism=organism,
         )
 
     if "igv" in enabled:
@@ -96,9 +92,7 @@ def register_visualization_callbacks(
         )
 
         palette_control = (
-            adata is not None
-            if has_palette_control is None
-            else has_palette_control
+            adata is not None if has_palette_control is None else has_palette_control
         )
         register_igv_callbacks(
             app,

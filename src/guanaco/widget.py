@@ -18,17 +18,19 @@ convention, each takes ``show`` (default ``True``: render the figure inline) and
 ``return_fig`` (default ``False``: return the ``plotly.graph_objects.Figure``
 instead of showing it).
 
-PAGA and GRN are Cytoscape networks, so ``gc.pl.paga`` / ``gc.pl.grn`` return an
-``ipycytoscape`` widget instead of a Plotly figure (use ``return_widget`` rather
-than ``return_fig``). They need ``pip install ipycytoscape`` and render in
+PAGA uses Cytoscape, so ``gc.pl.paga`` returns an ``ipycytoscape`` widget
+instead of a Plotly figure (use ``return_widget`` rather than ``return_fig``).
+It needs ``pip install ipycytoscape`` and renders in
 Jupyter/JupyterLab; classic ipywidgets are not currently supported in marimo.
 """
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Literal, Mapping, Sequence
 
 import plotly.graph_objects as go
+
+from guanaco.utils.plot_style import GUANACO_QUALITATIVE, categorical_color_map
 
 
 def _obs_col(obs, col):
@@ -39,8 +41,25 @@ def _obs_col(obs, col):
 # --------------------------------------------------------------------------- #
 # Internal helpers
 # --------------------------------------------------------------------------- #
-def _render(fig: go.Figure, show: bool, return_fig: bool):
-    """scanpy-style output: return the figure, or show it inline."""
+def _render(
+    fig: go.Figure,
+    show: bool,
+    return_fig: bool,
+    *,
+    title: str | None = None,
+    height: str | int | None = None,
+):
+    """Apply notebook presentation, then return or display the figure."""
+    from guanaco.utils.plot_style import apply_guanaco_figure_style
+
+    if isinstance(height, int):
+        fig.update_layout(height=height)
+    elif isinstance(height, str) and height.endswith("px"):
+        try:
+            fig.update_layout(height=int(height[:-2]))
+        except ValueError:
+            pass
+    apply_guanaco_figure_style(fig, title=title)
     if return_fig:
         return fig
     if show:
@@ -88,63 +107,69 @@ def _resolve_basis(adata, basis: str) -> str:
 
 
 def _palette_list(palette, n_colors: int):
-    """Turn a palette name or list into a list of colors (or None)."""
-    if palette is None:
-        return None
-    if isinstance(palette, str):
-        from guanaco.utils.colors import resolve_discrete_palette
-        return resolve_discrete_palette(palette, n_colors)
-    return list(palette)
+    """Resolve a palette through GUANACO's shared categorical color contract."""
+    return list(categorical_color_map(range(n_colors), palette).values())
 
 
 def _label_color_map(adata, groupby: str, palette):
-    """Build a stable {category: color} map for ``groupby`` (or None)."""
-    if palette is None:
-        return None
+    """Build a stable category-to-color map for ``groupby``."""
     labels = sorted(_obs_col(adata.obs, groupby).unique().tolist())
-    colors = _palette_list(palette, len(labels))
-    if not colors:
-        return None
-    return {lab: colors[i % len(colors)] for i, lab in enumerate(labels)}
+    return categorical_color_map(labels, palette)
 
 
 def _all_labels(adata, groupby: str) -> list:
     return sorted(_obs_col(adata.obs, groupby).unique().tolist())
 
 
-def _default_palette() -> list:
-    """A config-independent default categorical palette.
-
-    Some plot functions otherwise fall back to ``guanaco.data.registry``, which
-    loads a config file at import time -- absent in a notebook. Passing this
-    keeps the notebook API self-contained.
-    """
-    try:
-        from guanaco.data.loader import DEFAULT_COLORS
-        return list(DEFAULT_COLORS)
-    except Exception:
-        import plotly.express as px
-        return list(px.colors.qualitative.Plotly)
+_VIEW_CONTROL = frozenset({"adata", "id", "data", "title", "show", "return_fig"})
 
 
-def _effective_palette(palette):
-    """The user's palette, or GUANACO's shared default (the violin/Okabe-Ito set).
+def _linked_spec(plot: str, values: Mapping):
+    """Turn a plotting call into a ViewSpec when the user supplied ``id=``."""
 
-    Routing every categorical plot through this keeps the default colors
-    consistent across the notebook API.
-    """
-    return palette if palette is not None else _default_palette()
+    view_id = values.get("id")
+    source = values.get("data")
+    adata = values.get("adata")
+    if view_id is None:
+        if source is not None:
+            raise TypeError("`data=` is only used with the linked-view `id=` form.")
+        return None
+    if adata is not None:
+        raise TypeError(
+            "Pass data objects to `linked_view()`; linked plot `data=` selects a "
+            "named source."
+        )
+    from guanaco.linking.model import view as build_view
+
+    normalized = {
+        name: value for name, value in values.items() if name not in _VIEW_CONTROL
+    }
+    normalized.update(normalized.pop("kwargs", {}))
+    if normalized.get("height") is None:
+        normalized.pop("height", None)
+    return build_view(
+        plot,
+        id=view_id,
+        data=source,
+        title=values.get("title"),
+        **normalized,
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Embeddings / scatter
 # --------------------------------------------------------------------------- #
 def embedding(
-    adata,
-    basis: str,
-    color: str,
+    adata=None,
+    basis: str | None = None,
+    color: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
+    color_mode: str = "auto",
     transformation: str | None = None,
+    layer: str | None = None,
     order: str | None = None,
     color_map: str = "Viridis",
     palette=None,
@@ -153,6 +178,12 @@ def embedding(
     legend_loc: str = "right margin",
     axis_show: bool = True,
     render_backend: str = "scattergl",
+    img_key: str | None = None,
+    library_id: str | None = None,
+    img_alpha: float = 1.0,
+    color_range: Sequence[float] | None = None,
+    color_midpoint: float | None = None,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -169,89 +200,147 @@ def embedding(
     ``"scattergl"`` if it is missing. Note: a datashader raster has no per-point
     hover/lasso, so use ``"scattergl"`` when you need box/lasso selection.
     """
+    if (linked := _linked_spec("embedding", locals())) is not None:
+        return linked
+    if adata is None or basis is None or color is None:
+        raise TypeError(
+            "`adata`, `basis`, and `color` are required for a standalone plot."
+        )
     from guanaco.pages.matrix.plots.embedding import plot_embedding
 
-    embedding_key = _resolve_basis(adata, basis)
     n_cat = adata.obs[color].nunique() if color in adata.obs.columns else 50
-    legend_show = "on data" if legend_loc == "on data" else "on legend"
     fig = plot_embedding(
         adata=adata,
         adata_full=adata,
         source_adata=adata,
-        embedding_key=embedding_key,
+        embedding_key=_resolve_basis(adata, basis),
         color=color,
-        mode="auto",
+        mode=color_mode,
         transformation=transformation,
+        layer=layer,
         order=order,
         continuous_color_map=color_map,
-        discrete_color_map=_palette_list(_effective_palette(palette), n_cat),
+        discrete_color_map=_palette_list(palette, n_cat),
         marker_size=size,
         opacity=opacity,
-        legend_show=legend_show,
+        legend_show="on data" if legend_loc == "on data" else "on legend",
         axis_show=axis_show,
         render_backend=render_backend,
+        img_key=img_key,
+        library_id=library_id,
+        img_alpha=img_alpha,
     )
-    return _render(fig, show, return_fig)
+    if color_range is not None or color_midpoint is not None:
+        for trace in fig.data:
+            marker = getattr(trace, "marker", None)
+            if marker is None or getattr(marker, "colorscale", None) is None:
+                continue
+            if color_range is not None:
+                marker.cmin, marker.cmax = color_range
+            if color_midpoint is not None:
+                marker.cmid = color_midpoint
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
-def umap(adata, color: str, **kwargs):
+def _named_embedding(plot, basis, adata, color, id, data, kwargs):
+    """Implement the three named embedding aliases once."""
+
+    values = {"adata": adata, "color": color, "id": id, "data": data, **kwargs}
+    if (linked := _linked_spec(plot, values)) is not None:
+        return linked
+    if adata is None or color is None:
+        raise TypeError(f"`adata` and `color` are required for a standalone {plot}.")
+    return embedding(adata, basis=basis, color=color, **kwargs)
+
+
+def umap(adata=None, color: str | None = None, *, id=None, data=None, **kwargs):
     """``embedding`` with ``basis="X_umap"`` (scanpy ``sc.pl.umap``)."""
-    return embedding(adata, "X_umap", color, **kwargs)
+    return _named_embedding("umap", "X_umap", adata, color, id, data, kwargs)
 
 
-def pca(adata, color: str, **kwargs):
+def pca(adata=None, color: str | None = None, *, id=None, data=None, **kwargs):
     """``embedding`` with ``basis="X_pca"`` (scanpy ``sc.pl.pca``)."""
-    return embedding(adata, "X_pca", color, **kwargs)
+    return _named_embedding("pca", "X_pca", adata, color, id, data, kwargs)
 
 
-def tsne(adata, color: str, **kwargs):
+def tsne(adata=None, color: str | None = None, *, id=None, data=None, **kwargs):
     """``embedding`` with ``basis="X_tsne"`` (scanpy ``sc.pl.tsne``)."""
-    return embedding(adata, "X_tsne", color, **kwargs)
+    return _named_embedding("tsne", "X_tsne", adata, color, id, data, kwargs)
+
+
+def spatial(adata=None, color: str | None = None, *, id=None, data=None, **kwargs):
+    """``embedding`` with ``basis="spatial"`` and AnnData tissue-image support."""
+    return _named_embedding("spatial", "spatial", adata, color, id, data, kwargs)
 
 
 def coexpression(
-    adata,
-    basis: str,
-    gene1: str,
-    gene2: str,
+    adata=None,
+    basis: str | None = None,
+    gene1: str | None = None,
+    gene2: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     threshold1: float = 0.5,
     threshold2: float = 0.5,
     transformation: str | None = None,
+    layer: str | None = None,
     size: int = 5,
     opacity: float = 1.0,
+    legend_loc: str = "right margin",
+    axis_show: bool = True,
+    img_key: str | None = None,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
     """Two-gene co-expression on an embedding (cells binned into 4 groups)."""
+    if (linked := _linked_spec("coexpression", locals())) is not None:
+        return linked
+    if adata is None or basis is None or gene1 is None or gene2 is None:
+        raise TypeError(
+            "`adata`, `basis`, `gene1`, and `gene2` are required for a standalone plot."
+        )
     from guanaco.pages.matrix.plots.embedding import plot_coexpression_embedding
 
     fig = plot_coexpression_embedding(
         adata=adata,
+        source_adata=adata,
         embedding_key=_resolve_basis(adata, basis),
         gene1=gene1,
         gene2=gene2,
         threshold1=threshold1,
         threshold2=threshold2,
         transformation=transformation,
+        layer=layer,
         marker_size=size,
         opacity=opacity,
+        legend_show="on data" if legend_loc == "on data" else "right",
+        axis_show=axis_show,
+        img_key=img_key,
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
 # --------------------------------------------------------------------------- #
 # Violin (stacked: genes as rows, grouped by a category)
 # --------------------------------------------------------------------------- #
 def violin(
-    adata,
-    keys,
-    groupby: str,
+    adata=None,
+    keys=None,
+    groupby: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     labels: Sequence | None = None,
     transformation: str | None = None,
+    layer: str | None = None,
     show_box: bool = False,
+    bandwidth: float | None = None,
     palette=None,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -260,41 +349,54 @@ def violin(
     ``labels`` restricts/orders the ``groupby`` categories (default: all).
     ``show_box`` overlays a neutral Median + IQR box.
     """
+    if (linked := _linked_spec("violin", locals())) is not None:
+        return linked
+    if adata is None or keys is None or groupby is None:
+        raise TypeError(
+            "`adata`, `keys`, and `groupby` are required for a standalone violin."
+        )
     from guanaco.pages.matrix.plots.violin1 import plot_violin1
 
-    genes = _as_list(keys)
     used_labels = list(labels) if labels is not None else _all_labels(adata, groupby)
     fig = plot_violin1(
         adata=adata,
-        genes=genes,
+        genes=_as_list(keys),
         groupby=groupby,
         labels=used_labels,
         transformation=transformation,
+        layer=layer,
         show_box=show_box,
-        groupby_label_color_map=_label_color_map(adata, groupby, _effective_palette(palette)),
+        groupby_label_color_map=_label_color_map(adata, groupby, palette),
         adata_obs=adata.obs,
+        bandwidth=bandwidth,
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
-def stacked_violin(adata, var_names, groupby: str, **kwargs):
+def stacked_violin(adata=None, var_names=None, groupby: str | None = None, **kwargs):
     """Alias of :func:`violin` (scanpy ``sc.pl.stacked_violin``)."""
     return violin(adata, var_names, groupby, **kwargs)
 
 
 def violin_grouped(
-    adata,
-    key: str,
-    groupby: str,
+    adata=None,
+    key: str | None = None,
+    groupby: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     groupby2: str | None = None,
     mode: str = "mode1",
     test_method: str = "none",
     transformation: str | None = None,
+    layer: str | None = None,
     show_box: bool = True,
     show_points: bool = False,
+    bandwidth: float | None = None,
     labels: Sequence | None = None,
     palette=None,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -315,19 +417,20 @@ def violin_grouped(
     ``"ttest"``, ``"kw-test"``, ``"anova"``, ``"linear-model"``,
     ``"linear-model-interaction"``, ``"mixed-model"``.
     """
+    if (linked := _linked_spec("violin_grouped", locals())) is not None:
+        return linked
+    if adata is None or key is None or groupby is None:
+        raise TypeError(
+            "`adata`, `key`, and `groupby` are required for a standalone grouped violin."
+        )
     from guanaco.pages.matrix.plots.violin2 import plot_violin2_new
 
-    # Same meta2/mode handling as the web callback.
-    meta2 = None if mode == "mode1" else groupby2
-    if meta2 == "none":
-        meta2 = None
+    meta2 = None if mode == "mode1" or groupby2 == "none" else groupby2
     if mode in ("mode2", "mode3", "mode4") and meta2 is None:
         raise ValueError(f"mode '{mode}' requires `groupby2`.")
-
     n_colors = _obs_col(adata.obs, groupby).nunique()
     if meta2:
         n_colors = max(n_colors, _obs_col(adata.obs, meta2).nunique())
-
     fig = plot_violin2_new(
         adata,
         key=key,
@@ -335,34 +438,50 @@ def violin_grouped(
         meta2=meta2,
         mode=mode,
         transformation=transformation,
+        layer=layer,
         show_box=show_box,
         show_points=show_points,
         test_method=test_method,
         labels=list(labels) if labels is not None else None,
+        bandwidth=bandwidth,
         color_map=None,
-        palette=_palette_list(_effective_palette(palette), n_colors),
+        palette=_palette_list(palette, n_colors),
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
 # --------------------------------------------------------------------------- #
 # Heatmap
 # --------------------------------------------------------------------------- #
 def heatmap(
-    adata,
-    var_names,
-    groupby: str,
+    adata=None,
+    var_names=None,
+    groupby: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     groupby2: str | None = None,
     labels: Sequence | None = None,
     log: bool = False,
     z_score: bool = False,
     color_map: str = "Viridis",
     transformation: str | None = None,
+    standardization: str | None = None,
+    layer: str | None = None,
+    max_cells: int = 10000,
+    n_bins: int = 4000,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
     """Expression heatmap of ``var_names`` grouped by ``groupby`` (scanpy ``sc.pl.heatmap``)."""
+    if (linked := _linked_spec("heatmap", locals())) is not None:
+        return linked
+    if adata is None or var_names is None or groupby is None:
+        raise TypeError(
+            "`adata`, `var_names`, and `groupby` are required for a standalone heatmap."
+        )
     from guanaco.pages.matrix.plots.heatmap import plot_unified_heatmap
 
     fig = plot_unified_heatmap(
@@ -375,10 +494,14 @@ def heatmap(
         z_score=z_score,
         color_map=color_map,
         transformation=transformation,
+        standardization=standardization,
+        layer=layer,
+        max_cells=max_cells,
+        n_bins=n_bins,
         adata_obs=adata.obs,
-        color_config=_default_palette(),
+        color_config=list(GUANACO_QUALITATIVE),
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
 # --------------------------------------------------------------------------- #
@@ -390,12 +513,15 @@ def _dot_matrix(
     groupby,
     *,
     plot_type,
+    title,
     labels,
     color_map,
     transformation,
     standardization,
+    layer,
     cluster,
     transpose,
+    height,
     show,
     return_fig,
 ):
@@ -409,25 +535,31 @@ def _dot_matrix(
         selected_labels=used_labels,
         transformation=transformation,
         standardization=standardization,
+        layer=layer,
         color_map=color_map,
         plot_type=plot_type,
         cluster=cluster,
         transpose=transpose,
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
 def dotplot(
-    adata,
-    var_names,
-    groupby: str,
+    adata=None,
+    var_names=None,
+    groupby: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     labels: Sequence | None = None,
     color_map: str = "Viridis",
     transformation: str | None = None,
     standardization: str | None = None,
+    layer: str | None = None,
     cluster: str = "none",
     transpose: bool = False,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -435,25 +567,47 @@ def dotplot(
 
     Dot color = mean expression, dot size = fraction of cells expressing.
     """
+    if (linked := _linked_spec("dotplot", locals())) is not None:
+        return linked
+    if adata is None or var_names is None or groupby is None:
+        raise TypeError(
+            "`adata`, `var_names`, and `groupby` are required for a standalone dotplot."
+        )
     return _dot_matrix(
-        adata, var_names, groupby, plot_type="dotplot",
-        labels=labels, color_map=color_map, transformation=transformation,
-        standardization=standardization, cluster=cluster, transpose=transpose,
-        show=show, return_fig=return_fig,
+        adata,
+        var_names,
+        groupby,
+        plot_type="dotplot",
+        title=title,
+        labels=labels,
+        color_map=color_map,
+        transformation=transformation,
+        standardization=standardization,
+        layer=layer,
+        cluster=cluster,
+        transpose=transpose,
+        height=height,
+        show=show,
+        return_fig=return_fig,
     )
 
 
 def matrixplot(
-    adata,
-    var_names,
-    groupby: str,
+    adata=None,
+    var_names=None,
+    groupby: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     labels: Sequence | None = None,
     color_map: str = "Viridis",
     transformation: str | None = None,
     standardization: str | None = None,
+    layer: str | None = None,
     cluster: str = "none",
     transpose: bool = False,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -465,11 +619,28 @@ def matrixplot(
     ``standardization`` scales the means: ``None`` / ``"var"`` (per gene) /
     ``"group"`` (per group). ``transpose`` swaps the gene/group axes.
     """
+    if (linked := _linked_spec("matrixplot", locals())) is not None:
+        return linked
+    if adata is None or var_names is None or groupby is None:
+        raise TypeError(
+            "`adata`, `var_names`, and `groupby` are required for a standalone matrixplot."
+        )
     return _dot_matrix(
-        adata, var_names, groupby, plot_type="matrixplot",
-        labels=labels, color_map=color_map, transformation=transformation,
-        standardization=standardization, cluster=cluster, transpose=transpose,
-        show=show, return_fig=return_fig,
+        adata,
+        var_names,
+        groupby,
+        plot_type="matrixplot",
+        title=title,
+        labels=labels,
+        color_map=color_map,
+        transformation=transformation,
+        standardization=standardization,
+        layer=layer,
+        cluster=cluster,
+        transpose=transpose,
+        height=height,
+        show=show,
+        return_fig=return_fig,
     )
 
 
@@ -477,13 +648,17 @@ def matrixplot(
 # Stacked bar (composition)
 # --------------------------------------------------------------------------- #
 def stacked_bar(
-    adata,
-    x: str,
-    color: str,
+    adata=None,
+    x: str | None = None,
+    color: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     normalize: str | bool = "proportion",
     x_order: Sequence | None = None,
     palette=None,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -491,6 +666,12 @@ def stacked_bar(
 
     ``normalize`` -> proportion ("proportion"/"prop"/True) or raw counts.
     """
+    if (linked := _linked_spec("stacked_bar", locals())) is not None:
+        return linked
+    if adata is None or x is None or color is None:
+        raise TypeError(
+            "`adata`, `x`, and `color` are required for a standalone stacked bar."
+        )
     from guanaco.pages.matrix.plots.stacked_bar import plot_stacked_bar
 
     norm = "prop" if normalize in ("proportion", "prop", True) else "count"
@@ -499,31 +680,44 @@ def stacked_bar(
         y_meta=color,
         norm=norm,
         adata=adata,
-        color_map=_label_color_map(adata, color, _effective_palette(palette)),
+        color_map=_label_color_map(adata, color, palette),
         x_order=list(x_order) if x_order is not None else None,
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
 # --------------------------------------------------------------------------- #
 # Expression trend along pseudotime
 # --------------------------------------------------------------------------- #
 def pseudotime(
-    adata,
-    genes,
+    adata=None,
+    genes=None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     pseudotime_key: str = "pseudotime",
     groupby: str | None = None,
     min_expr: float = 0.5,
     transformation: str = "none",
+    layer: str | None = None,
+    size: int = 3,
+    opacity: float = 0.6,
     palette=None,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
     """Smoothed gene-expression trend along a pseudotime in ``obs``."""
+    if (linked := _linked_spec("pseudotime", locals())) is not None:
+        return linked
+    if adata is None or genes is None:
+        raise TypeError(
+            "`adata` and `genes` are required for a standalone pseudotime plot."
+        )
     from guanaco.pages.matrix.plots.pseudotime import plot_genes_in_pseudotime
 
-    color_map = _label_color_map(adata, groupby, _effective_palette(palette)) if groupby else None
+    color_map = _label_color_map(adata, groupby, palette) if groupby else None
     fig = plot_genes_in_pseudotime(
         adata=adata,
         genes=_as_list(genes),
@@ -531,9 +725,12 @@ def pseudotime(
         groupby=groupby,
         min_expr=min_expr,
         transformation=transformation,
+        layer=layer,
         color_map=color_map,
+        marker_size=size,
+        opacity=opacity,
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
 # --------------------------------------------------------------------------- #
@@ -579,6 +776,7 @@ def peak_browser(
     adata,
     region: "str | dict | None" = None,
     *,
+    title: str | None = None,
     groupby: str | None = None,
     labels=None,
     metric: str = "mean",
@@ -635,7 +833,7 @@ def peak_browser(
     color_map = None
     if groupby and groupby in adata.obs.columns:
         group_order = _all_labels(adata, groupby)
-        color_map = _label_color_map(adata, groupby, _effective_palette(palette))
+        color_map = _label_color_map(adata, groupby, palette)
 
     payload = compute_atac_signal(
         adata,
@@ -653,7 +851,9 @@ def peak_browser(
         from guanaco.pages.matrix.plots.gene_annotation import query_gene_models
 
         r = payload["region"]
-        gene_models = query_gene_models(gene_index, str(r["chrom"]), int(r["start"]), int(r["end"]))
+        gene_models = query_gene_models(
+            gene_index, str(r["chrom"]), int(r["start"]), int(r["end"])
+        )
 
     fig = plot_atac_browser(
         payload,
@@ -661,20 +861,24 @@ def peak_browser(
         color_map=color_map,
         y_mode=y_mode,
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, show, return_fig, title=title)
 
 
 # --------------------------------------------------------------------------- #
 # Volcano (from precomputed DE in adata.uns)
 # --------------------------------------------------------------------------- #
 def volcano(
-    adata,
+    adata=None,
     group: str | None = None,
     *,
+    id: str | None = None,
+    data=None,
+    title: str | None = None,
     x_field: str = "logfoldchange",
     padj_threshold: float = 0.05,
     x_threshold: float = 1.0,
     top_n: int = 12,
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -682,6 +886,10 @@ def volcano(
 
     ``group`` selects the comparison/entry; defaults to the first available.
     """
+    if (linked := _linked_spec("volcano", locals())) is not None:
+        return linked
+    if adata is None:
+        raise TypeError("`adata` is required for a standalone volcano plot.")
     from guanaco.pages.matrix.plots.volcano import load_volcano_payload, plot_volcano
 
     entries = load_volcano_payload(adata)["entries"]
@@ -697,11 +905,11 @@ def volcano(
         x_threshold=x_threshold,
         top_n=top_n,
     )
-    return _render(fig, show, return_fig)
+    return _render(fig, title=title, height=height, show=show, return_fig=return_fig)
 
 
 # --------------------------------------------------------------------------- #
-# Cytoscape networks (PAGA, GRN) -- interactive ipycytoscape widgets (Jupyter)
+# PAGA Cytoscape rendering -- interactive ipycytoscape widgets (Jupyter)
 # --------------------------------------------------------------------------- #
 def _cytoscape_legend_html(legend) -> str:
     """A small HTML legend (color swatches or a continuous ramp) for the widget."""
@@ -709,7 +917,11 @@ def _cytoscape_legend_html(legend) -> str:
         return ""
     title = legend.get("title") or ""
     if legend.get("kind") == "continuous":
-        vmin, vmax, stops = legend.get("vmin"), legend.get("vmax"), legend.get("stops") or []
+        vmin, vmax, stops = (
+            legend.get("vmin"),
+            legend.get("vmax"),
+            legend.get("stops") or [],
+        )
         if vmin is None or not stops:
             body = "<div style='color:#6B7280'>no finite values</div>"
         else:
@@ -793,13 +1005,17 @@ def _cytoscape_html(graph, *, height: int = 560) -> str:
         "<body><div id='wrap'><div id='cy'></div>"
         "<div id='legend'>" + legend_html + "</div></div><script>"
         "var cy=cytoscape({container:document.getElementById('cy'),"
-        "elements:" + _js(graph["elements"]) + ",style:" + _js(graph["stylesheet"])
-        + ",layout:" + _js(graph.get("layout", {"name": "cose"}))
+        "elements:"
+        + _js(graph["elements"])
+        + ",style:"
+        + _js(graph["stylesheet"])
+        + ",layout:"
+        + _js(graph.get("layout", {"name": "cose"}))
         + ",minZoom:0.2,maxZoom:3});</script></body></html>"
     )
     srcdoc = doc.replace("&", "&amp;").replace('"', "&quot;")
     return (
-        "<iframe sandbox='allow-scripts' srcdoc=\"" + srcdoc + "\" "
+        "<iframe sandbox='allow-scripts' srcdoc=\"" + srcdoc + '" '
         "style='width:100%;height:" + str(height + 24) + "px;border:1px solid #e5e7eb;"
         "border-radius:6px;'></iframe>"
     )
@@ -817,13 +1033,15 @@ def _render_cytoscape(graph, *, show, return_widget, renderer="widget"):
     if renderer == "html":
         from IPython.display import HTML
 
-        return _show_or_return(HTML(_cytoscape_html(graph)), show=show, return_widget=return_widget)
+        return _show_or_return(
+            HTML(_cytoscape_html(graph)), show=show, return_widget=return_widget
+        )
 
     try:
         import ipycytoscape
     except ImportError as exc:  # optional dependency
         raise ImportError(
-            "PAGA/GRN networks in notebooks need ipycytoscape. "
+            "PAGA in notebooks needs ipycytoscape. "
             "Install it with `pip install ipycytoscape` (Jupyter/JupyterLab)."
         ) from exc
 
@@ -841,7 +1059,9 @@ def _render_cytoscape(graph, *, show, return_widget, renderer="widget"):
     # data() mappers) we feed the Dash component, so it transfers unchanged.
     widget.set_style(graph["stylesheet"])
     layout = graph.get("layout", {"name": "cose"})
-    widget.set_layout(name=layout.get("name", "cose"), padding=layout.get("padding", 40))
+    widget.set_layout(
+        name=layout.get("name", "cose"), padding=layout.get("padding", 40)
+    )
 
     # Hover a node to see its composition / value (the Dash app's side panel).
     if any("hover_text" in n.get("data", {}) for n in nodes):
@@ -861,47 +1081,13 @@ def _render_cytoscape(graph, *, show, return_widget, renderer="widget"):
             widget.layout.min_height = "540px"
             net = W.Box([widget], layout=W.Layout(flex="1 1 auto", min_width="0"))
             side = W.HTML(value=legend_html, layout=W.Layout(flex="0 0 auto"))
-            rendered = W.HBox([net, side], layout=W.Layout(align_items="stretch", width="100%"))
+            rendered = W.HBox(
+                [net, side], layout=W.Layout(align_items="stretch", width="100%")
+            )
         except Exception:
             rendered = widget
 
     return _show_or_return(rendered, show=show, return_widget=return_widget)
-
-
-def grn(
-    adata,
-    *,
-    context: str = "All",
-    edge_threshold: float | None = None,
-    layout: str = "cose",
-    node_font_size: int = 16,
-    renderer: str = "widget",
-    show: bool = True,
-    return_widget: bool = False,
-):
-    """Gene-regulatory-network graph as an interactive cytoscape network.
-
-    Reads ``adata.uns['grn']`` (columns ``source``/``target``/``regulation``,
-    optional ``weight`` and a context column). Needs ``pip install ipycytoscape``.
-
-    ``renderer="widget"`` (default) is an interactive ipycytoscape widget (live
-    Jupyter/JupyterLab). ``renderer="html"`` is a self-contained cytoscape.js
-    iframe that also shows up in a **static, offline HTML export** of the notebook
-    (use this when you `nbconvert --to html`). ``context`` filters to one
-    cell-type/condition ("All" = every context); ``edge_threshold`` hides weak
-    edges; ``layout`` is any cytoscape.js layout ("cose", "circle", "concentric",
-    "breadthfirst"); ``node_font_size`` sets the gene-label size.
-    """
-    from guanaco.pages.matrix.plots.grn_demo import grn_graph
-
-    graph = grn_graph(
-        adata,
-        selected_context=context,
-        edge_threshold=edge_threshold,
-        layout_name=layout,
-        node_font_size=node_font_size,
-    )
-    return _render_cytoscape(graph, show=show, return_widget=return_widget, renderer=renderer)
 
 
 def paga(
@@ -949,7 +1135,84 @@ def paga(
         edge_threshold=edge_threshold,
         node_font_size=node_font_size,
     )
-    return _render_cytoscape(graph, show=show, return_widget=return_widget, renderer=renderer)
+    return _render_cytoscape(
+        graph, show=show, return_widget=return_widget, renderer=renderer
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Declarative linked views
+# --------------------------------------------------------------------------- #
+def view(
+    plot: str,
+    id: str,
+    data=None,
+    title: str | None = None,
+    **options,
+):
+    """Describe one plot in a :func:`linked_view` workspace."""
+
+    from guanaco.linking import view as build_view
+
+    return build_view(plot, id=id, data=data, title=title, **options)
+
+
+def link(
+    source: str,
+    target: str,
+    *,
+    by: Literal["cell", "feature"] | None = None,
+    action: Literal["highlight", "filter"] | None = None,
+    key: str | None = None,
+):
+    """Connect two views by their DataFrame, cell, or feature index.
+
+    Omit ``by`` for AnnData-to-AnnData cell links and DataFrame-to-DataFrame
+    row links. Cross-container links declare ``by="cell"`` or
+    ``by="feature"``. Cell links highlight by default; row links filter;
+    feature links update the target's feature context. ``key`` names a shared
+    table column containing the logical ID; for mixed table/AnnData links it
+    maps table rows to native ``obs_names`` or ``var_names``. The DataFrame
+    index remains the unique atomic row ID.
+    """
+
+    from guanaco.linking import link as build_link
+
+    return build_link(source, target, by=by, action=action, key=key)
+
+
+def linked_view(
+    data,
+    *,
+    views: Sequence,
+    links: Sequence,
+    layout: Literal["overview-detail", "grid", "column"] = "overview-detail",
+    registry=None,
+    prefix: str | None = None,
+    title: str = "GUANACO Linked View",
+):
+    """Compile user-selected plots and biological links into a Dash workspace."""
+
+    from guanaco.linking import linked_view as build_linked_view
+
+    return build_linked_view(
+        data,
+        views=views,
+        links=links,
+        layout=layout,
+        registry=registry,
+        prefix=prefix,
+        title=title,
+    )
+
+
+def linked_plot_types(plot: str | None = None):
+    """Describe built-in linked plots, optionally returning just one contract."""
+
+    from guanaco.linking import default_plot_registry
+
+    registry = default_plot_registry()
+    return registry.contract(plot) if plot is not None else registry.contracts()
 
 
 __all__ = [
@@ -968,6 +1231,9 @@ __all__ = [
     "pseudotime",
     "peak_browser",
     "volcano",
-    "grn",
     "paga",
+    "view",
+    "link",
+    "linked_view",
+    "linked_plot_types",
 ]
