@@ -6,6 +6,7 @@ from dash.exceptions import PreventUpdate
 
 from guanaco.pages.matrix.plots import dotmatrix as dotmatrix_module
 from guanaco.pages.matrix.plots.dotmatrix import plot_dot_matrix
+from guanaco.utils import gene_extraction_utils as genes
 
 
 def _dot_adata(n_obs=12):
@@ -23,6 +24,32 @@ def _dot_adata(n_obs=12):
 def test_no_valid_genes_raises_prevent_update():
     with pytest.raises(PreventUpdate):
         plot_dot_matrix(_dot_adata(), ["Missing"], "cell_type", selected_labels=None)
+
+
+@pytest.mark.parametrize("backed", [False, True])
+def test_disk_and_lazy_dotplot_reuses_gene_reads_for_style_changes(monkeypatch, tmp_path, backed):
+    adata = _dot_adata()
+    if backed:
+        from anndata import read_h5ad
+        path = tmp_path / "dot.h5ad"
+        adata.write_h5ad(path)
+        adata = read_h5ad(path, backed="r")
+    else:
+        da = pytest.importorskip("dask.array")
+        adata.X = da.from_array(adata.X, chunks=(6, 1))
+    monkeypatch.setattr(genes, "_gene_cache", genes.GeneExpressionCache())
+    first = plot_dot_matrix(adata, adata.var_names.tolist(), "cell_type", None)
+
+    def forbid(*args, **kwargs):
+        raise AssertionError("Style changes must not reread cached disk/cloud columns")
+
+    monkeypatch.setattr(genes, "_compute_gene_block", forbid)
+    try:
+        second = plot_dot_matrix(adata, adata.var_names.tolist(), "cell_type", None, color_map="Plasma")
+        np.testing.assert_allclose(first.data[0].marker.color, second.data[0].marker.color)
+    finally:
+        if backed:
+            adata.file.close()
 
 
 def test_dotplot_builds_scatter_with_one_marker_per_group_gene_pair():

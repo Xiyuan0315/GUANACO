@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from dash import Input, Output, State, no_update
 
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 from guanaco.pages.matrix.plots.cross_modal_concordance import (
     GROUP_CORRELATION,
     RELATIVE_SKEW,

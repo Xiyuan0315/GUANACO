@@ -63,6 +63,7 @@ from guanaco.pages.matrix.callbacks.cross_modal_concordance_callbacks import (
 from guanaco.pages.matrix.plots.atac_browser import has_genomic_peak_features
 from guanaco.utils.colors import discrete_palette_config
 from guanaco.utils.obs_utils import (
+    obs_col,
     SELECTION_GROUP,
     SELECTION_GROUP_LABEL,
     SELECTION_LABELS,
@@ -71,7 +72,6 @@ from guanaco.utils.obs_utils import (
 )
 from guanaco.utils.search import ranked_substring_matches
 from guanaco.data.registry import color_config as _default_color_config
-from guanaco.data.loader import obs_col
 
 warnings.filterwarnings("ignore", message=".*observed=False.*")
 

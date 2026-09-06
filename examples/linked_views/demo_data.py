@@ -363,6 +363,70 @@ def load_pbmc_mudata_demo(
     return result, rna_features[0], protein_features[0], selected
 
 
+def load_pbmc_peak_link_demo(
+    path: str | Path | None = None,
+):
+    """Load PBMC RNA/ATAC modalities for a gene-to-peak linked-view demo.
+
+    The file is opened backed so the 87k-feature ATAC matrix does not need to be
+    copied into memory. The returned MuData object must stay alive while the two
+    modality views are used because it owns the backed file handle.
+    """
+
+    repository = Path(__file__).resolve().parents[2]
+    selected = _first_existing(
+        path,
+        "GUANACO_PBMC_ATAC_H5MU",
+        [
+            repository / "data" / "PBMC.h5mu",
+            Path("/Users/xiyuanzhang/Documents/GUANACO_v2/data/PBMC.h5mu"),
+        ],
+    )
+    if selected is None:
+        raise FileNotFoundError(
+            "PBMC.h5mu is required for this demo. Pass its path explicitly or set "
+            "GUANACO_PBMC_ATAC_H5MU."
+        )
+
+    import mudata as md
+
+    mdata = md.read_h5mu(selected, backed="r")
+    try:
+        rna = mdata.mod["rna"]
+        atac = mdata.mod["atac"]
+    except KeyError as error:
+        mdata.file.close()
+        raise ValueError("PBMC.h5mu must contain `rna` and `atac` modalities.") from error
+    if not rna.obs_names.equals(atac.obs_names):
+        mdata.file.close()
+        raise ValueError("PBMC RNA and ATAC cell indices do not match.")
+
+    labels = mdata.obs.get("CellType")
+    if labels is None:
+        raise ValueError("PBMC.h5mu must contain a `CellType` observation column.")
+    labels = labels.astype(str).reindex(rna.obs_names)
+    rna.obs["cell_type"] = labels.to_numpy()
+    atac.obs["cell_type"] = labels.to_numpy()
+
+    genes = [
+        gene
+        for gene in ("CD4", "IL7R", "LTB", "CCR7", "MS4A1", "NKG7", "LYZ")
+        if gene in rna.var_names
+    ]
+    if not genes:
+        mdata.file.close()
+        raise ValueError("PBMC RNA modality contains none of the demo genes.")
+    annotation = _first_existing(
+        None,
+        "GUANACO_GENE_ANNOTATION",
+        [
+            repository / "data" / "gencode.v50.basic.annotation.gtf.gz",
+            Path("/Users/xiyuanzhang/Documents/GUANACO_v2/data/gencode.v50.basic.annotation.gtf.gz"),
+        ],
+    )
+    return mdata, rna, atac, genes, annotation, selected
+
+
 def _fallback_liana(seed: int = 811) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     groups = ("NK", "B", "Mono", "CD4 T", "CD8 T", "DC")
@@ -809,6 +873,7 @@ __all__ = [
     "load_liana_long",
     "load_pbmc_cd4_relationship",
     "load_pbmc_mudata_demo",
+    "load_pbmc_peak_link_demo",
     "load_spatial_relationship_demo",
     "make_external_cell_table",
     "make_pathway_demo",

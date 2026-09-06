@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy.sparse import issparse
+from guanaco.utils.gene_extraction_utils import densify_matrix
 
 
 _EXACT_EMBEDDING_NAMES = {
@@ -56,11 +56,7 @@ def embedding_to_numpy(values) -> np.ndarray:
     """Materialize dense or sparse embedding coordinates as a 2D array."""
     if hasattr(values, "to_memory"):
         values = values.to_memory()
-    if issparse(values):
-        values = values.toarray()
-    elif hasattr(values, "compute"):
-        values = values.compute()
-    array = np.asarray(values)
+    array = densify_matrix(values)
     if array.ndim != 2 or array.shape[1] < 2:
         raise ValueError("Embedding coordinates must be a two-dimensional matrix.")
     return array

@@ -2,7 +2,8 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import dcc, html
 
-from guanaco.data.loader import get_discrete_labels, obs_col
+from guanaco.data.loader import get_discrete_labels
+from guanaco.utils.obs_utils import obs_col
 from guanaco.utils.colors import (
     DEFAULT_DISCRETE_COLORMAP,
     continuous_colormap_options,

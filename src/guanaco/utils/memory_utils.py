@@ -1,4 +1,4 @@
-"""Memory optimization utilities for Guanaco."""
+"""Legacy memory helpers; new data access uses gene_extraction_utils / data.loader."""
 
 import gc
 import numpy as np
@@ -7,6 +7,8 @@ from functools import wraps
 import psutil
 import os
 
+from guanaco.utils.gene_extraction_utils import extract_gene_expression
+
 def get_memory_usage():
     """Get current memory usage in MB."""
     process = psutil.Process(os.getpid())
@@ -14,11 +16,6 @@ def get_memory_usage():
 
 def sparse_safe_slice(matrix, indices, axis=0):
     """Efficiently slice sparse matrix without converting to dense."""
-    if sparse.issparse(matrix):
-        if axis == 0:
-            return matrix[indices, :]
-        else:
-            return matrix[:, indices]
     return matrix[indices] if axis == 0 else matrix[:, indices]
 
 def sparse_to_dense_batched(sparse_matrix, batch_size=1000):
@@ -36,14 +33,9 @@ def sparse_to_dense_batched(sparse_matrix, batch_size=1000):
     return result
 
 def memory_efficient_gene_expression(adata, gene_name, transformation=None):
-    """Extract gene expression with memory optimization."""
-    gene_idx = adata.var_names.get_loc(gene_name)
-    
-    if sparse.issparse(adata.X):
-        # Work with sparse column directly
-        gene_expr = adata.X[:, gene_idx].toarray().flatten()
-    else:
-        gene_expr = adata.X[:, gene_idx]
+    """Compatibility wrapper preserving source dtype and legacy transformations."""
+    gene_expr = extract_gene_expression(adata, gene_name, use_cache=False, dtype=None)
+    # Legacy z-scores use population std, no clipping, and keep constants unchanged.
     
     if transformation == 'log':
         gene_expr = np.log1p(gene_expr)
@@ -81,18 +73,6 @@ class LazyAnnData:
         self.max_cells = max_cells
         self.seed = seed
         self._adata = None
-        self._metadata = None
-    
-    def _load_metadata(self):
-        """Load only metadata without the full matrix."""
-        import h5py
-        with h5py.File(self.file_path, 'r') as f:
-            self._metadata = {
-                'n_obs': f['X'].shape[0],
-                'n_vars': f['X'].shape[1],
-                'obs_names': list(f['obs']['_index'][:].astype(str)),
-                'var_names': list(f['var']['_index'][:].astype(str))
-            }
     
     @property
     def adata(self):

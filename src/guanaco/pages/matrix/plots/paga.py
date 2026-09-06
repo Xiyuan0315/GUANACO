@@ -13,7 +13,7 @@ except Exception:
 
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import extract_gene_expression
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 
 
 MAX_RENDERED_CYTOSCAPE_PIE_SLICES = 16

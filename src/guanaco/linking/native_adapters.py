@@ -22,6 +22,13 @@ from guanaco.pages.matrix.plots.embedding import (
     plot_coexpression_embedding,
     plot_embedding,
 )
+from guanaco.pages.matrix.plots.atac_browser import (
+    compute_atac_signal,
+    default_region,
+    has_genomic_peak_features,
+    parse_locus,
+    plot_atac_browser,
+)
 from guanaco.pages.matrix.plots.heatmap import plot_unified_heatmap
 from guanaco.pages.matrix.plots.pseudotime import plot_genes_in_pseudotime
 from guanaco.pages.matrix.plots.stacked_bar import plot_stacked_bar
@@ -150,6 +157,29 @@ def _features(
 def _valid_features(adata: Any, values: Sequence[str]) -> list[str]:
     available = set(map(str, adata.var_names))
     return [str(value) for value in values if str(value) in available]
+
+
+def _peak_region(adata: Any, value: Any, gene_index: Any) -> dict[str, Any]:
+    """Resolve a browser region from a locus or a gene feature context."""
+
+    if value is None:
+        return default_region(adata)
+    if isinstance(value, Mapping):
+        return dict(value)
+    parsed = parse_locus(str(value))
+    if parsed is not None:
+        chrom, start, end = parsed
+        return {"chrom": chrom, "start": start, "end": end}
+    if gene_index is None:
+        raise ValueError(
+            f"Cannot resolve gene {value!r}; pass `gene_annotation` to the peak browser."
+        )
+    from guanaco.pages.matrix.plots.gene_annotation import find_gene_region
+
+    region = find_gene_region(gene_index, str(value))
+    if region is None:
+        raise ValueError(f"Gene {value!r} was not found in the annotation.")
+    return region
 
 
 def _feature_data(
@@ -746,6 +776,89 @@ class HeatmapAdapter(PlotAdapter):
         return _decode(payload, features=lambda point: point.get("y"))
 
 
+class PeakBrowserAdapter(PlotAdapter):
+    """ATAC peak browser that accepts a gene or locus as feature context."""
+
+    events = CLICK_EVENT
+    emits = frozenset({"feature"})
+    accepts = frozenset({"feature"})
+    context_axes = frozenset({"feature"})
+
+    def validate(self, spec, store):
+        adata = _source(spec, store).data
+        if not has_genomic_peak_features(adata):
+            raise ValueError(
+                f"View {spec.id!r} requires genomic peak features in `var_names` "
+                "or `var[['chrom', 'start', 'end']]`."
+            )
+        metric = str(spec.options.get("metric", "mean"))
+        if metric not in {"mean", "detection"}:
+            raise ValueError("Peak-browser `metric` must be 'mean' or 'detection'.")
+        y_mode = str(spec.options.get("y_mode", "shared"))
+        if y_mode not in {"shared", "auto"}:
+            raise ValueError("Peak-browser `y_mode` must be 'shared' or 'auto'.")
+
+    def render(self, spec, store, state=None, *, component_id=None):
+        del component_id
+        source, state = _source(spec, store), _state(state)
+        adata = source.data
+        feature = (_features(spec, state, "region", one=True) or [None])[0]
+        annotation = spec.options.get("gene_annotation")
+        gene_index = None
+        if annotation:
+            from guanaco.pages.matrix.plots.gene_annotation import (
+                load_gene_annotation,
+                resolve_annotation_source,
+            )
+
+            gene_index = load_gene_annotation(resolve_annotation_source(annotation))
+        try:
+            region = _peak_region(adata, feature, gene_index)
+        except (FileNotFoundError, ValueError) as error:
+            return _message(spec, str(error), "ATAC peak browser")
+
+        groupby = spec.options.get("groupby")
+        labels = _list(spec.options.get("labels")) or None
+        group_order = None
+        color_map = None
+        if groupby and groupby in adata.obs.columns:
+            group_order = sorted_categories(adata, groupby)
+            color_map = categorical_color_map(
+                group_order, spec.options.get("palette")
+            )
+        payload = compute_atac_signal(
+            adata,
+            region,
+            groupby=groupby,
+            labels=labels,
+            group_order=group_order,
+            metric=str(spec.options.get("metric", "mean")),
+            max_peaks=int(spec.options.get("max_peaks", 400)),
+        )
+        gene_models = None
+        if gene_index is not None:
+            from guanaco.pages.matrix.plots.gene_annotation import query_gene_models
+
+            resolved = payload["region"]
+            gene_models = query_gene_models(
+                gene_index,
+                str(resolved["chrom"]),
+                int(resolved["start"]),
+                int(resolved["end"]),
+            )
+        figure = plot_atac_browser(
+            payload,
+            gene_models=gene_models,
+            color_map=color_map,
+            y_mode=str(spec.options.get("y_mode", "shared")),
+        )
+        return _finish(figure, spec, "ATAC peak browser")
+
+    def decode_event(self, event, payload, spec, store):
+        del event, spec, store
+        return _decode(payload, features=lambda point: point.get("customdata"))
+
+
 class VolcanoAdapter(PlotAdapter):
     """GUANACO's precomputed differential-expression volcano."""
 
@@ -975,6 +1088,7 @@ __all__ = [
     "FeatureDistributionAdapter",
     "FeatureGroupMatrixAdapter",
     "HeatmapAdapter",
+    "PeakBrowserAdapter",
     "PseudotimeAdapter",
     "ViolinAdapter",
     "VolcanoAdapter",

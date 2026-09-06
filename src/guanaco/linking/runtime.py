@@ -267,6 +267,7 @@ class LinkedView:
             len(source_ids)
             and len(target_ids)
             and not len(source_ids.intersection(target_ids, sort=False))
+            and link.selection_by not in getattr(target_adapter, "context_axes", ())
         ):
             raise ValueError(
                 f"Link {link.source!r} → {link.target!r} shares no {by} IDs."

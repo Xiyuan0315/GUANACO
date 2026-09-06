@@ -25,7 +25,6 @@ def generate_violin_layout(default_gene_markers, discrete_label_list, prefix):
                 [violin_show_box1],
                 style={"marginBottom": "15px"},
             ),
-            dcc.Store(id=f"{prefix}-violin-plot-cache-store"),
             dcc.Store(id=f"{prefix}-violin1-rendered-key"),
             # No dcc.Loading wrapper here: the stacked-violin figure is served
             # from cache on tab switches (the gene/label data is cached server

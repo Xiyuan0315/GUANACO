@@ -3,6 +3,7 @@ from dash.exceptions import PreventUpdate
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.obs_utils import (
+    obs_col,
     SELECTION_GROUP,
     SELECTION_GROUP_LABEL,
     SELECTION_LABELS,
@@ -11,11 +12,8 @@ from guanaco.utils.obs_utils import (
     sorted_categories,
 )
 from guanaco.utils.search import ranked_substring_matches
-from guanaco.data.loader import obs_col
 
 
-_CURRENT_CACHE_KEY = "current_key"
-_MAX_VIOLIN_CACHE_ENTRIES = 10
 _RIDGE_TAB = "ridge-tab"
 
 _MODE_EXPLANATIONS = {
@@ -126,20 +124,6 @@ def _resolve_violin2_palette(
     return resolve_discrete_palette(palette_name, n_colors, default=color_config)
 
 
-def _prune_violin_cache(cache_data):
-    figure_keys = [key for key in cache_data if key != _CURRENT_CACHE_KEY]
-    max_figures = max(_MAX_VIOLIN_CACHE_ENTRIES - 1, 0)
-    for key in figure_keys[:-max_figures]:
-        cache_data.pop(key, None)
-
-
-def _store_current_violin_figure(cache_data, cache_key, fig):
-    cache_data[cache_key] = fig.to_dict()
-    cache_data[_CURRENT_CACHE_KEY] = cache_key
-    _prune_violin_cache(cache_data)
-    return cache_data
-
-
 def _violin1_graph_style(figure):
     if isinstance(figure, dict):
         height = figure.get("layout", {}).get("height")
@@ -164,7 +148,11 @@ def register_marker_violin_callbacks(
     multiomics_source=None,
 ):
     @app.callback(
-        Output(f"{prefix}-violin-plot-cache-store", "data"),
+        [
+            Output(f"{prefix}-violin-plot1", "figure"),
+            Output(f"{prefix}-violin1-rendered-key", "data"),
+            Output(f"{prefix}-violin-plot1", "style"),
+        ],
         [
             Input(f"{prefix}-single-cell-genes-selection", "value"),
             Input(f"{prefix}-single-cell-annotation-dropdown", "value"),
@@ -177,12 +165,12 @@ def register_marker_violin_callbacks(
             Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
-            State(f"{prefix}-violin-plot-cache-store", "data"),
+            State(f"{prefix}-violin1-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
             State(f"{prefix}-selection-group-store", "data"),
         ],
     )
-    def update_violin_cache(
+    def update_violin1(
         selected_genes,
         selected_annotation,
         selected_labels,
@@ -192,7 +180,7 @@ def register_marker_violin_callbacks(
         cells_hash,
         selection_group_hash,
         active_tab,
-        current_cache,
+        rendered_key,
         selected_cells,
         highlighted_cells,
     ):
@@ -200,18 +188,15 @@ def register_marker_violin_callbacks(
         # (e.g. dot plot) view doesn't also pay to compute violins it shares inputs
         # with. The tab itself is an Input, so switching to violin triggers the build.
         if active_tab != "violin-tab":
-            return no_update
+            return no_update, no_update, no_update
         layer = _resolve_layer(data_layer)
         cache_key = (
             f"{selected_genes}_{selected_annotation}_{selected_labels}_{data_layer}_"
             f"{show_box_plot}_{discrete_color_map}_{cells_hash}_{selection_group_hash}"
         )
 
-        if current_cache is None:
-            current_cache = {}
-
-        if current_cache.get(_CURRENT_CACHE_KEY) == cache_key:
-            return current_cache
+        if rendered_key == cache_key:
+            return no_update, no_update, no_update
 
         source_adata = (
             multiomics_source.materialize(selected_genes)
@@ -250,38 +235,7 @@ def register_marker_violin_callbacks(
             group_values=group_values,
         )
 
-        return _store_current_violin_figure(current_cache, cache_key, fig)
-
-    @app.callback(
-        [
-            Output(f"{prefix}-violin-plot1", "figure"),
-            Output(f"{prefix}-violin1-rendered-key", "data"),
-            Output(f"{prefix}-violin-plot1", "style"),
-        ],
-        [
-            Input(f"{prefix}-violin-plot-cache-store", "data"),
-            Input(f"{prefix}-marker-tabs", "value"),
-        ],
-        [
-            State(f"{prefix}-violin-plot1", "figure"),
-            State(f"{prefix}-violin1-rendered-key", "data"),
-        ],
-    )
-    def display_violin1(cache_data, active_tab, current_figure, rendered_key):
-        if active_tab != "violin-tab":
-            return no_update, no_update, no_update
-
-        current_key = cache_data.get(_CURRENT_CACHE_KEY) if cache_data else None
-        # Already showing the figure for this key: don't redraw on a tab switch.
-        if current_key and current_key == rendered_key and current_figure:
-            return no_update, no_update, no_update
-        if current_key and current_key in cache_data:
-            # Return the cached figure dict as-is: Dash accepts a plain dict for a
-            # Graph 'figure', which skips the expensive go.Figure(...) re-validation of
-            # the violin figure on every switch to the tab.
-            figure = cache_data[current_key]
-            return figure, current_key, _violin1_graph_style(figure)
-        return no_update, no_update, no_update
+        return fig, cache_key, _violin1_graph_style(fig)
 
 
 def _ridge_gene_options(selected_genes, current_gene):
@@ -333,7 +287,6 @@ def register_ridge_callbacks(
             Input(f"{prefix}-selection-group-hash", "data"),
         ],
         [
-            State(f"{prefix}-ridge-plot", "figure"),
             State(f"{prefix}-ridge-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
             State(f"{prefix}-selection-group-store", "data"),
@@ -349,7 +302,6 @@ def register_ridge_callbacks(
         discrete_color_map,
         cells_hash,
         selection_group_hash,
-        current_figure,
         rendered_key,
         selected_cells,
         highlighted_cells,
@@ -371,7 +323,7 @@ def register_ridge_callbacks(
             selected_cells=cells_hash,
             selection_group=selection_group_hash,
         )
-        if rendered_key == cache_key and current_figure:
+        if rendered_key == cache_key:
             return no_update, no_update
 
         cached_fig = cached_figure_get(cache_key)

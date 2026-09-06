@@ -4,11 +4,11 @@ from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
 from guanaco.utils.gene_extraction_utils import (
-    extract_gene_expression,
     apply_transformation,
-    prewarm_gene_cache,
+    dataset_cache_token,
+    iter_gene_expression,
 )
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 from guanaco.utils.plot_style import GUANACO_QUALITATIVE
 import hashlib
 import time
@@ -105,10 +105,8 @@ def _row_positions_for_labels(
 
 
 def _extract_gene_frame(adata, valid_genes, row_pos, layer=None):
-    prewarm_gene_cache(adata, valid_genes, layer=layer)
     gene_data = {}
-    for gene in valid_genes:
-        col = extract_gene_expression(adata, gene, layer=layer)
+    for gene, col in iter_gene_expression(adata, valid_genes, layer=layer):
         gene_data[gene] = col[row_pos] if row_pos is not None else col
     return pd.DataFrame(gene_data)
 
@@ -139,13 +137,6 @@ def _create_cache_key(genes, labels, groupby, transformation, adata_id):
         "adata_id": adata_id,
     }
     return hashlib.md5(str(key_data).encode()).hexdigest()
-
-
-def _get_adata_id(adata):
-    """Get a unique identifier for the adata object."""
-    if hasattr(adata, "isbacked") and adata.isbacked and hasattr(adata, "filename"):
-        return adata.filename
-    return f"{id(adata)}_{adata.shape}"
 
 
 def _label_color_map(
@@ -460,7 +451,7 @@ def _extract_and_cache_violin_data(
     group_values=None,
 ):
     """Extract and cache violin plot data for reuse."""
-    adata_id = _get_adata_id(adata)
+    adata_id = dataset_cache_token(adata), adata.shape
     cache_key = _create_cache_key(
         genes,
         labels,
@@ -501,11 +492,7 @@ def _extract_and_cache_violin_data(
     if group_values is not None:
         obs_values = group_values.iloc[row_pos] if row_pos is not None else group_values
     elif row_pos is not None:
-        _obs_slice = adata.obs.iloc[row_pos]
-        _obs_slice = (
-            _obs_slice.to_memory() if hasattr(_obs_slice, "to_memory") else _obs_slice
-        )
-        obs_values = obs_col(_obs_slice, groupby)
+        obs_values = obs_col(adata.obs, groupby).iloc[row_pos]
     else:
         obs_values = obs_col(adata.obs, groupby)
 

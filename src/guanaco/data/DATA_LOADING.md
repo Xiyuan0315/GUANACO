@@ -114,9 +114,10 @@ The cloud-native form of "backed":
 4. If that source is CSC, it is re-opened one **gene per chunk** via
    `read_elem_lazy(elem, chunks=(n_obs, 1))` (`loader.py:363`) so a single-gene read
    fetches exactly one column (`read_lazy`'s default chunking batches ~1000 genes).
-5. `_eager_load_annotations` (`loader.py:261`) materializes the small `obs`/`var`/
-   `obsm` into pandas/numpy while `X` stays remote. `uns` is read eagerly by
-   `read_lazy` into a plain dict (nested sparse matrices intact).
+5. `_eager_load_annotations` materializes `var` and the first two columns of each
+   two-dimensional `obsm` entry. `obs` stays a lazy `Dataset2D`: read only the
+   requested annotation column with `obs_col`. `X` stays remote; `uns` is read
+   eagerly by `read_lazy` into a plain dict (nested sparse matrices intact).
 
 MuData has no lazy reader, so a MuData `.zarr` in backed mode falls back to an
 in-memory `mu.read_zarr` with a warning (`loader.py:415-418`).
@@ -139,10 +140,10 @@ If backed reading raises (notably some MuData), it degrades to a full in-memory
 - **Down-sampling:** `_random_row_indices` (`loader.py:128`) returns a **sorted**
   random subset (sorted for efficient backed reads); `_downsample` (`loader.py:223`)
   applies it to in-memory AnnData/MuData.
-- **Lazy → concrete annotations:** `_eager_load_annotations` + `_eager_read_elem`
-  (`loader.py:242-292`) read `obs`/`var`/`obsm` with one batched native
-  `anndata.io.read_elem` per element (fast over remote stores), falling back to the
-  lazy `Dataset2D.to_dataframe()` / dask `.compute()` conversion.
+- **Lazy → concrete annotations:** `_eager_load_annotations` uses
+  `_eager_read_elem` for `var`, falling back to the lazy dataframe conversion.
+  Embedding coordinates are sliced before computation. `obs` is not eagerly
+  materialized; `obs_col` converts one requested column to a pandas Series.
 - **Discrete labels:** `get_discrete_labels` (`loader.py:606`) picks obs columns with
   `< max_unique` (50) categories, using categorical metadata (O(1)) or a batched
   `nunique`, avoiding a Python-level scan on large datasets.
@@ -153,22 +154,31 @@ If backed reading raises (notably some MuData), it degrades to a full in-memory
 
 **Gene expression** is always read through `utils/gene_extraction_utils.py`:
 
-- `extract_gene_expression` / `extract_multiple_genes` →
-  `_compute_gene_vector` slices `X[:, j]` → `densify_matrix` (`gene_extraction_utils.py`).
+The legacy `memory_utils.memory_efficient_gene_expression` entry point delegates
+to this reader without caching or dtype conversion, retaining its original
+transformation rules. `LazyAnnData` only defers `load_adata`; it has no separate
+HDF5 metadata reader. New code should use the shared readers directly.
+
+- `extract_gene_expression` reads one feature; `iter_gene_expression` reads
+  bounded batches and reuses cached columns. Both use `read_feature_block` for
+  storage-specific indexing, including backed views, raw data and layers.
+- `iter_feature_blocks` preserves in-memory sparsity and delegates disk/lazy
+  reads to the same batched reader. `grouped_feature_stats` uses these blocks
+  for dot-plot and ATAC summaries without a full cells-by-features dense matrix.
 - `densify_matrix` handles all three matrix kinds uniformly: `.compute()` on dask blocks,
   `.toarray()` on scipy-sparse, numpy passes through. This is why the same plotting
   code works on in-memory, backed-HDF5, and cloud-lazy datasets unchanged.
 - Results are memoized in `GeneExpressionCache` (LRU + TTL, bounded by item count and
-  bytes), keyed by `_adata_id` (backed `filename`, else `id(adata)`) and `adata.shape`
-  (`gene_extraction_utils.py:39-47`). Config marker genes can be **pinned** so the
-  first view is instant (`pin_genes`, used from `main.py`).
+  bytes), keyed by a process-local dataset token, shape, feature, layer and raw
+  selection. Tokens distinguish equal-sized views of the same file and do not
+  keep datasets alive. Config marker genes can be **pinned** within a separate
+  byte budget (`pin_genes`, used from `main.py`).
 
-**Annotations** (`obs`/`var`/`obsm`/`uns`) are consumed **directly as pandas/numpy**
-by the plots — e.g. `adata.obsm[key].shape` (`embedding_layout.py:21`),
-`adata.obs[groupby].isin(...)` / `adata.obs.iloc[...]` (`violin1.py`, `heatmap.py`),
-`adata.uns['paga' | 'volcano' | 'spatial']` (`paga.py`, `volcano.py`,
-`embedding.py`). This is why every loader produces concrete
-pandas/numpy annotations even when `X` stays lazy.
+**Annotations:** use `obs_col` / `obs_values` for individual cell annotations,
+which may be pandas-backed or lazy. Apply row selection to the resulting Series,
+not to a materialized copy of the entire `obs` table. `var`, prepared embedding
+coordinates and results in `uns` can be consumed directly. Notebook inputs may
+also contain lazy or sparse coordinates, handled by `embedding_to_numpy`.
 
 Several modules branch on `adata.isbacked` / `adata.filename` to choose
 row-slice-first vs extract-all strategies and to build their own caches

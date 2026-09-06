@@ -10,15 +10,11 @@ import pandas as pd
 
 from guanaco.data.capability_schema import PLOT_KEYS
 from guanaco.data.ligand_receptor import discover_ligand_receptor_results
+from guanaco.utils.obs_utils import obs_col as _obs_col
 
 _PEAK_RE = re.compile(r"^\s*([^:\s]+)\s*:\s*([0-9,]+)\s*-\s*([0-9,]+)\s*$")
 _NHOOD_SUFFIX = "_nhood_enrichment"
 _CO_OCCURRENCE_SUFFIX = "_co_occurrence"
-
-
-def _obs_col(obs, column):
-    values = obs[column]
-    return values.to_series() if hasattr(values, "to_series") else values
 
 
 def _discrete_labels(adata, *, max_unique=50) -> list[str]:

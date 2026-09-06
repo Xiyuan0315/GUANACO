@@ -23,6 +23,10 @@ class PlotAdapter(ABC):
     events: Mapping[str, str] = MappingProxyType({})
     emits: frozenset[str] = frozenset()
     accepts: frozenset[str] = frozenset()
+    # Some detail views consume an ID as context without requiring that ID to be
+    # present in their own native index (for example a gene name selects a genomic
+    # region in the ATAC peak browser). These axes bypass the strict overlap check.
+    context_axes: frozenset[str] = frozenset()
 
     def identity_ids(
         self,

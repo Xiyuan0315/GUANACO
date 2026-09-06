@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from scipy.cluster.hierarchy import dendrogram, leaves_list, linkage
 from scipy.spatial.distance import pdist
 
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 
 
 NHOOD_SUFFIX = "_nhood_enrichment"

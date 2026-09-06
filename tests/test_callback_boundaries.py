@@ -146,7 +146,6 @@ def test_stacked_bar_owns_its_grouping_inputs():
         None,
         None,
         None,
-        None,
     )
     assert figure is None
     assert rendered_key
@@ -179,7 +178,6 @@ def test_stacked_bar_owns_its_grouping_inputs():
         None,
         None,
         None,
-        None,
     )
     assert bar_key
     assert rendered["bar_n_obs"] == 2
@@ -199,7 +197,6 @@ def test_stacked_bar_owns_its_grouping_inputs():
         {"len": 1, "hash": "filtered"},
         None,
         ["cell-1"],
-        None,
         None,
         None,
     )
@@ -225,7 +222,6 @@ def test_stacked_bar_owns_its_grouping_inputs():
             "selected_cells": ["cell-1"],
             "universe_cells": None,
         },
-        None,
         None,
     )
     assert highlight_key
@@ -403,7 +399,6 @@ def test_ridge_uses_shared_marker_metadata_layer_and_palette():
         "X",
         [],
         "missing-palette",
-        None,
         None,
         None,
         None,

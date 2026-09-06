@@ -7,9 +7,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import (
-    extract_gene_expression, apply_transformation, bin_cells_for_heatmap, prewarm_gene_cache
+    apply_transformation, bin_cells_for_heatmap, iter_gene_expression, dataset_cache_token
 )
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 
 # Standardization is one of: None (raw), "minmax", "zscore".
 #   "minmax" -> Scanpy standard_scale: per-gene (x-min)/(max-min) -> [0, 1].
@@ -163,11 +163,8 @@ def _extract_gene_df_after_filter(ctx, valid_genes, layer=None):
     source_adata = original_adata if cell_indices_array is not None else adata
     row_indices = np.asarray(cell_indices_array, dtype=np.int64) if cell_indices_array is not None else None
     n_cells = len(filtered_obs_names)
-    # One column slice for all genes so the per-gene loop below hits the cache.
-    prewarm_gene_cache(source_adata, valid_genes, layer=layer)
     gene_matrix = np.empty((n_cells, len(valid_genes)), dtype=np.float32)
-    for j, gene in enumerate(valid_genes):
-        expr = np.asarray(extract_gene_expression(source_adata, gene, layer=layer, use_cache=True), dtype=np.float32)
+    for j, (_gene, expr) in enumerate(iter_gene_expression(source_adata, valid_genes, layer=layer)):
         gene_matrix[:, j] = expr[row_indices] if row_indices is not None else expr
     gene_df = pd.DataFrame(gene_matrix, columns=valid_genes, index=filtered_obs_names)
     return gene_df
@@ -410,8 +407,7 @@ def _build_primary_bin_plan(groups_arr, order, max_cells, n_bins):
 def _bin_plan_id(adata_src, groupby1, labels, max_cells, n_bins, cache_sig=None):
     if cache_sig is not None:
         return str(cache_sig)
-    backed = bool(getattr(adata_src, "isbacked", False) and getattr(adata_src, "filename", None))
-    src_id = ("backed", str(adata_src.filename)) if backed else ("mem", id(adata_src))
+    src_id = dataset_cache_token(adata_src)
     return hashlib.md5(
         repr((src_id, tuple(adata_src.shape), groupby1,
               tuple(labels) if labels else None, int(max_cells), int(n_bins))).encode()
@@ -441,8 +437,8 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
 
     Computes the bin assignment once (from group labels only), then for each gene
     extracts its column, standardizes, and reduces it to per-bin means via a cached
-    lookup. Peak memory is one full gene column plus the binned output, instead of
-    a dense cells x genes matrix. Returns the same column ordering (by group) the
+    lookup. Temporary reads are bounded batches, instead of a dense cells x genes
+    matrix. Returns the same column ordering (by group) the
     full-matrix path produces. Only the primary-categorical, non-log case.
     """
     adata_src = ctx['original_adata'] if ctx['cell_indices_array'] is not None else ctx['adata']
@@ -467,30 +463,23 @@ def _streaming_primary_matrix(ctx, valid_genes, groupby1, labels, max_cells, n_b
     # every render and would defeat the cache during an active lasso/filter.
     plan_id = _bin_plan_id(adata_src, groupby1, labels, max_cells, n_bins, cache_sig=cache_sig)
 
-    # Genes whose binned vector isn't cached still need their full column read; do
-    # those in one slice up front so the loop's extraction hits the gene cache.
-    binned_misses = [
-        gene for gene in valid_genes
-        if ((c := _binned_cache_get((plan_id, gene, layer, standardization))) is None or c.shape[0] != n_out)
-    ]
-    prewarm_gene_cache(adata_src, binned_misses, layer=layer)
-
+    # Read missing columns in bounded batches and reduce them immediately.
     matrix = np.empty((len(valid_genes), n_out), dtype=np.float32)
+    misses = []
     for j, gene in enumerate(valid_genes):
-        key = (plan_id, gene, layer, standardization)
-        cached = _binned_cache_get(key)
+        cached = _binned_cache_get((plan_id, gene, layer, standardization))
         if cached is None or cached.shape[0] != n_out:
-            col = np.asarray(
-                extract_gene_expression(adata_src, gene, layer=layer, use_cache=True),
-                dtype=np.float32,
-            )
-            if row_indices is not None:
-                col = col[row_indices]
-            col = _standardize_vector(col, standardization)
-            sums = np.bincount(row_to_bin, weights=col, minlength=n_out)
-            cached = (sums / bin_sizes).astype(np.float32)
-            _binned_cache_put(key, cached)
-        matrix[j, :] = cached
+            misses.append((j, gene))
+        else:
+            matrix[j, :] = cached
+    vectors = iter_gene_expression(adata_src, [gene for _, gene in misses], layer=layer)
+    for (j, gene), (_, col) in zip(misses, vectors, strict=True):
+        if row_indices is not None:
+            col = col[row_indices]
+        col = _standardize_vector(col, standardization)
+        sums = np.bincount(row_to_bin, weights=col, minlength=n_out)
+        matrix[j, :] = (sums / bin_sizes).astype(np.float32)
+        _binned_cache_put((plan_id, gene, layer, standardization), matrix[j, :].copy())
 
     label_list1 = list(order)
     value_list1 = [int(bin_sizes[bin_group == g].sum()) for g in order]

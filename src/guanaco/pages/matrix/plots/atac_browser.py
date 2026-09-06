@@ -13,8 +13,11 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from scipy import sparse
 from plotly.subplots import make_subplots
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
+from guanaco.utils.feature_stats import grouped_feature_stats
+from guanaco.utils.gene_extraction_utils import read_feature_block
 
 
 # A locus typed by the user ("chr1:100,000-200,000") and a peak feature name share
@@ -40,40 +43,54 @@ class PeakIndex:
 
 
 class _SimpleTTLCache:
-    def __init__(self, max_items: int = 32, ttl_seconds: int = 180):
+    def __init__(self, max_items: int = 32, ttl_seconds: int = 180, max_bytes=64 * 1024 * 1024):
         self.max_items = max_items
         self.ttl_seconds = ttl_seconds
-        self._store: OrderedDict[str, tuple[object, float]] = OrderedDict()
+        self.max_bytes = max_bytes
+        self.bytes = 0
+        self._store = OrderedDict()
+
+    @staticmethod
+    def _size(value):
+        if sparse.issparse(value):
+            return value.data.nbytes + value.indices.nbytes + value.indptr.nbytes
+        if isinstance(value, dict):
+            return sum(_SimpleTTLCache._size(v) for v in value.values())
+        if isinstance(value, (list, tuple)):
+            return sum(_SimpleTTLCache._size(v) for v in value)
+        return getattr(value, "nbytes", 0)
+
+    def _remove(self, key):
+        entry = self._store.pop(key, None)
+        if entry is not None:
+            self.bytes -= entry[2]
 
     def get(self, key: str):
         item = self._store.get(key)
         if item is None:
             return None
-        value, ts = item
+        value, ts, _size = item
         if time.time() - ts > self.ttl_seconds:
-            self._store.pop(key, None)
+            self._remove(key)
             return None
         self._store.move_to_end(key)
         return value
 
     def set(self, key: str, value) -> None:
-        self._store[key] = (value, time.time())
+        self._remove(key)
+        size = self._size(value)
+        if size > self.max_bytes:
+            return
+        self._store[key] = (value, time.time(), size)
+        self.bytes += size
         self._store.move_to_end(key)
-        while len(self._store) > self.max_items:
-            self._store.popitem(last=False)
+        while len(self._store) > self.max_items or self.bytes > self.max_bytes:
+            self._remove(next(iter(self._store)))
 
 
 _peak_index_cache: dict[tuple[int, int], PeakIndex] = {}
 _signal_cache = _SimpleTTLCache(max_items=48, ttl_seconds=180)
-# Caches the raw dense matrix slice (zarr read result) keyed by region + cell
-# selection only -- independent of groupby/labels/metric. This means switching
-# annotation or metric for the same region skips the slow zarr read and only
-# re-runs the fast numpy aggregation step.
-_dense_cache = _SimpleTTLCache(max_items=16, ttl_seconds=300)
-# Per-column cache: each peak column (dense numpy array of shape (n_obs,)) is
-# cached individually. When the user pans to an adjacent region, most peak columns
-# overlap with the previous region -- only the newly entered columns need S3 reads.
-# At ~35 KB per column (8677 cells × float32), 2000 columns ≈ 70 MB.
+# Preserve sparse columns for adjacent-region reuse with a byte budget.
 _col_cache = _SimpleTTLCache(max_items=2000, ttl_seconds=600)
 
 # Colorblind-safe fallback colors for signal tracks, used when a track has no entry
@@ -303,51 +320,19 @@ def _selected_signature(selected_cells) -> str:
     return f"{len(selected_cells)}:{digest}"
 
 
-def _read_peak_cols(adata, cols: np.ndarray) -> np.ndarray:
-    """Read peak columns from zarr with per-column caching.
-
-    Checks _col_cache for each requested column. Only columns not already
-    cached are read from zarr (one batched read). When panning to an adjacent
-    region most columns overlap with the previous one, so typically only a few
-    new columns need S3 reads instead of all 50.
-    """
-    from guanaco.utils.gene_extraction_utils import densify_matrix
-
+def _read_peak_cols(adata, cols: np.ndarray):
+    """Read one bounded batch, reusing sparse or dense columns without densifying."""
     adata_sig = f"{id(adata)}:{adata.n_obs}:{adata.n_vars}"
-    n_obs = adata.n_obs
-    n_cols = len(cols)
-    result = np.empty((n_obs, n_cols), dtype=np.float32)
-
-    missing_local: list[int] = []
-    missing_global: list[int] = []
-
-    for local_i, col_idx in enumerate(cols):
-        cached = _col_cache.get(f"{adata_sig}:{col_idx}")
-        if cached is not None:
-            result[:, local_i] = cached
-        else:
-            missing_local.append(local_i)
-            missing_global.append(int(col_idx))
-
-    if missing_global:
-        missing_arr = np.array(missing_global, dtype=np.intp)
-        sub = densify_matrix(adata.X[:, missing_arr])
-        if sub.ndim == 1:
-            sub = sub.reshape(n_obs, 1)
-        for i, (local_i, col_idx) in enumerate(zip(missing_local, missing_global)):
-            col_data = sub[:, i].astype(np.float32)
-            result[:, local_i] = col_data
-            _col_cache.set(f"{adata_sig}:{col_idx}", col_data)
-
-    return result
-
-
-def _mean_or_detection(matrix, metric: str) -> np.ndarray:
-    if matrix.shape[0] == 0:
-        return np.zeros(matrix.shape[1], dtype=np.float32)
-    if metric == "detection":
-        return np.asarray((matrix > 0).mean(axis=0)).ravel().astype(np.float32, copy=False)
-    return np.asarray(matrix.mean(axis=0)).ravel().astype(np.float32, copy=False)
+    columns = [_col_cache.get(f"{adata_sig}:{col}") for col in cols]
+    missing = [i for i, value in enumerate(columns) if value is None]
+    if missing:
+        block = read_feature_block(adata, cols[missing])
+        block = block.tocsc() if sparse.issparse(block) else np.asarray(block)
+        for j, i in enumerate(missing):
+            value = block[:, [j]].astype(np.float32)
+            columns[i] = value
+            _col_cache.set(f"{adata_sig}:{cols[i]}", value)
+    return sparse.hstack(columns, format="csc") if any(sparse.issparse(c) for c in columns) else np.hstack(columns)
 
 
 def compute_atac_signal(
@@ -369,7 +354,7 @@ def compute_atac_signal(
     peak_data = peaks_in_region(index, chrom, start, end, max_peaks=max_peaks)
     cols = peak_data["var_indices"]
     selected_sig = _selected_signature(selected_cells)
-    label_sig = sorted(str(label) for label in labels) if labels else None
+    label_sig = [str(label) for label in labels] if labels else None
     cache_key = json.dumps(
         {
             "adata": id(adata),
@@ -384,6 +369,7 @@ def compute_atac_signal(
             "selected": selected_sig,
             "groupby": groupby,
             "labels": label_sig,
+            "group_order": list(group_order) if group_order is not None else None,
             "metric": metric,
         },
         sort_keys=True,
@@ -400,38 +386,10 @@ def compute_atac_signal(
         rows = None
     n_cells = adata.n_obs if rows is None else int(rows.size)
 
-    # The dense matrix read (zarr I/O) is keyed by region + cell selection only,
-    # independent of groupby/labels/metric. Switching annotation or metric for the
-    # same region reuses the cached matrix and only re-runs the fast numpy aggregation.
-    dense_key = json.dumps(
-        {
-            "adata": id(adata),
-            "n_obs": int(adata.n_obs),
-            "n_vars": int(adata.n_vars),
-            "cols": cols.tolist(),
-            "selected": selected_sig,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    cached_dense = _dense_cache.get(dense_key)
-    if cached_dense is not None:
-        sub, row_labels = cached_dense
-    else:
-        # _read_peak_cols reads each column through _col_cache: columns already
-        # seen (from a previous region) are returned instantly; only new columns
-        # trigger S3 reads. Panning to an adjacent region typically reuses most
-        # cached columns, reducing S3 requests from ~50 to just the newly entered peaks.
-        sub = _read_peak_cols(adata, cols)
-        if rows is not None:
-            sub = sub[rows, :]
-        row_labels = rows
-        _dense_cache.set(dense_key, (sub, row_labels))
-
-    signals = []
-    if groupby and groupby in adata.obs.columns:
+    grouped = bool(groupby and groupby in adata.obs.columns)
+    if grouped:
         labels_source = obs_col(adata.obs, groupby).astype(str).to_numpy()
-        row_label_values = labels_source if row_labels is None else labels_source[row_labels]
+        row_label_values = labels_source if rows is None else labels_source[rows]
         # Which groups get a track is driven by the left panel's selected labels;
         # selected_cells only narrows the cells inside each track. Order follows the
         # app-wide canonical order (group_order) so the tracks line up with the
@@ -445,17 +403,26 @@ def compute_atac_signal(
             wanted = sorted(dict.fromkeys(wanted), key=lambda group: rank.get(group, len(rank)))
         else:
             wanted = list(dict.fromkeys(wanted))
-        for label in wanted:
-            mask = row_label_values == label
-            count = int(mask.sum())
-            if count == 0:
-                continue
-            values = _mean_or_detection(sub[mask, :], metric)
-            signals.append({"name": str(label), "values": values, "n_cells": count})
+        codes = pd.Categorical(row_label_values, categories=wanted).codes
     else:
-        values = _mean_or_detection(sub, metric)
-        label = "Selected cells" if selected_cells else "All cells"
-        signals.append({"name": label, "values": values, "n_cells": int(n_cells)})
+        wanted = ["Selected cells" if selected_cells else "All cells"]
+        codes = np.zeros(n_cells, dtype=np.int8)
+    summary = grouped_feature_stats(
+        adata, cols, codes, len(wanted), rows=rows, skip_nan=False,
+        read_block=lambda batch: _read_peak_cols(adata, batch),
+        metric="detection" if metric == "detection" else "mean",
+    )
+    values = summary.fractions if metric == "detection" else summary.means
+    counts = np.bincount(codes[codes >= 0], minlength=len(wanted))
+    signals = [
+        {
+            "name": label,
+            "values": values[i].astype(np.float32) if count else np.zeros(len(cols), dtype=np.float32),
+            "n_cells": int(count),
+        }
+        for i, (label, count) in enumerate(zip(wanted, counts))
+        if count or not grouped
+    ]
 
     result = {
         "region": region,

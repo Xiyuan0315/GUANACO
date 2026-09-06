@@ -3,7 +3,7 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 from guanaco.pages.matrix.plots.cross_modal_concordance import (
     GROUP_CORRELATION,
     RELATIVE_SKEW,

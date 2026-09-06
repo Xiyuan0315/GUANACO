@@ -1,3 +1,8 @@
+from collections import OrderedDict
+from copy import deepcopy
+import hashlib
+from threading import Lock
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -295,6 +300,58 @@ def calculate_p_values_by_mode(
         return _mixed_model_p_values(df, meta1, meta2)
 
     return {}
+
+
+_STATISTICS_CACHE_SIZE = 32
+_statistics_cache = OrderedDict()
+_statistics_cache_lock = Lock()
+
+
+def _cached_p_values_by_mode(
+    df, meta1, meta2, mode, test_method, labels=None, design_type="crossed"
+):
+    """Reuse statistics across style changes without retaining expression data.
+
+    Key the bounded cache by the actual analysis frame, not an AnnData/view ID:
+    filters, lasso groups, layers and transformations all affect its contents.
+    Category levels/order also matter for model reference levels. Hashing is
+    linear in frame size, but avoids repeating rank tests or model fitting.
+    """
+    schema = tuple(
+        (
+            column,
+            str(df[column].dtype),
+            (tuple(df[column].cat.categories), df[column].cat.ordered)
+            if isinstance(df[column].dtype, pd.CategoricalDtype)
+            else None,
+        )
+        for column in df.columns
+    )
+    digest = hashlib.sha256()
+    digest.update(repr(schema).encode())
+    digest.update(pd.util.hash_pandas_object(df, index=False).to_numpy().tobytes())
+    key = (
+        digest.digest(), meta1, meta2, mode, test_method,
+        tuple(labels) if labels is not None else None, design_type,
+    )
+    with _statistics_cache_lock:
+        if key in _statistics_cache:
+            _statistics_cache.move_to_end(key)
+            return deepcopy(_statistics_cache[key])
+
+    # Do not hold a global lock during fitting: independent requests may proceed.
+    result = calculate_p_values_by_mode(
+        df, meta1, meta2, mode, test_method, labels, design_type
+    )
+    # Allow failed/non-converged fits to be retried on a later request.
+    summary = result.get("model_summary", {})
+    if "error" not in result and summary.get("converged", True):
+        with _statistics_cache_lock:
+            _statistics_cache[key] = deepcopy(result)
+            _statistics_cache.move_to_end(key)
+            while len(_statistics_cache) > _STATISTICS_CACHE_SIZE:
+                _statistics_cache.popitem(last=False)
+    return result
 
 
 def assign_colors(levels, color_map=None, palette=None):
@@ -761,7 +818,7 @@ def plot_violin2_new(
 
     # Calculate and add p-values
     if test_method and test_method != "none":
-        p_values = calculate_p_values_by_mode(
+        p_values = _cached_p_values_by_mode(
             df, meta1, meta2, mode, test_method, labels, design_type
         )
         adjusted = False

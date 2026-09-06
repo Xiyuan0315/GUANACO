@@ -66,6 +66,7 @@ def default_plot_registry() -> PlotRegistry:
         FeatureDistributionAdapter,
         FeatureGroupMatrixAdapter,
         HeatmapAdapter,
+        PeakBrowserAdapter,
         PseudotimeAdapter,
         ViolinAdapter,
         VolcanoAdapter,
@@ -84,6 +85,7 @@ def default_plot_registry() -> PlotRegistry:
     registry.register("dotplot", FeatureGroupMatrixAdapter("dotplot"))
     registry.register("matrixplot", FeatureGroupMatrixAdapter("matrixplot"))
     registry.register("heatmap", HeatmapAdapter())
+    registry.register("peak_browser", PeakBrowserAdapter())
     registry.register("stacked_bar", CompositionAdapter())
     registry.register("pseudotime", PseudotimeAdapter())
     registry.register("volcano", VolcanoAdapter())

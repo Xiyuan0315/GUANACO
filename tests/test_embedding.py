@@ -3,12 +3,35 @@ from io import BytesIO
 
 import numpy as np
 import pandas as pd
+import pytest
 import plotly.graph_objs as go
 from anndata import AnnData
 from PIL import Image
+from scipy import sparse
 
 from guanaco.pages.matrix.plots import embedding as embedding_module
 from guanaco.pages.matrix.plots.embedding import plot_coexpression_embedding, plot_embedding
+from guanaco.utils.embeddings import embedding_to_numpy
+
+
+@pytest.mark.parametrize("storage", [np.asarray, sparse.csr_matrix, sparse.csc_matrix])
+@pytest.mark.parametrize("lazy", [False, True])
+def test_embedding_materialization_preserves_coordinates(storage, lazy):
+    import dask.array as da
+
+    expected = np.arange(12, dtype=np.float32).reshape(4, 3)
+    values = storage(expected)
+    if lazy:
+        values = da.from_array(values, chunks=(2, 3))
+    actual = embedding_to_numpy(values)
+    np.testing.assert_array_equal(actual, expected)
+    assert actual.dtype == expected.dtype
+
+
+@pytest.mark.parametrize("shape", [(4,), (4, 1), (2, 2, 2)])
+def test_embedding_materialization_rejects_invalid_dimensions(shape):
+    with pytest.raises(ValueError, match="two-dimensional"):
+        embedding_to_numpy(np.zeros(shape))
 
 
 def _embedding_adata():

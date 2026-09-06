@@ -69,7 +69,6 @@ def register_dotplot_callbacks(
             Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
-            State(f"{prefix}-dotplot", "figure"),
             State(f"{prefix}-dotplot-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
             State(f"{prefix}-selection-group-store", "data"),
@@ -90,7 +89,6 @@ def register_dotplot_callbacks(
         cells_hash,
         selection_group_hash,
         active_tab,
-        current_figure,
         rendered_key,
         selected_cells,
         highlighted_cells,
@@ -123,7 +121,7 @@ def register_dotplot_callbacks(
             is_backed=bool(hasattr(adata, "isbacked") and adata.isbacked),
             n_obs=adata.n_obs,
         )
-        if rendered_key == cache_key and current_figure:
+        if rendered_key == cache_key:
             return no_update, no_update
 
         cached_fig = cached_figure_get(cache_key)

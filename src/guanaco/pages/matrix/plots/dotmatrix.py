@@ -4,12 +4,12 @@ from dash.exceptions import PreventUpdate
 import pandas as pd
 from guanaco.utils.colors import resolve_continuous_colorscale
 from guanaco.utils.gene_extraction_utils import (
-    extract_gene_expression,
     apply_transformation,
-    prewarm_gene_cache,
+    iter_gene_expression,
 )
+from guanaco.utils.feature_stats import grouped_feature_stats
 from guanaco.pages.matrix.plots.heatmap import ZSCORE_COLOR_CLIP
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 
 from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram as _scipy_dendro
 from scipy.spatial.distance import pdist
@@ -82,12 +82,8 @@ def _groups_to_process(group_values, selected_labels, use_selected_cells):
 
 def _expression_frame(adata, valid_genes, row_indices, layer=None, transformation=None):
     n_cells = row_indices.size
-    # Read all genes in one column slice up front so the per-gene loop below hits the
-    # cache instead of issuing one slice per gene (slow on large/sparse/backed X).
-    prewarm_gene_cache(adata, valid_genes, layer=layer, dtype=np.float32)
     gene_matrix = np.empty((n_cells, len(valid_genes)), dtype=np.float32)
-    for j, gene in enumerate(valid_genes):
-        expr = extract_gene_expression(adata, gene, layer=layer, use_cache=True, dtype=np.float32)
+    for j, (_gene, expr) in enumerate(iter_gene_expression(adata, valid_genes, layer=layer)):
         gene_matrix[:, j] = expr[row_indices]
 
     expr_df = pd.DataFrame(gene_matrix, columns=valid_genes)
@@ -111,13 +107,13 @@ def _normalize_standardization(standardization):
     return standardization
 
 
-def _standardize_aggregated_data(aggregated_data, expr_df, standardization):
+def _standardize_aggregated_data(aggregated_data, expr_df, standardization, moments=None):
     standardization = _normalize_standardization(standardization)
     diverging = standardization in ("zscore", "group")
 
     if standardization == "zscore":
-        mu = expr_df.mean(axis=0)
-        sd = expr_df.std(axis=0).replace(0, 1.0)
+        mu, sd = moments if moments is not None else (expr_df.mean(axis=0), expr_df.std(axis=0))
+        sd = sd.replace(0, 1.0)
         aggregated_data = (aggregated_data - mu) / sd
     elif standardization in ("minmax", "var"):
         lo = aggregated_data.min(axis=0)
@@ -330,7 +326,6 @@ def plot_dot_matrix(
     if not valid_genes:
         raise PreventUpdate
 
-    # Scanpy-like flow: cached gene vectors + vectorized grouped aggregations.
     group_series = (
         group_values
         if group_values is not None
@@ -351,8 +346,26 @@ def plot_dot_matrix(
     if not groups_to_process:
         raise PreventUpdate
 
-    expr_df = _expression_frame(adata, valid_genes, row_indices, layer, transformation)
-    aggregated_data, fraction_expressing = _aggregate_by_group(expr_df, group_values, groups_to_process)
+    expr_df = None
+    moments = None
+    if transformation in ("zscore", "z_score"):
+        # This transform clips against a percentile over ALL cells and genes.
+        # Preserve that definition; block-local clipping would change the values.
+        expr_df = _expression_frame(adata, valid_genes, row_indices, layer, transformation)
+        aggregated_data, fraction_expressing = _aggregate_by_group(expr_df, group_values, groups_to_process)
+    else:
+        codes = pd.Categorical(group_values, categories=groups_to_process, ordered=True).codes
+        summary = grouped_feature_stats(
+            adata, adata.var_names.get_indexer(valid_genes), codes, len(groups_to_process),
+            rows=row_indices, layer=layer, transformation=transformation,
+            moments=_normalize_standardization(standardization) == "zscore",
+        )
+        # Match pandas observed=True, sort=False, including first-seen group order.
+        observed = pd.unique(codes[codes >= 0])
+        index = [groups_to_process[code] for code in observed]
+        aggregated_data = pd.DataFrame(summary.means[observed], index=index, columns=valid_genes)
+        fraction_expressing = pd.DataFrame(summary.fractions[observed], index=index, columns=valid_genes)
+        moments = (pd.Series(summary.mean, index=valid_genes), pd.Series(summary.std, index=valid_genes))
 
     # Standardization (per-gene / column):
     #   "zscore" -> (x-mean)/std over cells, applied to the per-group means, so each
@@ -365,6 +378,7 @@ def plot_dot_matrix(
         aggregated_data,
         expr_df,
         standardization,
+        moments,
     )
 
     # Figure out base lists

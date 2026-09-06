@@ -86,5 +86,23 @@
       "suggestion": 1
     },
     "scope": "declarative linking package, shared plot style, violin density behavior, public docs, and eight linked-view demos"
+  },
+  {
+    "date": "2026-09-06",
+    "mode": "Full Sweep",
+    "score": 79,
+    "findings": {
+      "critical": 0,
+      "warning": 4,
+      "suggestion": 1
+    },
+    "scope": "GUANACO_v3 repository static sweep; focused data access, cache identity, annotation reuse and regression fixes; estimate, not full semantic coverage"
+  },
+  {
+    "date": "2026-09-06",
+    "mode": "PR Review",
+    "score": 100,
+    "findings": {"critical": 0, "warning": 0, "suggestion": 0},
+    "scope": "Legacy cleanup only: private identity wrappers, memory_utils compatibility readers and characterization tests; not a repository health score"
   }
 ]

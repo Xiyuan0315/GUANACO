@@ -37,6 +37,16 @@ def test_heatmap_no_valid_genes_returns_message_figure():
     assert fig.layout.annotations[0].text == "No valid genes found in the dataset"
 
 
+def test_streaming_heatmap_survives_binned_cache_eviction(monkeypatch):
+    monkeypatch.setattr(heatmap_module, "_BINNED_GENE_CACHE", heatmap_module.OrderedDict())
+    monkeypatch.setattr(heatmap_module, "_BINNED_GENE_CACHE_MAX", 1)
+    adata = _heatmap_adata()
+    expected = plot_unified_heatmap(adata, ["GeneA", "GeneB", "GeneC"], "cell_type", color_config=PALETTE)
+    # Only GeneC remains cached; computing GeneA must not lose GeneC's result.
+    actual = plot_unified_heatmap(adata, ["GeneA", "GeneB", "GeneC"], "cell_type", color_config=PALETTE)
+    np.testing.assert_array_equal(actual.data[0].z, expected.data[0].z)
+
+
 def test_categorical_heatmap_filters_labels_and_counts_original_cells():
     fig = plot_unified_heatmap(
         _heatmap_adata(),

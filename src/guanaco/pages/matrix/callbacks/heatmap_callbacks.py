@@ -306,7 +306,6 @@ def register_heatmap_callbacks(
             Input(f"{prefix}-marker-tabs", "value"),
         ],
         [
-            State(f"{prefix}-heatmap", "figure"),
             State(f"{prefix}-heatmap-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
             State(f"{prefix}-selection-group-store", "data"),
@@ -325,7 +324,6 @@ def register_heatmap_callbacks(
         cells_hash,
         selection_group_hash,
         active_tab,
-        current_figure,
         rendered_key,
         selected_cells,
         highlighted_cells,
@@ -355,7 +353,7 @@ def register_heatmap_callbacks(
             adata,
             request,
         )
-        if rendered_key == cache_key and current_figure:
+        if rendered_key == cache_key:
             return no_update, no_update
 
         cached_fig = cached_figure_get(cache_key)

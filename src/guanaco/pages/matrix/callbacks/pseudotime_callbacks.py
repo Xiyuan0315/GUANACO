@@ -3,12 +3,12 @@ import plotly.graph_objects as go
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.obs_utils import (
+    obs_col,
     SELECTION_GROUP,
     SELECTION_LABELS,
     selection_group_context,
     sorted_categories,
 )
-from guanaco.data.loader import obs_col
 
 
 _PSEUDOTIME_TAB = "pseudotime-tab"
@@ -126,7 +126,6 @@ def register_pseudotime_callbacks(
             Input(f"{prefix}-selection-group-hash", "data"),
         ],
         [
-            State(f"{prefix}-pseudotime-plot", "figure"),
             State(f"{prefix}-pseudotime-rendered-key", "data"),
             State(f"{prefix}-selected-cells-store", "data"),
             State(f"{prefix}-selection-group-store", "data"),
@@ -145,7 +144,6 @@ def register_pseudotime_callbacks(
         discrete_color_map,
         cells_hash,
         selection_group_hash,
-        current_figure,
         rendered_key,
         selected_cells,
         highlighted_cells,
@@ -174,7 +172,7 @@ def register_pseudotime_callbacks(
         )
         # Already showing the figure for these exact parameters: do nothing,
         # so a plain tab switch neither recomputes nor redraws.
-        if rendered_key == cache_key and current_figure:
+        if rendered_key == cache_key:
             return no_update, no_update
 
         cached_fig = cached_figure_get(cache_key)

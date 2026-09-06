@@ -28,7 +28,18 @@ demo = gc.pl.linked_view(
     links=[gc.pl.link("cells", "expression")],
 )
 
-demo.show_jupyter(port=8060, height=620)
+demo.show_jupyter(port=8060, width="1400px", height=620)
+```
+
+`height=` inside `gc.pl.view(...)` or a named plot controls one panel. The
+`width=` argument of `show_jupyter()` controls the complete linked workspace
+iframe; use values such as `"100%"`, `"1400px"`, or `"95vw"`.
+
+For a standalone figure, set Plotly's layout directly:
+
+```python
+fig = gc.pl.umap(adata, color="cell_type", show=False, return_fig=True)
+fig.update_layout(width=1000, height=600)
 ```
 
 Both plots use the same `AnnData`, so the omitted `by` means shared
@@ -130,6 +141,27 @@ Clicking a matrix tile changes the feature shown by the UMAP. The same link
 works if the target is a violin, ridge, heatmap, dotplot, or matrixplot.
 Targets that display one feature, such as an expression-colored UMAP, use the
 first selected feature; multi-feature targets retain the complete selection.
+
+The ATAC peak browser is also a feature-context target. A selected gene does
+not need to be an ATAC `var_name`: pass a local GTF/GFF3 annotation (or a genome
+alias such as `hg38`) and the browser resolves the gene to its genomic region.
+
+```python
+gc.pl.linked_view(
+    {"rna": rna, "atac": atac},
+    views=[
+        gc.pl.matrixplot(
+            id="genes", data="rna", var_names=["CD4", "IL7R"],
+            groupby="cell_type", standardization="var",
+        ),
+        gc.pl.peak_browser(
+            id="peaks", data="atac", region="CD4",
+            gene_annotation="hg38", groupby="cell_type",
+        ),
+    ],
+    links=[gc.pl.link("genes", "peaks", by="feature")],
+)
+```
 
 ### 3. An external table with AnnData
 

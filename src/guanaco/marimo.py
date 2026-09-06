@@ -26,10 +26,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-
-def _obs_col(obs, col):
-    s = obs[col]
-    return s.to_series() if hasattr(s, "to_series") else s
+from guanaco.utils.obs_utils import obs_col as _obs_col
 
 __all__ = [
     "embedding",

@@ -3,7 +3,7 @@ from dash import Input, Output, State, html, no_update
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.render_guard import signature
 from guanaco.utils.search import ranked_substring_matches
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 
 
 _PAGA_TAB = "paga-tab"

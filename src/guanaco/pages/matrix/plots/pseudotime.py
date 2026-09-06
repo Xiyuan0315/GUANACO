@@ -9,10 +9,9 @@ from scipy.interpolate import UnivariateSpline
 
 from guanaco.utils.gene_extraction_utils import (
     apply_transformation,
-    extract_gene_expression,
-    prewarm_gene_cache,
+    iter_gene_expression,
 )
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 
 try:
     from sklearn.linear_model import Ridge
@@ -68,16 +67,8 @@ def plot_genes_in_pseudotime(
     if pseudotime_key not in adata.obs.columns:
         return _message_figure(f"'{pseudotime_key}' not found in adata.obs")
 
-    # Per-gene cache-backed extraction (replaces extract_multiple_genes). valid_genes
-    # were already confirmed present in var_names above, so no missing-gene handling
-    # is needed. Each column is read once and shared with the global gene cache.
-    # One column slice for all genes so the per-gene reads below hit the cache.
-    prewarm_gene_cache(adata, valid_genes, layer=layer, dtype=np.float32)
     expr_df = pd.DataFrame(
-        {
-            gene: extract_gene_expression(adata, gene, layer=layer, dtype=np.float32)
-            for gene in valid_genes
-        },
+        dict(iter_gene_expression(adata, valid_genes, layer=layer)),
         index=adata.obs_names,
     )
 

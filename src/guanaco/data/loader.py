@@ -14,6 +14,7 @@ import pandas as pd
 
 import muon as mu
 from guanaco.utils.colors import DEFAULT_DISCRETE_COLORMAP, resolve_discrete_palette
+from guanaco.utils.obs_utils import obs_col
 
 try:
     # ``pull_on_update`` exists in recent MuData releases, but older MuData
@@ -442,8 +443,9 @@ def _load_zarr_backed(
     ``read_lazy`` tutorial. The store is opened from its consolidated metadata and
     the expression matrix is **never downloaded up front** -- ``X``/``layers`` stay
     as lazy dask arrays on the (possibly remote ``s3://``/``gs://``/``https://``)
-    store. Only the small ``obs``/``var``/``obsm`` annotations are pulled into
-    memory so the app's pandas/numpy code paths work; the gene columns the user
+    store. Feature metadata (``var``) and the first two coordinates of each
+    embedding (``obsm``) are pulled into memory. Observation columns (``obs``)
+    remain lazy and are read individually via ``obs_col``; the gene columns the user
     views are fetched on demand by the extraction layer
     (``guanaco.utils.gene_extraction_utils``), which slices ``X[:, j]`` and computes
     just that column. Adding genes fetches only the new columns; previously read
@@ -498,7 +500,7 @@ def _load_zarr_backed(
     _eager_load_annotations(adata, group)
     print(
         f"Opened {store} backed: X stays remote/lazy, "
-        f"{adata.n_obs} cells x {adata.n_vars} genes, metadata in memory"
+        f"{adata.n_obs} cells x {adata.n_vars} genes, obs columns read on demand"
     )
     return adata
 
@@ -789,12 +791,6 @@ def load_adata(
 # ----------------------------------------------------------------------------
 # Discrete label helpers
 # ----------------------------------------------------------------------------
-
-
-def obs_col(obs, col: str) -> "pd.Series":
-    """Get an obs column as a pandas Series from either a DataFrame or a lazy Dataset2D."""
-    s = obs[col]
-    return s.to_series() if hasattr(s, "to_series") else s
 
 
 def get_discrete_labels(adata: ad.AnnData, *, max_unique: int = 50) -> list[str]:

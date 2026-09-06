@@ -31,11 +31,7 @@ from typing import Literal, Mapping, Sequence
 import plotly.graph_objects as go
 
 from guanaco.utils.plot_style import GUANACO_QUALITATIVE, categorical_color_map
-
-
-def _obs_col(obs, col):
-    s = obs[col]
-    return s.to_series() if hasattr(s, "to_series") else s
+from guanaco.utils.obs_utils import obs_col as _obs_col
 
 
 # --------------------------------------------------------------------------- #
@@ -773,9 +769,11 @@ def _resolve_peak_region(adata, region, gene_index):
 
 
 def peak_browser(
-    adata,
+    adata=None,
     region: "str | dict | None" = None,
     *,
+    id: str | None = None,
+    data=None,
     title: str | None = None,
     groupby: str | None = None,
     labels=None,
@@ -785,6 +783,7 @@ def peak_browser(
     selected_cells=None,
     palette=None,
     y_mode: str = "shared",
+    height: str | int | None = None,
     show: bool = True,
     return_fig: bool = False,
 ):
@@ -804,6 +803,8 @@ def peak_browser(
     (a genome id like ``"hg38"`` / ``"mm10"``, or a path to a GTF/GFF3 file) to add a
     gene-model track above the signal tracks.
     """
+    if (linked := _linked_spec("peak_browser", locals())) is not None:
+        return linked
     from guanaco.pages.matrix.plots.atac_browser import (
         compute_atac_signal,
         has_genomic_peak_features,
@@ -861,7 +862,7 @@ def peak_browser(
         color_map=color_map,
         y_mode=y_mode,
     )
-    return _render(fig, show, return_fig, title=title)
+    return _render(fig, show, return_fig, title=title, height=height)
 
 
 # --------------------------------------------------------------------------- #

@@ -161,14 +161,20 @@ def test_local_zarr_downsamples(zarr_store):
 
 
 def test_backed_csc_zarr_keeps_x_lazy(csc_zarr_store):
-    """Cloud-backed mode keeps X lazy (dask) but materializes obs/var into memory."""
+    """Keep X and obs lazy; materialize only small feature metadata."""
     path, _ = csc_zarr_store
-    adata = loader.load_adata(str(path), backed=True)
-    # X stays lazy; metadata is in-memory pandas.
+    with mock.patch.object(loader, "_eager_read_elem", wraps=loader._eager_read_elem) as read:
+        adata = loader.load_adata(str(path), backed=True)
+    assert "obs" not in [call.args[1] for call in read.call_args_list]
     assert hasattr(adata.X, "compute"), f"expected lazy dask X, got {type(adata.X)}"
-    assert isinstance(adata.obs, pd.DataFrame)
+    assert not isinstance(adata.obs, pd.DataFrame)
     assert isinstance(adata.var, pd.DataFrame)
     assert adata.n_obs == 120
+    labels = loader.obs_col(adata.obs, "cell_type")
+    assert isinstance(labels, pd.Series)
+    assert labels.tolist() == ["A", "B"] * 60
+    pd.testing.assert_index_equal(labels.index, adata.obs_names)
+    assert loader.get_discrete_labels(adata) == ["cell_type"]
 
 
 def test_backed_csc_zarr_reads_only_requested_genes(csc_zarr_store):
@@ -214,11 +220,12 @@ def test_backed_csc_zarr_caches_genes(csc_zarr_store):
 
 
 def test_backed_csr_zarr_loads(csr_zarr_store):
-    """Any encoding loads in backed mode: X stays lazy, metadata is in memory."""
+    """CSR keeps the same on-demand annotation contract as CSC."""
     adata = loader.load_adata(str(csr_zarr_store), backed=True)
     assert hasattr(adata.X, "compute")
-    assert isinstance(adata.obs, pd.DataFrame)
+    assert not isinstance(adata.obs, pd.DataFrame)
     assert isinstance(adata.var, pd.DataFrame)
+    assert loader.obs_col(adata.obs, "cell_type").tolist() == ["A", "B"] * 60
 
 
 def test_backed_csr_zarr_reads_genes(csr_zarr_store):

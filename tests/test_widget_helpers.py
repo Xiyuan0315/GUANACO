@@ -4,8 +4,17 @@ in isolation -- no plotting, no AnnData heavy lifting."""
 
 from types import SimpleNamespace
 
+import pandas as pd
+import pytest
+
 from guanaco import marimo as gm
 from guanaco import widget as gw
+
+
+@pytest.mark.parametrize("entry_point", [gw._obs_col, gm._obs_col])
+def test_notebook_annotation_reader_preserves_values_and_categories(entry_point):
+    obs = pd.DataFrame({"group": pd.Categorical(["B", None, "A"], categories=["A", "B", "C"])})
+    pd.testing.assert_series_equal(entry_point(obs, "group"), obs["group"])
 
 
 def _adata_with_obsm(*keys):

@@ -1,6 +1,8 @@
 import time
 import gc
+import weakref
 from collections import OrderedDict
+from itertools import count
 
 import numpy as np
 import pandas as pd
@@ -14,6 +16,29 @@ GENE_SYMBOL_COLUMNS = (
     "feature_name",
     "gene_name",
 )
+
+
+_dataset_tokens = {}
+_next_dataset_token = count()
+
+
+def dataset_cache_token(adata):
+    """Process-local identity, distinct for views and safe against recycled IDs.
+
+    Weak references do not keep datasets alive. Non-weak-referenceable inputs
+    receive a fresh token on each call, safely forgoing cache reuse.
+    """
+    key = id(adata)
+    entry = _dataset_tokens.get(key)
+    if entry is not None and entry[0]() is adata:
+        return entry[1]
+    token = next(_next_dataset_token)
+    try:
+        ref = weakref.ref(adata, lambda _ref: _dataset_tokens.pop(key, None))
+    except TypeError:
+        return token
+    _dataset_tokens[key] = (ref, token)
+    return token
 
 
 def gene_symbol_lookup(adata) -> dict[str, str]:
@@ -62,15 +87,9 @@ class GeneExpressionCache:
         """Best-effort byte size of a cached vector (numpy array)."""
         return int(getattr(value, "nbytes", 0) or 0)
 
-    def _adata_id(self, adata):
-        # backed: filename is stable; else use id
-        if getattr(adata, "isbacked", False) and getattr(adata, "filename", None):
-            return ("backed", adata.filename)
-        return ("mem", id(adata))
-
     def _make_key(self, adata, gene, layer=None, use_raw=False):
-        # include shape to distinguish filtered/unfiltered views
-        return (self._adata_id(adata), adata.shape, gene, layer, bool(use_raw))
+        # Identity separates equal-sized views; shape also catches resizing.
+        return (dataset_cache_token(adata), adata.shape, gene, layer, bool(use_raw))
 
     def _pop_data(self, key):
         """Remove an LRU entry and decrement the byte counter."""
@@ -238,17 +257,36 @@ def _raise_if_missing(idx, genes):
         raise KeyError(f"Genes not found: {missing.tolist()}")
 
 
+def read_feature_block(adata, indices, layer=None, use_raw=False):
+    """Materialize only requested columns, preserving sparse storage."""
+    source = _get_data_source(adata, use_raw)
+    if getattr(source, "is_view", False):
+        if getattr(source, "isbacked", False):
+            # AnnData forbids nested backed views. Resolve its existing view
+            # indices against the parent and select rows/columns in one view.
+            parent = source._adata_ref
+            cols = np.arange(parent.n_vars)[source._vidx][indices]
+            block = _get_matrix(parent[source._oidx, cols], layer)
+        else:
+            # Avoid a full-width row-slice copy when accessing a view's .X.
+            block = _get_matrix(source[:, indices], layer)
+    elif getattr(adata, "isbacked", False):
+        # HDF5 dense datasets require increasing, unique column indices.
+        cols, inverse = np.unique(indices, return_inverse=True)
+        block = _get_matrix(source, layer)[:, cols][:, inverse]
+    else:
+        block = _get_matrix(source, layer)[:, indices]
+    if hasattr(block, "compute"):
+        block = block.compute(scheduler="synchronous")
+    return block
+
+
 def _compute_gene_vector(adata, gene, layer=None, use_raw=False, dtype=None):
     """Read a single gene's 1D expression vector from X/layer (disk or memory)."""
     data_source = _get_data_source(adata, use_raw)
-    X = _get_matrix(data_source, layer)
-
     idx = _gene_indexer(data_source.var_names, gene)
     _raise_if_missing(idx, gene)
-    j = int(idx[0])
-
-    # X may be a lazy/cloud-backed dask array: this slice reads only column j.
-    out = densify_matrix(X[:, j]).ravel()
+    out = densify_matrix(read_feature_block(adata, idx, layer, use_raw)).ravel()
 
     if dtype is not None:
         out = out.astype(dtype, copy=False)
@@ -263,10 +301,8 @@ def _compute_gene_block(adata, genes, layer=None, use_raw=False, dtype=None):
     gene. Genes must already be known to exist in ``var_names`` (callers filter).
     """
     data_source = _get_data_source(adata, use_raw)
-    X = _get_matrix(data_source, layer)
-
     idxs = np.asarray(data_source.var_names.get_indexer(genes), dtype=np.int64)
-    block = densify_matrix(X[:, idxs])
+    block = densify_matrix(read_feature_block(adata, idxs, layer, use_raw))
     if block.ndim == 1:  # single gene -> keep 2D so the column split below works
         block = block.reshape(-1, 1)
 
@@ -294,23 +330,80 @@ _gene_cache = GeneExpressionCache(
 
 # Default cap on how many config genes we pre-load per dataset.
 PIN_GENE_LIMIT = 50
+GENE_READ_BUDGET = 8 * 1024 * 1024
+
+
+def iter_feature_blocks(adata, indices, layer=None, *, read_block=None):
+    """Yield (column offset, block) in request order within the read budget.
+
+    In-memory reads preserve sparsity; disk/lazy reads reuse the gene cache.
+    A supplied reader owns its cache policy (e.g. ATAC's sparse peak cache).
+    """
+    indices = np.asarray(indices, dtype=np.int64)
+    if not len(indices):
+        return
+    vectors = None
+    if read_block is None:
+        source = adata._adata_ref if adata.is_view else adata
+        matrix = None if source.isbacked else _get_matrix(source, layer)
+        if source.isbacked or hasattr(matrix, "compute"):
+            # One iterator protects future cache hits from eviction mid-request.
+            vectors = iter_gene_expression(adata, adata.var_names[indices], layer=layer)
+    width = max(1, GENE_READ_BUDGET // (max(1, adata.n_obs) * 8))
+    for start in range(0, len(indices), width):
+        cols = indices[start:start + width]
+        if read_block is not None:
+            yield start, read_block(cols)
+        elif vectors is not None:
+            yield start, np.column_stack([next(vectors)[1] for _ in cols])
+        else:
+            yield start, read_feature_block(adata, cols, layer)
+
+
+def iter_gene_expression(adata, genes, layer=None, use_raw=False, dtype=np.float32):
+    """Yield (gene, vector) in order from bounded batches, without cache rereads.
+
+    Consumers use each returned vector directly. Existing cache hits are retained
+    until consumed so inserting a new batch cannot evict a future hit mid-request.
+    The batch budget bounds temporary dense reads (at least one column).
+    """
+    genes = [genes] if isinstance(genes, str) else list(genes)
+    source = _get_data_source(adata, use_raw)
+    _raise_if_missing(_gene_indexer(source.var_names, genes), genes)
+    hits = {
+        gene: value for gene in genes
+        if (value := _gene_cache.peek(adata, gene, layer, use_raw)) is not None
+    }
+    # Allow for a float64 source even when the returned vectors are float32.
+    per_gene = max(1, source.n_obs) * max(8, np.dtype(dtype or np.float64).itemsize)
+    batch_size = max(1, GENE_READ_BUDGET // per_gene)
+    for start in range(0, len(genes), batch_size):
+        batch = genes[start:start + batch_size]
+        misses = list(dict.fromkeys(gene for gene in batch if gene not in hits))
+        vectors = _compute_gene_block(adata, misses, layer, use_raw, dtype) if misses else {}
+        for gene in batch:
+            if gene in hits:
+                vector = hits[gene]
+            else:
+                vector = vectors[gene]
+                _gene_cache.store(adata, gene, layer, use_raw, vector)
+            yield gene, vector.astype(dtype, copy=False) if dtype is not None else vector
 
 
 def pin_genes(adata, genes, layer=None, use_raw=False, max_genes=PIN_GENE_LIMIT, dtype=np.float32):
     """Pre-load (pin) gene vectors into memory so the first access is instant.
 
     Intended for backed datasets, where the first read of a gene otherwise hits
-    disk. All genes are read in ONE batched column slice rather than one slice per
-    gene -- the difference between one and N ``indptr`` scans / cloud reads at
-    startup. Pinned vectors are never evicted by the LRU cache and never expire.
-    Genes missing from ``adata.var_names`` are skipped. Returns the count pinned.
+    disk. Genes are read in memory-bounded batches. Pinned vectors never expire;
+    those exceeding the pin budget remain in the ordinary LRU cache. Missing
+    genes are skipped. Returns the number processed.
     """
     if isinstance(genes, str):
         genes = [genes]
     if not genes:
         return 0
 
-    var_names = adata.var_names
+    var_names = _get_data_source(adata, use_raw).var_names
     to_pin = []
     for gene in genes:
         if max_genes is not None and len(to_pin) >= max_genes:
@@ -320,27 +413,15 @@ def pin_genes(adata, genes, layer=None, use_raw=False, max_genes=PIN_GENE_LIMIT,
     if not to_pin:
         return 0
 
-    # One slice for all genes; then pin each precomputed vector (the pin's compute_fn
-    # just returns it, so no further reads happen).
-    vectors = _compute_gene_block(adata, to_pin, layer, use_raw, dtype)
     pinned = 0
-    for gene in to_pin:
-        vec = vectors.get(gene)
-        if vec is None:
-            continue
+    for gene, vec in iter_gene_expression(adata, to_pin, layer, use_raw, dtype):
         _gene_cache.pin(adata, gene, layer, use_raw, lambda v=vec: v)
         pinned += 1
     return pinned
 
 
 def prewarm_gene_cache(adata, genes, layer=None, use_raw=False, dtype=np.float32):
-    """Batch-read any not-yet-cached genes in one slice and populate the LRU cache.
-
-    Call this before a per-gene extraction loop: the genes already cached (or
-    pinned) are left untouched, the rest are read in a single ``X[:, idxs]`` slice
-    and stored, so the following ``extract_gene_expression`` calls all hit the
-    cache instead of issuing one column slice each. Missing genes are skipped.
-    """
+    """Warm only a prefix that fits the cache; prefer iter_gene_expression for reads."""
     if isinstance(genes, str):
         genes = [genes]
     if not genes:
@@ -349,20 +430,11 @@ def prewarm_gene_cache(adata, genes, layer=None, use_raw=False, dtype=np.float32
     data_source = _get_data_source(adata, use_raw)
     var_names = data_source.var_names
 
-    misses = []
-    seen = set()
-    for gene in genes:
-        if gene in seen or gene not in var_names:
-            continue
-        seen.add(gene)
-        if _gene_cache.peek(adata, gene, layer, use_raw) is None:
-            misses.append(gene)
-    if not misses:
-        return
-
-    vectors = _compute_gene_block(adata, misses, layer, use_raw, dtype)
-    for gene, vec in vectors.items():
-        _gene_cache.store(adata, gene, layer, use_raw, vec)
+    per_gene = max(1, data_source.n_obs) * np.dtype(dtype or np.float64).itemsize
+    capacity = min(_gene_cache.max_size, _gene_cache.max_bytes // per_gene)
+    prefix = list(dict.fromkeys(g for g in genes if g in var_names))[:capacity]
+    for _gene, _vector in iter_gene_expression(adata, prefix, layer, use_raw, dtype):
+        pass
 
 
 def extract_gene_expression(

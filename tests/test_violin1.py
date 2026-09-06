@@ -51,6 +51,23 @@ def test_violin_empty_inputs_prevent_update():
         plot_violin1(adata, ["GeneA"], "cell_type", labels=[])
 
 
+def test_filtered_lazy_violin_reads_only_requested_annotation(tmp_path, monkeypatch):
+    from anndata.experimental import read_lazy
+
+    source = _violin_adata()
+    source.obs["unrelated"] = "unused"
+    path = tmp_path / "violin.zarr"
+    source.write_zarr(path)
+    data = read_lazy(path)
+
+    def forbid(*args, **kwargs):
+        raise AssertionError("A violin must not materialize the entire annotation table")
+
+    monkeypatch.setattr(type(data.obs), "to_memory", forbid)
+    fig = plot_violin1(data, ["GeneA"], "cell_type", labels=["B"])
+    np.testing.assert_array_equal(fig.data[0].y, [2, 4])
+
+
 def test_violin_missing_gene_or_empty_label_filter_returns_empty_figure():
     adata = _violin_adata()
 

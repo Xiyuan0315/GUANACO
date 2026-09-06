@@ -6,9 +6,6 @@ import weakref
 import numpy as np
 import pandas as pd
 
-from guanaco.data.loader import obs_col
-
-
 SELECTION_GROUP = "Selected / Others"
 SELECTION_GROUP_LABEL = "Selection"
 SELECTED_LABEL = "Selected"
@@ -20,6 +17,12 @@ SELECTION_LABELS = [SELECTED_LABEL, OTHERS_LABEL]
 # so an entry is dropped the moment its dataset is collected -- this prevents a
 # later object that happens to reuse the same id() from reading a stale result.
 _category_cache: dict = {}
+
+
+def obs_col(obs, col: str) -> pd.Series:
+    """Read one annotation as a Series from pandas or a lazy Dataset2D."""
+    values = obs[col]
+    return values.to_series() if hasattr(values, "to_series") else values
 
 
 def obs_values(adata, col, overrides=None) -> pd.Series:

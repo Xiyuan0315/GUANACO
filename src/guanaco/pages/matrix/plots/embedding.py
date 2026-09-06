@@ -9,8 +9,7 @@ from guanaco.utils.gene_extraction_utils import (
     extract_gene_expression,
     apply_transformation,
 )
-from guanaco.utils.obs_utils import sorted_categories
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col, sorted_categories
 
 EMBEDDING_PREFIXES = {
     "X_umap": "UMAP",

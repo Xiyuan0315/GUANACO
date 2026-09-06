@@ -424,7 +424,6 @@ def register_stacked_bar_callbacks(
         [
             State(f"{prefix}-selected-cells-store", "data"),
             State(f"{prefix}-selection-group-store", "data"),
-            State(f"{prefix}-stacked-bar-plot", "figure"),
             State(f"{prefix}-stacked-bar-rendered-key", "data"),
         ],
     )
@@ -443,7 +442,6 @@ def register_stacked_bar_callbacks(
         selection_group_hash,
         selected_cells,
         highlighted_cells,
-        current_figure,
         rendered_key,
     ):
         if (
@@ -486,7 +484,7 @@ def register_stacked_bar_callbacks(
             selected_cells_hash,
             selection_group_hash,
         )
-        if cache_key == rendered_key and current_figure:
+        if cache_key == rendered_key:
             return no_update, no_update
 
         # X-axis group order: dragged order from the grid, otherwise every
@@ -561,7 +559,6 @@ def register_stacked_bar_callbacks(
         [
             State(f"{prefix}-selected-cells-store", "data"),
             State(f"{prefix}-selection-group-store", "data"),
-            State(f"{prefix}-composition-da-plot", "figure"),
             State(f"{prefix}-composition-da-rendered-key", "data"),
         ],
     )
@@ -579,7 +576,6 @@ def register_stacked_bar_callbacks(
         selection_group_hash,
         selected_cells,
         highlighted_cells,
-        current_figure,
         rendered_key,
     ):
         view_mode = _composition_view_mode(view_selection)
@@ -618,7 +614,7 @@ def register_stacked_bar_callbacks(
             selected_cells_hash,
             selection_group_hash,
         )
-        if cache_key == rendered_key and current_figure:
+        if cache_key == rendered_key:
             return no_update, no_update, no_update
 
         try:

@@ -11,6 +11,7 @@ from guanaco.pages.matrix.plots.atac_browser import (
     plot_atac_browser,
 )
 from guanaco.pages.matrix.plots import gene_annotation as gene_annotation_module
+from guanaco.pages.matrix.plots import atac_browser as atac_module
 from guanaco.pages.matrix.plots.gene_annotation import (
     find_gene_region,
     load_gene_annotation,
@@ -64,6 +65,39 @@ def test_compute_signal_respects_selected_cells_and_groupby():
     assert len(payload["signals"]) == 1
     assert payload["signals"][0]["name"] == "T"
     assert np.allclose(payload["signals"][0]["values"], [1.5, 0.0])
+
+
+def test_cached_signal_respects_changed_group_order_and_reuses_sparse_columns(monkeypatch):
+    monkeypatch.setattr(atac_module, "_signal_cache", atac_module._SimpleTTLCache())
+    monkeypatch.setattr(atac_module, "_col_cache", atac_module._SimpleTTLCache())
+    adata = _small_atac()
+    region = {"chrom": "chr1", "start": 0, "end": 500}
+    first = compute_atac_signal(adata, region, groupby="cell_type", group_order=["B", "T"])
+
+    def forbid(*args, **kwargs):
+        raise AssertionError("Changing grouping/metric should reuse cached peak columns")
+
+    monkeypatch.setattr(atac_module, "read_feature_block", forbid)
+    second = compute_atac_signal(adata, region, groupby="cell_type", group_order=["T", "B"])
+    detection = compute_atac_signal(adata, region, groupby="cell_type", metric="detection")
+    assert [s["name"] for s in first["signals"]] == ["B", "T"]
+    assert [s["name"] for s in second["signals"]] == ["T", "B"]
+    np.testing.assert_allclose(detection["signals"][0]["values"], [1, 0])
+    assert all(sparse.issparse(item[0]) for item in atac_module._col_cache._store.values())
+
+
+def test_peak_cache_has_byte_limit_and_expiry(monkeypatch):
+    cache = atac_module._SimpleTTLCache(max_bytes=16, ttl_seconds=10)
+    monkeypatch.setattr(atac_module.time, "time", lambda: 0)
+    cache.set("a", np.ones(3, dtype=np.float32))
+    cache.set("b", np.ones(2, dtype=np.float32))
+    assert cache.get("a") is None
+    assert cache.bytes == 8
+    cache.set("oversized", np.ones(100, dtype=np.float32))
+    assert cache.bytes == 8
+    monkeypatch.setattr(atac_module.time, "time", lambda: 11)
+    assert cache.get("b") is None
+    assert cache.bytes == 0
 
 
 def test_signal_keeps_tracks_in_peak_free_window():

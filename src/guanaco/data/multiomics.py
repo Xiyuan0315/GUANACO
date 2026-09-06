@@ -17,11 +17,12 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from guanaco.data.loader import get_discrete_labels, obs_col
+from guanaco.data.loader import get_discrete_labels
+from guanaco.utils.obs_utils import obs_col
 from guanaco.utils.embeddings import embedding_to_numpy, is_embedding_obsm
 from guanaco.utils.gene_extraction_utils import (
     extract_gene_expression,
-    prewarm_gene_cache,
+    iter_gene_expression,
 )
 from guanaco.utils.search import ranked_substring_matches
 
@@ -773,7 +774,6 @@ class MultiOmicsSource:
             raise ValueError(f"Matrix '{modality}' does not contain feature values.")
 
         if len(feature_names) == 1:
-            prewarm_gene_cache(mod_adata, raw_keys)
             raw_values = extract_gene_expression(mod_adata, raw_keys[0])
             values = np.array(raw_values, dtype=np.float64, copy=True)
             values.setflags(write=False)
@@ -855,10 +855,9 @@ class MultiOmicsSource:
                     continue
                 mod_adata = self.mdata.mod[modality]
                 raw_keys = [raw_key for _, raw_key in requested]
-                prewarm_gene_cache(mod_adata, raw_keys)
                 indexer = self._row_indexers[modality]
-                for display_name, raw_key in requested:
-                    values = extract_gene_expression(mod_adata, raw_key)
+                vectors = iter_gene_expression(mod_adata, raw_keys)
+                for (display_name, _raw_key), (_gene, values) in zip(requested, vectors, strict=True):
                     columns[display_name] = np.asarray(
                         values[indexer], dtype=np.float32
                     )

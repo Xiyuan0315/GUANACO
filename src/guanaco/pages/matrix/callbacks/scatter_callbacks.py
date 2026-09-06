@@ -4,7 +4,7 @@ from dash import Input, Output, Patch, State, dcc, html, callback_context, excep
 
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.search import ranked_substring_matches
-from guanaco.data.loader import obs_col
+from guanaco.utils.obs_utils import obs_col
 
 # Auto-dismiss delay (ms) for the cell-selection status toasts.
 _SELECTION_ALERT_DURATION_MS = 4000

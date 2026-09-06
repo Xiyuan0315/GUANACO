@@ -82,7 +82,6 @@ def register_volcano_callbacks(app, adata, prefix):
         Input(f"{prefix}-volcano-x-threshold", "value"),
         Input(f"{prefix}-volcano-top-n", "value"),
         Input(f"{prefix}-exploratory-tabs", "value"),
-        State(f"{prefix}-volcano-plot", "figure"),
         State(f"{prefix}-volcano-rendered-key", "data"),
     )
     def update_volcano_plot(
@@ -92,7 +91,6 @@ def register_volcano_callbacks(app, adata, prefix):
         x_threshold,
         top_n,
         active_tab,
-        current_figure,
         rendered_key,
     ):
         if active_tab != "volcano-tab":
@@ -109,7 +107,7 @@ def register_volcano_callbacks(app, adata, prefix):
         cache_key = signature(
             "volcano", entry_name, x_field, padj_threshold, x_threshold, top_n
         )
-        if cache_key == rendered_key and current_figure:
+        if cache_key == rendered_key:
             return no_update, no_update, no_update
 
         try:
