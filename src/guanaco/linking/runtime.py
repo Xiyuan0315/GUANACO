@@ -16,6 +16,7 @@ from html import escape as escape_html
 from typing import Any
 
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 from dash.development.base_component import Component
@@ -26,6 +27,8 @@ from .data import DataSource, DataStore
 from .engine import reduce_members, state_for_target
 from .model import LinkSpec, MarkMembers, Selection, SelectionBy, ViewSpec, ViewState
 from .registry import PlotRegistry, default_plot_registry
+from .native_adapters import EmbeddingAdapter
+from .clientside import CELL_HIGHLIGHT_JS
 
 
 _SOURCE_CONFIG = {
@@ -106,6 +109,25 @@ class LinkedView:
         self._state: dict[str, Any] = {"sources": {}}
         self._validate()
         self._row_key_maps = self._build_row_key_maps()
+        self._browser_highlights = self._browser_highlight_links()
+
+    def _browser_highlight_links(self) -> dict[str, str]:
+        """Optimize only unambiguous native cell highlights; keep other adapters
+        and combinations on the general server-side selection engine.
+        """
+        result = {}
+        for link in self.links:
+            endpoints = [self._view_by_id[name] for name in (link.source, link.target)]
+            if (
+                link.selection_by == "cell"
+                and link.resolved_action == "highlight"
+                and link.key is None
+                and sum(item.target == link.target for item in self.links) == 1
+                and all(type(self.registry.get(spec.plot)) is EmbeddingAdapter for spec in endpoints)
+                and all(spec.options.get("render_backend", "scattergl") == "scattergl" for spec in endpoints)
+            ):
+                result[link.target] = link.source
+        return result
 
     def _source(self, spec: ViewSpec) -> DataSource:
         return self.store.source(spec.data)
@@ -399,6 +421,18 @@ class LinkedView:
         )
         if isinstance(rendered, go.Figure):
             figure = apply_guanaco_figure_style(rendered)
+            if spec.id in self._browser_highlights or spec.id in self._browser_highlights.values():
+                names = self._source(spec).data.obs_names.to_numpy(dtype=str)
+                for trace in figure.data:
+                    if trace.type != "scattergl" or trace.customdata is None:
+                        continue
+                    positions = np.asarray(trace.customdata)
+                    if positions.ndim > 1:
+                        positions = positions[:, 0]
+                    trace.ids = names[positions.astype(np.int64)]
+                    # Replace the positional payload, rather than sending two
+                    # copies of each point's identity to the browser.
+                    trace.customdata = None
             if self._is_source(spec.id):
                 selectable = "select" in adapter.events
                 figure.update_layout(
@@ -455,6 +489,10 @@ class LinkedView:
         return html.Div(
             [
                 dcc.Store(id=self._state_id, data=self._state),
+                *[
+                    dcc.Store(id=f"{self._interactive_id(target)}-highlight")
+                    for target in self._browser_highlights
+                ],
                 html.H2(
                     self.title,
                     style={"fontSize": "1.35rem", "margin": "0 0 16px"},
@@ -478,7 +516,7 @@ class LinkedView:
         )
 
     def register(self, app: Dash) -> None:
-        """Register one event router plus one redraw callback per detail view."""
+        """Mirror selections; redraw data-dependent views and restyle highlights."""
 
         if id(app) in self._registered_apps:
             return
@@ -529,6 +567,24 @@ class LinkedView:
 
         for target_id in dict.fromkeys(link.target for link in self.links):
             spec = self._view_by_id[target_id]
+            if target_id in self._browser_highlights:
+                source_id = self._interactive_id(self._browser_highlights[target_id])
+                graph_id = self._interactive_id(target_id)
+                highlight_id = f"{graph_id}-highlight"
+                app.clientside_callback(
+                    CELL_HIGHLIGHT_JS
+                    .replace("__SOURCE_ID__", source_id)
+                    .replace("__TARGET_ID__", graph_id),
+                    Output(highlight_id, "data"),
+                    Input(source_id, "clickData"),
+                    Input(source_id, "selectedData"),
+                    Input(graph_id, "figure"),
+                    State(highlight_id, "data"),
+                    prevent_initial_call=True,
+                )
+                # route_events still mirrors selections for get_selection() and
+                # any statistical targets, but highlighting does not wait on it.
+                continue
             kind = self._component_kinds.get(target_id)
             if kind is None:
                 kind = (

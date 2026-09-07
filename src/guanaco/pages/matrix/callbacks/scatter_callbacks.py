@@ -10,75 +10,160 @@ from guanaco.utils.obs_utils import obs_col
 _SELECTION_ALERT_DURATION_MS = 4000
 
 
-def _is_reset_relayout(relayout):
-    """True for a double-click 'reset axes' (emits autorange) vs. zoom/pan (ranges)."""
-    return bool(relayout) and (
-        "xaxis.autorange" in relayout or "yaxis.autorange" in relayout
-    )
-
-
-# Clientside reset-link: when either scatter is reset (double-click -> autorange),
-# reset it in the browser, and reset the other panel too when both share the same
-# dimension reduction. Done client-side so it resets the clicked plot (the server
-# cross-link only ever reset the *other* one) and never gates the initial render.
-# For a raster (categorical datashader = a layout image with no autorange-able
-# data) it restores the image's data-coord extent instead of autoranging to
-# nothing. __LEFT_ID__/__RIGHT_ID__ are substituted with the two graph ids.
+# Coordinate-only interactions never need a new figure. Comparing the live axis
+# values prevents feedback loops without dropping quick, successive zoom events.
 _AXIS_RESET_LINK_JS = """
-function(leftRelayout, rightRelayout, leftClu, rightClu, leftX, rightX, leftY, rightY) {
+function(leftRelayout, rightRelayout, leftClu, rightClu, leftX, rightX, leftY, rightY, _filtered, _image, current) {
     const noUpdate = window.dash_clientside.no_update;
     const ctx = window.dash_clientside.callback_context;
     if (!ctx || !ctx.triggered || ctx.triggered.length === 0) return noUpdate;
+    const viewports = {...(current || {})};
+    const changed = ctx.triggered.map(item => item.prop_id);
+    const prefix = '__PREFIX__';
+    const geometry = ['clustering-dropdown', 'x-axis', 'y-axis'];
+    const clearBoth = changed.includes(prefix + '-global-filtered-data.data') ||
+        changed.includes(prefix + '-spatial-imgkey-dropdown.value');
+    const clearLeft = clearBoth || geometry.some(name => changed.includes(prefix + '-' + name + '.value'));
+    const clearRight = clearBoth || geometry.some(name => changed.includes(prefix + '-right-' + name + '.value'));
+    if (clearLeft) delete viewports.left;
+    if (clearRight) delete viewports.right;
+    if (clearLeft || clearRight) return viewports;
     const trig = ctx.triggered[0];
     const rl = trig.value;
     if (!rl) return noUpdate;
-    // Only react to a reset (double-click emits autorange); ignore zoom/pan.
-    if (!('xaxis.autorange' in rl) && !('yaxis.autorange' in rl)) return noUpdate;
-    // Debounce so the relayout we trigger below doesn't re-enter this callback.
-    const now = Date.now();
-    if (window.__guanacoAxisReset && (now - window.__guanacoAxisReset) < 350) return noUpdate;
-    window.__guanacoAxisReset = now;
-
     const LEFT = '__LEFT_ID__', RIGHT = '__RIGHT_ID__';
     const prop = trig.prop_id || '';
-    // Same dimension reduction => the two plots are linked.
     const sameEmbedding = (leftClu === rightClu) && (leftX === rightX) && (leftY === rightY);
-    // Always reset the plot that was double-clicked; reset the other only if linked.
-    const targets = [];
-    if (prop.indexOf(LEFT + '.') === 0) {
-        targets.push(LEFT);
-        if (sameEmbedding) targets.push(RIGHT);
-    } else if (prop.indexOf(RIGHT + '.') === 0) {
-        targets.push(RIGHT);
-        if (sameEmbedding) targets.push(LEFT);
-    } else {
-        return noUpdate;
-    }
-
-    function resetGraph(id) {
+    const source = prop === LEFT + '.relayoutData' ? LEFT :
+        prop === RIGHT + '.relayoutData' ? RIGHT : null;
+    if (!source) return noUpdate;
+    const reset = rl['xaxis.autorange'] === true || rl['yaxis.autorange'] === true;
+    if (!reset && !['xaxis', 'yaxis'].some(axis =>
+        rl[axis + '.range'] || (rl[axis + '.range[0]'] != null && rl[axis + '.range[1]'] != null)
+    )) return noUpdate;
+    const targets = reset ? [source] : [];
+    if (sameEmbedding) targets.push(source === LEFT ? RIGHT : LEFT);
+    for (const id of targets) {
         const wrap = document.getElementById(id);
-        if (!wrap) return;
+        if (!wrap) continue;
         const gd = wrap.classList.contains('js-plotly-plot') ? wrap : wrap.querySelector('.js-plotly-plot');
-        if (!gd || !window.Plotly) return;
+        if (!gd || !window.Plotly) continue;
         const lay = gd.layout || {};
-        const imgs = lay.images || [];
-        if (imgs.length > 0 && imgs[0].sizex != null && imgs[0].sizey != null) {
-            // Raster: restore the image extent (x from left edge, y from top edge).
-            const im = imgs[0];
-            window.Plotly.relayout(gd, {
-                'xaxis.range': [im.x, im.x + im.sizex],
-                'yaxis.range': [im.y - im.sizey, im.y],
-                'xaxis.autorange': false,
-                'yaxis.autorange': false
-            });
-        } else {
-            window.Plotly.relayout(gd, {'xaxis.autorange': true, 'yaxis.autorange': true});
+        const im = (lay.images || [])[0];
+        const raster = reset && im && im.sizex != null && im.sizey != null;
+        const update = {};
+        for (const axis of ['xaxis', 'yaxis']) {
+            const current = lay[axis] || {};
+            let range = rl[axis + '.range'];
+            if (!range && rl[axis + '.range[0]'] != null && rl[axis + '.range[1]'] != null) {
+                range = [rl[axis + '.range[0]'], rl[axis + '.range[1]']];
+            }
+            if (raster) range = axis === 'xaxis' ? [im.x, im.x + im.sizex] : [im.y - im.sizey, im.y];
+            if (reset && !raster) {
+                if (current.autorange !== true) update[axis + '.autorange'] = true;
+            } else if (range && (!current.range || current.range[0] !== range[0] ||
+                       current.range[1] !== range[1] || current.autorange !== false)) {
+                update[axis + '.range'] = range;
+                update[axis + '.autorange'] = false;
+            }
         }
+        if (Object.keys(update).length) window.Plotly.relayout(gd, update);
     }
-    targets.forEach(resetGraph);
-    return noUpdate;
+    // Keep ranges separate from relayoutData: a later font/size relayout replaces
+    // that event payload, but must not lose the viewport on the next gene load.
+    for (const id of new Set([source, ...targets])) {
+        const wrap = document.getElementById(id);
+        const gd = wrap && (wrap.classList.contains('js-plotly-plot') ? wrap : wrap.querySelector('.js-plotly-plot'));
+        if (!gd || !gd.layout) continue;
+        const ranges = {};
+        for (const axis of ['xaxis', 'yaxis']) {
+            const value = gd.layout[axis] || {};
+            if (value.autorange === true) ranges[axis + '.autorange'] = true;
+            else if (value.range) {
+                ranges[axis + '.range'] = value.range.slice();
+                ranges[axis + '.autorange'] = false;
+            }
+        }
+        viewports[id === LEFT ? 'left' : 'right'] = ranges;
+    }
+    return viewports;
 }
 """
+
+
+_SCATTER_STYLE_JS = """
+function(size, opacity, axisShow, leftFigure, rightFigure) {
+    const changed = (window.dash_clientside.callback_context.triggered || []).map(item => item.prop_id);
+    const redraw = !changed.length || changed.some(prop => prop.endsWith('.figure'));
+    const resize = redraw || changed.some(prop => prop.endsWith('-marker-size-slider.value'));
+    const fade = redraw || changed.some(prop => prop.endsWith('-opacity-slider.value'));
+    const axes = redraw || changed.some(prop => prop.endsWith('-axis-toggle.value'));
+    for (const id of ['__LEFT_ID__', '__RIGHT_ID__', '__PSEUDOTIME_ID__']) {
+        const wrap = document.getElementById(id);
+        if (!wrap || !window.Plotly) continue;
+        const gd = wrap.classList.contains('js-plotly-plot') ? wrap : wrap.querySelector('.js-plotly-plot');
+        if (!gd || !gd.data) continue;
+        const indices = [], selectedOpacity = [];
+        gd.data.forEach((trace, i) => {
+            if (trace.type !== 'scattergl' || !trace.mode || !trace.mode.includes('markers')) return;
+            indices.push(i);
+            // Categorical plots follow the opacity slider even when selected;
+            // continuous/coexpression plots intentionally keep selections opaque.
+            selectedOpacity.push(trace.legendgroup != null ? opacity : 1);
+        });
+        const style = {};
+        if (resize) style['marker.size'] = size;
+        if (fade) {
+            style['marker.opacity'] = opacity;
+            if (id !== '__PSEUDOTIME_ID__') style['selected.marker.opacity'] = selectedOpacity;
+        }
+        if (indices.length && (resize || fade)) window.Plotly.restyle(gd, style, indices);
+        if (axes && id !== '__PSEUDOTIME_ID__') window.Plotly.relayout(gd, {
+            'xaxis.tickfont.color': axisShow ? 'black' : 'rgba(0,0,0,0)',
+            'yaxis.tickfont.color': axisShow ? 'black' : 'rgba(0,0,0,0)'
+        });
+    }
+    return window.dash_clientside.no_update;
+}
+"""
+
+
+def register_scatter_display_callbacks(app, prefix):
+    """Shared browser-only styles and controls for paired/unpaired panels."""
+    app.clientside_callback(
+        _SCATTER_STYLE_JS
+        .replace("__LEFT_ID__", f"{prefix}-annotation-scatter")
+        .replace("__RIGHT_ID__", f"{prefix}-gene-scatter")
+        .replace("__PSEUDOTIME_ID__", f"{prefix}-pseudotime-plot"),
+        Output(f"{prefix}-scatter-style-link", "data"),
+        Input(f"{prefix}-marker-size-slider", "value"),
+        Input(f"{prefix}-opacity-slider", "value"),
+        Input(f"{prefix}-axis-toggle", "value"),
+        Input(f"{prefix}-annotation-scatter", "figure"),
+        Input(f"{prefix}-gene-scatter", "figure"),
+        Input(f"{prefix}-pseudotime-plot", "figure", allow_optional=True),
+        prevent_initial_call=True,
+    )
+
+    app.clientside_callback(
+        """function(n) {
+            return n % 2 ? [{display: 'block'}, 'Hide controls'] :
+                           [{display: 'none'}, 'More controls'];
+        }""",
+        Output(f"{prefix}-controls-container", "style"),
+        Output(f"{prefix}-toggle-button", "children"),
+        Input(f"{prefix}-toggle-button", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    app.clientside_callback(
+        """function(mode) {
+            const display = mode === 'coexpression' ? 'block' : 'none';
+            return [{display: display}, {display: display}];
+        }""",
+        Output(f"{prefix}-gene2-container", "style"),
+        Output(f"{prefix}-threshold-container", "style"),
+        Input(f"{prefix}-coexpression-toggle", "value"),
+    )
 
 
 # Client-side cross-highlight: when the left plot's selection/legend changes, grey
@@ -155,6 +240,7 @@ function(figure) {
 _LEGEND_DEBOUNCE_JS = """
 function(restyleData) {
     const noUpdate = window.dash_clientside.no_update;
+    if (!restyleData || !restyleData[0] || !('visible' in restyleData[0])) return noUpdate;
     const LEFT = '__LEFT_ID__';
     const STORE = '__HIDDEN_STORE_ID__';
     const wrap = document.getElementById(LEFT);
@@ -202,6 +288,11 @@ def register_scatter_callbacks(
     plot_coexpression_embedding,
     multiomics_source=None,
 ):
+    # Raster marker size is baked into the image; only that backend needs a
+    # server render on style changes. States preserve styles on later data loads.
+    marker_dependency = Input if embedding_render_backend == "datashader" else State
+    register_scatter_display_callbacks(app, prefix)
+
     def _is_feature(value):
         if multiomics_source is not None:
             return multiomics_source.is_feature(value)
@@ -244,16 +335,6 @@ def register_scatter_callbacks(
         n_categories = obs_col(adata.obs, annotation).nunique() if annotation in adata.obs.columns else 0
         return resolve_discrete_palette(discrete_color_map, n_categories, default=color_config)
 
-    @app.callback(
-        Output(f"{prefix}-controls-container", "style"),
-        Output(f"{prefix}-toggle-button", "children"),
-        Input(f"{prefix}-toggle-button", "n_clicks"),
-        prevent_initial_call=True,
-    )
-    def toggle_controls(n_clicks):
-        if n_clicks % 2 == 1:
-            return {"display": "block"}, "Hide controls"
-        return {"display": "none"}, "More controls"
 
     def _coordinate_dropdown_children(id_prefix, selected_clustering):
         _, embedding_columns, _, _ = initialize_scatter_components(adata)
@@ -388,14 +469,6 @@ def register_scatter_callbacks(
         )
         return [{"label": gene, "value": gene} for gene in matching_genes]
 
-    @app.callback(
-        [Output(f"{prefix}-gene2-container", "style"), Output(f"{prefix}-threshold-container", "style")],
-        Input(f"{prefix}-coexpression-toggle", "value"),
-    )
-    def toggle_coexpression_controls(mode):
-        if mode == "coexpression":
-            return {"display": "block"}, {"display": "block"}
-        return {"display": "none"}, {"display": "none"}
 
     @app.callback(
         Output(f"{prefix}-annotation-scatter", "figure"),
@@ -404,23 +477,19 @@ def register_scatter_callbacks(
             Input(f"{prefix}-x-axis", "value"),
             Input(f"{prefix}-y-axis", "value"),
             Input(f"{prefix}-annotation-dropdown", "value"),
-            Input(f"{prefix}-marker-size-slider", "value"),
-            Input(f"{prefix}-opacity-slider", "value"),
+            marker_dependency(f"{prefix}-marker-size-slider", "value"),
+            marker_dependency(f"{prefix}-opacity-slider", "value"),
             Input(f"{prefix}-scatter-legend-toggle", "value"),
-            Input(f"{prefix}-axis-toggle", "value"),
+            State(f"{prefix}-axis-toggle", "value"),
             Input(f"{prefix}-discrete-color-map-dropdown", "value"),
             Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-plot-order", "value"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
             Input(f"{prefix}-global-filtered-data", "data"),
             Input(f"{prefix}-spatial-imgkey-dropdown", "value"),
-            Input(f"{prefix}-gene-scatter", "relayoutData"),
         ],
         [
-            State(f"{prefix}-annotation-scatter", "relayoutData"),
-            State(f"{prefix}-right-clustering-dropdown", "value"),
-            State(f"{prefix}-right-x-axis", "value"),
-            State(f"{prefix}-right-y-axis", "value"),
+            State(f"{prefix}-axis-reset-link", "data"),
         ],
     )
     def update_annotation_scatter(
@@ -438,11 +507,7 @@ def register_scatter_callbacks(
         continuous_color_map,
         filtered_data,
         spatial_img_key,
-        gene_relayout,
-        annotation_relayout,
-        right_clustering,
-        right_x_axis,
-        right_y_axis,
+        viewports,
     ):
         if not annotation:
             raise exceptions.PreventUpdate
@@ -465,17 +530,6 @@ def register_scatter_callbacks(
         if not is_continuous and triggered_prop == f"{prefix}-scatter-color-map-dropdown.value":
             return no_update
 
-        if triggered_prop == f"{prefix}-gene-scatter.relayoutData" and _is_reset_relayout(gene_relayout):
-            return no_update
-        # Keep left/right plots synced when the right plot was zoomed/reset.
-        same_embedding_view = (
-            clustering_method == right_clustering
-            and x_axis == right_x_axis
-            and y_axis == right_y_axis
-        )
-        cross_relayout = gene_relayout if (
-            triggered_prop == f"{prefix}-gene-scatter.relayoutData" and same_embedding_view
-        ) else None
         # Preserve current view on style-only updates; reset on geometry/data changes.
         if triggered_prop in {
             f"{prefix}-clustering-dropdown.value",
@@ -486,8 +540,7 @@ def register_scatter_callbacks(
         }:
             self_relayout = None
         else:
-            self_relayout = annotation_relayout
-        effective_relayout = cross_relayout if cross_relayout is not None else self_relayout
+            self_relayout = (viewports or {}).get("left")
 
         source_adata = _materialize(
             [annotation] if _is_feature(annotation) else [], clustering_method
@@ -518,7 +571,7 @@ def register_scatter_callbacks(
             source_adata=source_adata,
             cell_indices=filtered_cell_idx,
         )
-        return apply_relayout(fig, effective_relayout)
+        return apply_relayout(fig, self_relayout)
 
     @app.callback(
         Output(f"{prefix}-gene-scatter", "figure"),
@@ -530,10 +583,9 @@ def register_scatter_callbacks(
             Input(f"{prefix}-data-layer", "data"),
             Input(f"{prefix}-plot-order", "value"),
             Input(f"{prefix}-scatter-color-map-dropdown", "value"),
-            Input(f"{prefix}-marker-size-slider", "value"),
-            Input(f"{prefix}-opacity-slider", "value"),
-            Input(f"{prefix}-annotation-scatter", "relayoutData"),
-            Input(f"{prefix}-axis-toggle", "value"),
+            marker_dependency(f"{prefix}-marker-size-slider", "value"),
+            marker_dependency(f"{prefix}-opacity-slider", "value"),
+            State(f"{prefix}-axis-toggle", "value"),
             Input(f"{prefix}-coexpression-toggle", "value"),
             Input(f"{prefix}-scatter-gene2-selection", "value"),
             Input(f"{prefix}-gene1-threshold-slider", "value"),
@@ -544,14 +596,11 @@ def register_scatter_callbacks(
             Input(f"{prefix}-spatial-imgkey-dropdown", "value"),
         ],
         [
-            State(f"{prefix}-gene-scatter", "relayoutData"),
+            State(f"{prefix}-axis-reset-link", "data"),
             # Lightweight render metadata ({hasImage, nTraces}) maintained client-side
             # from the figure. Used instead of State(..., "figure") so a spatial gene
             # switch doesn't ship the multi-MB base64 tissue image back to the server.
             State(f"{prefix}-gene-scatter-meta", "data"),
-            State(f"{prefix}-clustering-dropdown", "value"),
-            State(f"{prefix}-x-axis", "value"),
-            State(f"{prefix}-y-axis", "value"),
         ],
     )
     def update_gene_scatter(
@@ -564,7 +613,6 @@ def register_scatter_callbacks(
         color_map,
         marker_size,
         opacity,
-        annotation_relayout,
         axis_show,
         coexpression_mode,
         gene2_name,
@@ -574,11 +622,8 @@ def register_scatter_callbacks(
         discrete_color_map,
         filtered_data,
         spatial_img_key,
-        gene_relayout,
+        viewports,
         current_meta,
-        left_clustering,
-        left_x_axis,
-        left_y_axis,
     ):
         if not gene_name:
             raise exceptions.PreventUpdate
@@ -616,20 +661,6 @@ def register_scatter_callbacks(
         ):
             return no_update
 
-        # A reset of the other plot is handled entirely by the clientside reset-link
-        # (resets both panels in the browser). Don't rebuild/sync it here, so the
-        # server can't clobber the raster reset with an autorange.
-        if triggered_prop == f"{prefix}-annotation-scatter.relayoutData" and _is_reset_relayout(annotation_relayout):
-            return no_update
-        # Keep left/right plots synced when the left plot was zoomed/reset.
-        same_embedding_view = (
-            right_clustering == left_clustering
-            and right_x_axis == left_x_axis
-            and right_y_axis == left_y_axis
-        )
-        cross_relayout = annotation_relayout if (
-            triggered_prop == f"{prefix}-annotation-scatter.relayoutData" and same_embedding_view
-        ) else None
         # Preserve current view on style-only updates; reset on geometry/data changes.
         if triggered_prop in {
             f"{prefix}-right-clustering-dropdown.value",
@@ -640,8 +671,7 @@ def register_scatter_callbacks(
         }:
             self_relayout = None
         else:
-            self_relayout = gene_relayout
-        effective_relayout = cross_relayout if cross_relayout is not None else self_relayout
+            self_relayout = (viewports or {}).get("right")
 
         render_backend = embedding_render_backend
         requested_features = [gene_name] if _is_feature(gene_name) else []
@@ -765,7 +795,7 @@ def register_scatter_callbacks(
                 source_adata=source_adata,
                 cell_indices=filtered_cell_idx,
             )
-        return apply_relayout(fig, effective_relayout)
+        return apply_relayout(fig, self_relayout)
 
     def _extract_cell_ids_from_customdata(customdata, plot_adata=None):
         if customdata is None:
@@ -994,7 +1024,10 @@ def register_scatter_callbacks(
             return selected_indices, None, status_msg
         return None, None, ""
 
-    @app.callback(
+    app.clientside_callback(
+        """function(selected, grouped) {
+            return grouped ? [false, true] : selected ? [true, false] : [true, true];
+        }""",
         [
             Output(f"{prefix}-highlight-plots-button", "outline"),
             Output(f"{prefix}-filter-plots-button", "outline"),
@@ -1004,28 +1037,26 @@ def register_scatter_callbacks(
             Input(f"{prefix}-selection-group-hash", "data"),
         ],
     )
-    def show_selection_action(selected_cells_hash, selection_group_hash):
-        if selection_group_hash:
-            return False, True
-        if selected_cells_hash:
-            return True, False
-        return True, True
 
-    # Reset-link (see _AXIS_RESET_LINK_JS): client-side double-click reset, linked
-    # to the other panel when both use the same dimension reduction.
+    # Sync zoom, pan and reset in the browser; retain only the small viewport
+    # snapshot for future server-side data changes.
     app.clientside_callback(
         _AXIS_RESET_LINK_JS
+        .replace("__PREFIX__", prefix)
         .replace("__LEFT_ID__", f"{prefix}-annotation-scatter")
         .replace("__RIGHT_ID__", f"{prefix}-gene-scatter"),
         Output(f"{prefix}-axis-reset-link", "data"),
         Input(f"{prefix}-annotation-scatter", "relayoutData"),
         Input(f"{prefix}-gene-scatter", "relayoutData"),
-        State(f"{prefix}-clustering-dropdown", "value"),
-        State(f"{prefix}-right-clustering-dropdown", "value"),
-        State(f"{prefix}-x-axis", "value"),
-        State(f"{prefix}-right-x-axis", "value"),
-        State(f"{prefix}-y-axis", "value"),
-        State(f"{prefix}-right-y-axis", "value"),
+        Input(f"{prefix}-clustering-dropdown", "value"),
+        Input(f"{prefix}-right-clustering-dropdown", "value"),
+        Input(f"{prefix}-x-axis", "value"),
+        Input(f"{prefix}-right-x-axis", "value"),
+        Input(f"{prefix}-y-axis", "value"),
+        Input(f"{prefix}-right-y-axis", "value"),
+        Input(f"{prefix}-global-filtered-data", "data"),
+        Input(f"{prefix}-spatial-imgkey-dropdown", "value"),
+        State(f"{prefix}-axis-reset-link", "data"),
         prevent_initial_call=True,
     )
 

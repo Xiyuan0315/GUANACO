@@ -1,9 +1,38 @@
 from pathlib import Path
+import re
 
-from dash import html
+from dash import Dash, dcc, html
 from dash_draggable import ResponsiveGridLayout
 
 from guanaco.utils.ui_helpers import responsive_graph_grid
+
+
+def test_dash4_control_theme_is_served_as_a_global_asset():
+    assets = Path(__file__).parents[1] / "src/guanaco/assets"
+    app = Dash(__name__, assets_folder=str(assets))
+    app.layout = html.Div([
+        dcc.Dropdown(id="features", options=["Cortex_1", "Cortex_2"], multi=True),
+        dcc.Slider(id="size", min=0, max=10, value=3),
+        dcc.RangeSlider(id="range", min=0, max=10, value=[2, 8]),
+    ])
+    client = app.server.test_client()
+    assert "scientific_style.css" in client.get("/").get_data(as_text=True)
+    response = client.get("/assets/scientific_style.css")
+    assert response.status_code == 200
+    css = response.get_data(as_text=True)
+    # Root scope also reaches portaled menus. html:root outranks the async
+    # component's :root defaults without an order-dependent !important patch.
+    rule = re.search(r"html:root\s*\{([^}]+)\}", css)
+    assert rule is not None
+    assert "--Dash-Fill-Interactive-Strong: #343a40;" in rule[1]
+    assert "--Dash-Fill-Primary-Hover: #f1f3f5;" in rule[1]
+    assert "--Dash-Fill-Disabled: #dee2e6;" in rule[1]
+
+
+def test_control_theme_does_not_keep_obsolete_dash3_selectors():
+    css = (Path(__file__).parents[1] / "src/guanaco/assets/scientific_style.css").read_text()
+    assert ".Select-" not in css
+    assert ".rc-slider-" not in css
 
 
 def test_responsive_graph_grid_uses_dash_draggable_with_size_constraints():

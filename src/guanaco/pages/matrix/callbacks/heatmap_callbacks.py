@@ -277,15 +277,13 @@ def register_heatmap_callbacks(
     cached_figure_set,
     multiomics_source=None,
 ):
-    @app.callback(
+    app.clientside_callback(
+        """function(annotation) {
+            return {display: annotation && annotation !== '__NONE__' ? 'block' : 'none'};
+        }""".replace("__NONE__", _NO_SECONDARY_ANNOTATION),
         Output(f"{prefix}-heatmap-secondary-colormap-wrapper", "style"),
         Input(f"{prefix}-heatmap-label-dropdown", "value"),
     )
-    def toggle_secondary_colormap_dropdown(secondary_annotation):
-        if secondary_annotation and secondary_annotation != _NO_SECONDARY_ANNOTATION:
-            return {"display": "block"}
-        return {"display": "none"}
-
     @app.callback(
         [
             Output(f"{prefix}-heatmap", "figure"),

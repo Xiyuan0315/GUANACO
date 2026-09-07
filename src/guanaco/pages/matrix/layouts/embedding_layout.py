@@ -527,6 +527,7 @@ def generate_embedding_plots(
             dcc.Store(id=f"{prefix}-legend-debounce-dummy"),
             # Dummy output for the clientside axis reset-link callback (side-effect only).
             dcc.Store(id=f"{prefix}-axis-reset-link"),
+            dcc.Store(id=f"{prefix}-scatter-style-link"),
             # Dummy output for the clientside right-plot cross-highlight (side-effect only).
             dcc.Store(id=f"{prefix}-right-highlight-link"),
             # Lightweight render metadata ({hasImage, nTraces}) for the right (gene)

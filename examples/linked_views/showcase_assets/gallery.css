@@ -1,0 +1,88 @@
+:root {
+  color-scheme: light;
+  --ink: #182c3a;
+  --muted: #526473;
+  --accent: #176b67;
+  --border: #dae3e8;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: #f7f9fb;
+  font-size: 16px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: var(--accent); }
+button, a, summary { -webkit-tap-highlight-color: transparent; }
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 3px solid #238780;
+  outline-offset: 4px;
+}
+.gallery { display: grid; grid-template-columns: 255px minmax(0, 1fr); min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; height: 100vh; padding: 32px 20px;
+  display: flex; flex-direction: column; background: #fff; border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.brand { display: grid; gap: 6px; padding: 0 12px; }
+.brand strong { font-size: 1.5rem; letter-spacing: .055em; }
+.brand span, .sidebar-intro, .sidebar-footer { color: var(--muted); font-size: .875rem; line-height: 1.6; }
+.sidebar-intro { margin: 24px 12px; }
+.sidebar nav { display: grid; gap: 6px; }
+.demo-link {
+  display: flex; align-items: center; gap: 12px; padding: 14px 12px;
+  border-radius: 7px; text-decoration: none; color: var(--ink); font-size: .9375rem;
+}
+.demo-link:hover { background: #f1f6f7; }
+.demo-link.active { background: #e6f2ef; color: #115651; font-weight: 650; }
+.nav-number { font-size: .8125rem; font-variant-numeric: tabular-nums; opacity: .7; }
+.sidebar-footer { margin-top: auto; padding: 36px 12px 0; }
+.data-badge { display: inline-block; font-size: .8125rem; font-weight: 650; }
+.main-content { min-width: 0; padding: 24px 32px 48px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 28px; }
+.toolbar > span, .eyebrow { font-size: .75rem; letter-spacing: .09em; font-weight: 650; color: var(--muted); }
+.toolbar button {
+  background: white; color: var(--ink); padding: 10px 16px; font: inherit;
+  font-size: .875rem; border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+}
+.toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+h1 { font-size: clamp(1.6rem, 2.5vw, 2.25rem); line-height: 1.2; margin: 10px 0 12px; letter-spacing: -.025em; }
+.question { color: var(--muted); line-height: 1.65; margin: 0 0 20px; max-width: 850px; }
+.try-it {
+  display: flex; gap: 14px; padding: 14px 18px; border-left: 3px solid var(--accent);
+  background: #eaf3f1; line-height: 1.6; margin-bottom: 22px;
+}
+.try-it strong { color: #115651; white-space: nowrap; }
+.linked-example { min-width: 0; }
+.linked-example > div { min-height: 0 !important; padding: 0 !important; background: transparent !important; }
+.linked-example > div > h2 { display: none; }
+.linked-example > div > div { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.linked-example section { border-color: var(--border) !important; }
+.example-notes { margin-top: 28px; max-width: 1000px; line-height: 1.7; }
+.example-notes h2 { font-size: 1.125rem; margin: 0; }
+.example-notes p { color: var(--muted); }
+details { border-top: 1px solid var(--border); padding: 16px 0; }
+summary { cursor: pointer; font-weight: 600; }
+pre { max-width: 100%; overflow-x: auto; padding: 20px; background: #edf1f5; border-radius: 6px; font-size: .875rem; }
+.skip-link { position: fixed; top: -100px; left: 12px; z-index: 1000; padding: 12px; background: white; }
+.skip-link:focus { top: 12px; }
+@media (min-width: 1650px) {
+  .linked-example > div > div { grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)) !important; }
+}
+@media (max-width: 1050px) {
+  .gallery { grid-template-columns: 210px minmax(0, 1fr); }
+  .sidebar { padding: 24px 12px; }
+  .main-content { padding: 24px 20px; }
+  .linked-example > div > div { grid-template-columns: minmax(0, 1fr) !important; }
+}
+@media (max-width: 700px) {
+  .gallery { display: block; }
+  .sidebar { position: static; height: auto; padding: 20px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .brand { padding: 0; }
+  .sidebar-intro, .sidebar-footer { display: none; }
+  .sidebar nav { display: flex; overflow-x: auto; margin-top: 18px; }
+  .demo-link { flex-shrink: 0; padding: 10px; }
+  .main-content { padding: 20px 14px; }
+  .toolbar { margin-bottom: 20px; }
+  .try-it { display: block; }
+  .try-it strong { display: block; margin-bottom: 4px; }
+}

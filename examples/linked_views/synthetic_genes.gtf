@@ -1,0 +1,16 @@
+## Synthetic demonstration coordinates, not a biological reference genome.
+chrDemo	GUANACO	gene	100000	118000	.	+	.	gene_id "demo_CD4"; gene_name "CD4";
+chrDemo	GUANACO	transcript	100000	118000	.	+	.	gene_id "demo_CD4"; transcript_id "demo_CD4_t1"; gene_name "CD4";
+chrDemo	GUANACO	exon	100000	104000	.	+	.	gene_id "demo_CD4"; transcript_id "demo_CD4_t1";
+chrDemo	GUANACO	gene	300000	318000	.	+	.	gene_id "demo_IL7R"; gene_name "IL7R";
+chrDemo	GUANACO	transcript	300000	318000	.	+	.	gene_id "demo_IL7R"; transcript_id "demo_IL7R_t1"; gene_name "IL7R";
+chrDemo	GUANACO	exon	300000	304000	.	+	.	gene_id "demo_IL7R"; transcript_id "demo_IL7R_t1";
+chrDemo	GUANACO	gene	500000	518000	.	+	.	gene_id "demo_MS4A1"; gene_name "MS4A1";
+chrDemo	GUANACO	transcript	500000	518000	.	+	.	gene_id "demo_MS4A1"; transcript_id "demo_MS4A1_t1"; gene_name "MS4A1";
+chrDemo	GUANACO	exon	500000	504000	.	+	.	gene_id "demo_MS4A1"; transcript_id "demo_MS4A1_t1";
+chrDemo	GUANACO	gene	700000	718000	.	+	.	gene_id "demo_NKG7"; gene_name "NKG7";
+chrDemo	GUANACO	transcript	700000	718000	.	+	.	gene_id "demo_NKG7"; transcript_id "demo_NKG7_t1"; gene_name "NKG7";
+chrDemo	GUANACO	exon	700000	704000	.	+	.	gene_id "demo_NKG7"; transcript_id "demo_NKG7_t1";
+chrDemo	GUANACO	gene	900000	918000	.	+	.	gene_id "demo_LST1"; gene_name "LST1";
+chrDemo	GUANACO	transcript	900000	918000	.	+	.	gene_id "demo_LST1"; transcript_id "demo_LST1_t1"; gene_name "LST1";
+chrDemo	GUANACO	exon	900000	904000	.	+	.	gene_id "demo_LST1"; transcript_id "demo_LST1_t1";

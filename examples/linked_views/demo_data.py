@@ -566,11 +566,12 @@ def _spatial_components(
     path: str | Path | None,
     *,
     cluster_key: str,
+    synthetic: bool = False,
 ) -> dict[str, object]:
     """Load the spatial arrays shared by the linked spatial demos."""
 
     repository = Path(__file__).resolve().parents[2]
-    selected = _first_existing(
+    selected = None if synthetic else _first_existing(
         path,
         "GUANACO_SPATIAL_H5AD",
         [
@@ -767,10 +768,11 @@ def load_spatial_relationship_demo(
     path: str | Path | None = None,
     *,
     cluster_key: str = "cluster",
+    synthetic: bool = False,
 ) -> tuple[pd.DataFrame, ad.AnnData, pd.DataFrame, Path | None]:
     """Load a pair table, spatial AnnData, and co-occurrence detail table."""
 
-    components = _spatial_components(path, cluster_key=cluster_key)
+    components = _spatial_components(path, cluster_key=cluster_key, synthetic=synthetic)
     pair_summary, curve_table = _spatial_relationship_tables(components)
     pair_cells = _spatial_pair_cells(components, pair_summary)
     return pair_cells, components["adata"], curve_table, components["selected"]

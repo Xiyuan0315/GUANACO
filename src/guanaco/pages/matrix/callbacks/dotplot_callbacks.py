@@ -157,14 +157,13 @@ def register_dotplot_callbacks(
         cached_figure_set(cache_key, fig)
         return fig, cache_key
 
-    @app.callback(
+    app.clientside_callback(
+        """function(n, opened) {
+            return [!opened, !opened ? '▾ More options' : '▸ More options'];
+        }""",
         Output(f"{prefix}-dotplot-options-collapse", "is_open"),
         Output(f"{prefix}-dotplot-options-toggle", "children"),
         Input(f"{prefix}-dotplot-options-toggle", "n_clicks"),
         State(f"{prefix}-dotplot-options-collapse", "is_open"),
         prevent_initial_call=True,
     )
-    def toggle_dotplot_options(_n_clicks, is_open):
-        now_open = not is_open
-        label = "▾ More options" if now_open else "▸ More options"
-        return now_open, label

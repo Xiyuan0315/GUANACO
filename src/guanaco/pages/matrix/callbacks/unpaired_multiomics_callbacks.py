@@ -16,6 +16,7 @@ from guanaco.pages.matrix.plots.embedding import (
 )
 from guanaco.utils.colors import resolve_discrete_palette
 from guanaco.utils.search import ranked_substring_matches
+from .scatter_callbacks import register_scatter_display_callbacks
 
 
 def _is_continuous_obs(adata, column: str) -> bool:
@@ -121,17 +122,8 @@ def register_unpaired_multiomics_callbacks(
     color_config=None,
 ):
     """Register two independent modality-scoped scatter callback sets."""
-
-    @app.callback(
-        Output(f"{prefix}-controls-container", "style"),
-        Output(f"{prefix}-toggle-button", "children"),
-        Input(f"{prefix}-toggle-button", "n_clicks"),
-        prevent_initial_call=True,
-    )
-    def toggle_controls(n_clicks):
-        if n_clicks % 2:
-            return {"display": "block"}, "Hide controls"
-        return {"display": "none"}, "More controls"
+    marker_dependency = Input if embedding_render_backend == "datashader" else State
+    register_scatter_display_callbacks(app, prefix)
 
     def coordinate_controls(embedding, id_prefix):
         _modality, raw_key, adata = source.embedding_context(embedding)
@@ -241,15 +233,6 @@ def register_unpaired_multiomics_callbacks(
             values.append(current)
         return [{"label": value, "value": value} for value in values]
 
-    @app.callback(
-        Output(f"{prefix}-gene2-container", "style"),
-        Output(f"{prefix}-threshold-container", "style"),
-        Input(f"{prefix}-coexpression-toggle", "value"),
-    )
-    def toggle_coexpression_controls(mode):
-        if mode == "coexpression":
-            return {"display": "block"}, {"display": "block"}
-        return {"display": "none"}, {"display": "none"}
 
     @app.callback(
         Output(f"{prefix}-annotation-scatter", "figure"),
@@ -257,10 +240,10 @@ def register_unpaired_multiomics_callbacks(
         Input(f"{prefix}-x-axis", "value"),
         Input(f"{prefix}-y-axis", "value"),
         Input(f"{prefix}-annotation-dropdown", "value"),
-        Input(f"{prefix}-marker-size-slider", "value"),
-        Input(f"{prefix}-opacity-slider", "value"),
+        marker_dependency(f"{prefix}-marker-size-slider", "value"),
+        marker_dependency(f"{prefix}-opacity-slider", "value"),
         Input(f"{prefix}-scatter-legend-toggle", "value"),
-        Input(f"{prefix}-axis-toggle", "value"),
+        State(f"{prefix}-axis-toggle", "value"),
         Input(f"{prefix}-discrete-color-map-dropdown", "value"),
         Input(f"{prefix}-plot-order", "value"),
         Input(f"{prefix}-scatter-color-map-dropdown", "value"),
@@ -303,9 +286,9 @@ def register_unpaired_multiomics_callbacks(
         Input(f"{prefix}-right-y-axis", "value"),
         Input(f"{prefix}-plot-order", "value"),
         Input(f"{prefix}-scatter-color-map-dropdown", "value"),
-        Input(f"{prefix}-marker-size-slider", "value"),
-        Input(f"{prefix}-opacity-slider", "value"),
-        Input(f"{prefix}-axis-toggle", "value"),
+        marker_dependency(f"{prefix}-marker-size-slider", "value"),
+        marker_dependency(f"{prefix}-opacity-slider", "value"),
+        State(f"{prefix}-axis-toggle", "value"),
         Input(f"{prefix}-coexpression-toggle", "value"),
         Input(f"{prefix}-scatter-gene2-selection", "value"),
         Input(f"{prefix}-gene1-threshold-slider", "value"),

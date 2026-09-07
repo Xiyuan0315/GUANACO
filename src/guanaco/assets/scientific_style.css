@@ -1,5 +1,23 @@
 /* Scientific Style CSS */
 
+/* Dash 4 controls share these tokens, including dropdown popovers portaled to
+   body, Slider and RangeSlider. html:root outranks Dash's injected :root defaults
+   regardless of async stylesheet order; keep native focus/disabled behavior. */
+html:root {
+    --Dash-Fill-Interactive-Strong: #343a40;
+    --Dash-Fill-Interactive-Weak: #f1f3f5;
+    --Dash-Fill-Inverse-Strong: #fff;
+    --Dash-Fill-Primary-Hover: #f1f3f5;
+    --Dash-Fill-Primary-Active: #e9ecef;
+    --Dash-Fill-Disabled: #dee2e6;
+    --Dash-Stroke-Strong: #868e96;
+    --Dash-Stroke-Weak: #dee2e6;
+    --Dash-Text-Primary: #343a40;
+    --Dash-Text-Strong: #343a40;
+    --Dash-Text-Weak: #6c757d;
+    --Dash-Text-Disabled: #6c757d;
+}
+
 /* General container styling */
 .content-container {
     padding: 20px;
@@ -146,100 +164,41 @@
     background: none !important;
 }
 
-/* Style sliders to match LUX theme */
-.dbc-slider .rc-slider-track {
-    background-color: #1a1a1a !important;
+/* Dash 4 dropdowns. Let shared tokens color search, checkboxes, counts and
+   sliders; only override the layout and states not provided by those tokens. */
+:root .dash-dropdown:not(:disabled):hover {
+    border-color: var(--Dash-Fill-Interactive-Strong);
 }
 
-.dbc-slider .rc-slider-handle {
-    border-color: #1a1a1a !important;
-    background-color: #fff !important;
+:root .dash-dropdown-option:not(:has(input:disabled)):is(:hover, :focus-within) {
+    background-color: var(--Dash-Fill-Primary-Hover);
 }
 
-.dbc-slider .rc-slider-handle:hover {
-    border-color: #000000 !important;
+:root .dash-dropdown-option:has(input:checked):not(:has(input:disabled)) {
+    background-color: var(--Dash-Fill-Primary-Active);
 }
 
-.dbc-slider .rc-slider-handle:focus {
-    border-color: #000000 !important;
-    box-shadow: 0 0 0 0.2rem rgba(26, 26, 26, 0.25) !important;
+/* Keep search/actions outside the scrolling options so selected items cannot
+   scroll underneath a sticky search box. Virtualized lists retain their own
+   scroll container supplied by Dash. */
+:root .dash-dropdown-content {
+    display: flex;
+    flex-direction: column;
+    overflow-y: hidden;
 }
 
-.dbc-slider .rc-slider-dot,
-.dbc-slider .rc-slider-dot-active {
-    background-color: #fff !important;
-    border-color: #1a1a1a !important;
+:root .dash-dropdown-search-container {
+    position: static;
+    flex-shrink: 0;
 }
 
-/* Style Dash Core Component dropdowns to match LUX theme */
-.Select-control {
-    border-color: #4e5d6c !important;
-    border-radius: 0.25rem !important;
-    background-color: #fff !important;
+:root .dash-dropdown-actions {
+    flex-shrink: 0;
 }
 
-.Select-control:hover {
-    border-color: #1a1a1a !important;
-}
-
-.Select.is-focused > .Select-control {
-    border-color: #1a1a1a !important;
-    box-shadow: 0 0 0 0.2rem rgba(26, 26, 26, 0.25) !important;
-}
-
-.Select-placeholder {
-    color: #868e96 !important;
-}
-
-/* Style multi-select tags to match LUX theme */
-.Select--multi .Select-value {
-    background-color: #f7f7f9 !important;
-    border: 1px solid #4e5d6c !important;
-    color: #1a1a1a !important;
-    border-radius: 3px !important;
-}
-
-.Select--multi .Select-value-icon {
-    border-right: 1px solid #4e5d6c !important;
-}
-
-.Select--multi .Select-value-icon:hover {
-    background-color: #e9ecef !important;
-    color: #1a1a1a !important;
-}
-
-.Select--multi .Select-value-label {
-    color: #1a1a1a !important;
-}
-
-/* Style dropdown menu options to match LUX theme */
-.Select-menu-outer {
-    border: 1px solid #4e5d6c !important;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-}
-
-.Select-option {
-    background-color: #fff !important;
-    color: #1a1a1a !important;
-}
-
-.Select-option:hover {
-    background-color: #f7f7f9 !important;
-    color: #1a1a1a !important;
-}
-
-.Select-option.is-selected {
-    background-color: #e9ecef !important;
-    color: #1a1a1a !important;
-}
-
-.Select-option.is-focused {
-    background-color: #f7f7f9 !important;
-    color: #1a1a1a !important;
-}
-
-.Select-option.is-disabled {
-    color: #868e96 !important;
+:root .dash-dropdown-options {
+    flex: 1;
+    min-height: 0;
 }
 
 /* Style loading overlay/spinner to match the grey GUANACO theme */
@@ -773,24 +732,9 @@
     width: 390px;
 }
 
-.concordance-control--feature .Select-control {
-    height: 38px;
-    max-height: 38px;
-}
-
-.concordance-control--feature .Select-multi-value-wrapper {
-    display: block;
-    height: 36px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 2px;
-    white-space: nowrap;
-}
-
-.concordance-control--feature .Select--multi .Select-value,
-.concordance-control--feature .Select--multi .Select-input {
-    float: none;
-    vertical-align: top;
+/* Dash 4 already truncates selected values and displays a selection count. */
+.concordance-control--feature .dash-dropdown-trigger {
+    min-height: 38px;
 }
 
 .concordance-control--view {

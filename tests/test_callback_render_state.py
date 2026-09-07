@@ -116,3 +116,13 @@ def test_marker_violin_renders_once_without_browser_figure_cache():
     args.update(active_tab="violin-tab", selected_genes=["G2"])
     assert callback(**args)[1] != key
     assert plot.call_count == 2
+
+
+def test_pseudotime_shared_style_controls_do_not_recompute_data():
+    app, _ = _register(register_pseudotime_callbacks)
+    entry = next(v for k, v in app.callback_map.items() if "p-pseudotime-plot.figure" in k)
+    inputs = {item["id"] for item in entry["inputs"]}
+    states = {item["id"] for item in entry["state"]}
+    for name in ["p-marker-size-slider", "p-opacity-slider"]:
+        assert name not in inputs
+        assert name in states
