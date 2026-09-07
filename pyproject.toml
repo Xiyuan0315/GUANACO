@@ -119,6 +119,13 @@ share = [
   "flask-compress>=1.14",
   "brotli>=1.1"
 ]
+# Wizard export and Plotly Cloud publishing (distinct from remote-data [cloud]).
+publish = [
+  "plotly-cloud>=0.4.3,<0.5",
+  "build>=1.2",
+  "setuptools>=77",
+  "wheel"
+]
 dev = [
   "pytest>=8",
   "ruff>=0.6",
@@ -126,7 +133,7 @@ dev = [
 ]
 # Convenience: install every optional feature at once.
 all = [
-  "guanaco-viz[cloud,tracks,datashader,server,desktop,notebook,share]"
+  "guanaco-viz[cloud,tracks,datashader,server,desktop,notebook,share,publish]"
 ]
 
 [tool.setuptools]
@@ -138,7 +145,7 @@ where = ["src"]
 include = ["guanaco", "guanaco.*", "dash_draggable"]
 
 [tool.setuptools.package-data]
-"guanaco" = ["assets/*", "assets/**/*", "utils/cvd_color.json"]
+"guanaco" = ["assets/*", "assets/**/*", "utils/cvd_color.json", "_static_viewer/*"]
 "dash_draggable" = ["*.js", "*.js.map", "*.json", "LICENSE"]
 
 [tool.pytest.ini_options]

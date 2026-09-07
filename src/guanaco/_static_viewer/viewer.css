@@ -1,0 +1,31 @@
+:root { color-scheme: light; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #213f3c; background: #f4f6f5; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 1420px; margin: auto; padding: 40px 32px 24px; }
+header { margin-bottom: 26px; }
+.eyebrow { font-size: 16px; letter-spacing: .12em; font-weight: 800; }
+.eyebrow span { margin-left: 16px; font-size: 11px; letter-spacing: .16em; color: #71827e; font-weight: 600; }
+h1 { margin: 18px 0 10px; font-size: clamp(26px, 3.4vw, 38px); letter-spacing: -.035em; font-weight: 650; }
+.intro { max-width: 850px; color: #586b67; font-size: 15px; line-height: 1.6; margin: 0 0 18px; }
+.badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.badges span { border: 1px solid #d5e2dc; background: #e8f1ec; border-radius: 30px; padding: 5px 11px; font-size: 12px; color: #396652; }
+aside { border-left: 3px solid #459179; background: #edf3ef; padding: 13px 18px; margin-bottom: 24px; font-size: 13px; line-height: 1.6; color: #50655e; }
+.dashboard { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.panel { background: white; border: 1px solid #dde5e1; border-radius: 14px; overflow: hidden; min-width: 0; box-shadow: 0 2px 5px #183b2a04; }
+.panel.wide { grid-column: 1 / -1; }
+.panel-header { padding: 20px 20px 12px; border-bottom: 1px solid #edf1ef; }
+.panel h2 { font-size: 19px; margin: 0 0 7px; font-weight: 600; letter-spacing: -.02em; }
+.panel p { color: #718079; font-size: 12px; line-height: 1.6; margin: 0 0 14px; }
+.controls { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.controls label { font-size: 12px; color: #596c64; }
+select, button { font: inherit; font-size: 12px; border: 1px solid #d6e1db; background: #fff; color: #2c5142; padding: 7px 10px; border-radius: 7px; }
+select { min-width: 130px; }
+button { margin-left: auto; cursor: pointer; }
+select:focus-visible, button:focus-visible { outline: 2px solid #248168; outline-offset: 2px; }
+.plot { width: 100%; min-height: 380px; }
+.plot-frame { overflow-x: auto; }
+.panel-status { display: block; font-size: 11px; color: #687f73; padding: 8px 20px 13px; }
+.error { color: #a62d26; }
+footer { margin-top: 24px; color: #748279; font-size: 11px; line-height: 1.7; }
+@media(max-width: 850px) { main { padding: 24px 14px; } .dashboard { grid-template-columns: 1fr; } .eyebrow span { display: block; margin: 8px 0 0; } }
+@media(max-width: 600px) { .plot { min-width: 580px; } .panel-status::after { content: " · scroll chart sideways"; } }

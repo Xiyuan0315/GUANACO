@@ -939,6 +939,13 @@ class ConfigWizard:
             style="Action.TButton",
         ).pack(side="right", padx=(0, 8))
 
+        ttk.Button(
+            canvas,
+            text="Publish to Plotly Cloud…",
+            command=self._publish_cloud,
+            style="Action.TButton",
+        ).grid(row=6, column=0, sticky="e", pady=(10, 0))
+
         # Align all major blocks to the notebook's visible pane edge once rendered.
         self.root.after_idle(self._align_main_blocks)
 
@@ -996,6 +1003,20 @@ class ConfigWizard:
                 break
 
     # -- serialization ------------------------------------------------------
+    def _publish_cloud(self):
+        from guanaco.cloud_publish_dialog import CloudPublishDialog
+
+        try:
+            config = self._build_config()
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("Invalid configuration", str(exc), parent=self.root)
+            return
+        CloudPublishDialog(
+            self.root,
+            config,
+            Path(self.config_path.get()).expanduser().resolve().parent,
+        )
+
     @staticmethod
     def _parse_backed_mode(value: str) -> bool:
         return value.strip().lower() == "true"
